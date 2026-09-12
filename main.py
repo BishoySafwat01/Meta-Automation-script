@@ -279,7 +279,7 @@ def run():
                 inject_engine()
                 if auto_start:
                     time.sleep(0.5)
-                    target_page.evaluate("() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__()")
+                    target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
             except Exception:
                 pass
 
@@ -289,7 +289,7 @@ def run():
         if auto_start:
             print(f"{Colors.YELLOW}⚡ تفعيل بدء الأتمتة التلقائي...{Colors.END}")
             time.sleep(1)
-            target_page.evaluate("() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__()")
+            target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
 
         print(f"\n{Colors.BOLD}🔘 اضغط [Esc] داخل المتصفح أو [Ctrl+C] هنا للإيقاف الآمن في أي لحظة.{Colors.END}\n")
 
