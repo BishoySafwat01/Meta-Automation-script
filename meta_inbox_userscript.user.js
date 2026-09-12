@@ -102,7 +102,7 @@
     rules: loadRules(),
     config: loadConfig(),
     processedContacts: new Set(),
-    repliedContacts: new Set(),
+    lastRepliedSnippets: new Map(),
     processedSnapshots: new Set(),
     activeRowElement: null,
     stats: {
@@ -641,40 +641,60 @@
       if (!bubble) return false;
       const text = (bubble.innerText || '').trim();
 
-      if (state.rules.some(r => r.reply && (text.includes(r.reply.slice(0, 20)) || r.reply.includes(text.slice(0, 20))))) {
+      // 1. Text match: ONLY if the bubble text contains a substantial chunk of our configured reply (25+ characters)
+      // CRITICAL FIX: NEVER check if r.reply includes text (short customer messages like "تفاصيل" or "سعر" must NEVER be marked outbound!)
+      if (text.length >= 25 && state.rules.some(r => r.reply && text.includes(r.reply.slice(0, 25)))) {
         return true;
       }
 
-      const parent = bubble.closest('div[role="row"], div[data-testid*="message"]') || bubble.parentElement?.parentElement;
+      // 2. Immediate parent status (Meta Business Suite status labels on outbound messages)
+      const parent = bubble.closest('div[data-testid*="message"]') || bubble.parentElement;
       if (parent) {
         const pText = parent.innerText || '';
-        if (pText.includes('تم التسليم') || pText.includes('Delivered') || pText.includes('تم الإرسال') || pText.includes('You:')) return true;
+        if (pText.includes('تم التسليم') || pText.includes('Delivered') || pText.includes('You:')) return true;
       }
 
+      // 3. Color & Background checks (Messenger Blue & WhatsApp Light Green)
       let curr = bubble;
-      while (curr && curr !== document.body) {
+      let depth = 0;
+      while (curr && curr !== document.body && depth < 8) {
         const style = window.getComputedStyle(curr);
         const bg = style.backgroundColor || '';
+        // Messenger Blue
         if (
           /rgb\(\s*(0|8|10|24|45)\s*,\s*(100|102|119|122|132|136)\s*,\s*(224|242|255)/i.test(bg) ||
           bg.includes('0, 132, 255') || bg.includes('24, 119, 242') || bg.includes('8, 102, 255')
         ) {
           return true;
         }
-
+        // WhatsApp Light Green
+        if (
+          /rgb\(\s*(210|215|217|220|225)\s*,\s*(240|245|248|253|255)\s*,\s*(190|198|199|205|211)\)/i.test(bg) ||
+          bg.includes('225, 255, 199') || bg.includes('220, 248, 198') || bg.includes('217, 253, 211')
+        ) {
+          return true;
+        }
+        // White text on colored background (Messenger outbound)
         const color = style.color || '';
-        if (color === 'rgb(255, 255, 255)' || color === '#ffffff' || color === 'white') {
-          if (bg && !bg.includes('rgba(0, 0, 0, 0)')) return true;
+        if ((color === 'rgb(255, 255, 255)' || color === '#ffffff' || color === 'white') && bg && !bg.includes('rgba(0, 0, 0, 0)')) {
+          return true;
         }
         curr = curr.parentElement;
+        depth++;
       }
 
-      const rect = bubble.getBoundingClientRect();
-      const canvas = this.getChatCanvas();
-      if (canvas) {
-        const cRect = canvas.getBoundingClientRect();
-        const center = cRect.left + cRect.width / 2;
-        if (rect.right < center) return true;
+      // 4. Horizontal alignment in chat column:
+      // In RTL Arabic layout:
+      // Outbound (page) messages are left-aligned (rect.right < center)
+      // Inbound (customer) messages are right-aligned (rect.left > center or rect.right >= center)
+      const composer = this.getComposer();
+      const compRect = composer ? composer.getBoundingClientRect() : null;
+      if (compRect) {
+        const center = (compRect.left + compRect.right) / 2;
+        const rect = bubble.getBoundingClientRect();
+        if (rect.right < center) {
+          return true;
+        }
       }
 
       return false;
@@ -1708,11 +1728,11 @@
           const key = DOM.getStableRowKey(r) || (name ? `contact_${normalizeArabicText(name)}` : null);
           const fingerprint = key ? `${key}__${snippet}` : null;
 
-          const isReplied = key && state.repliedContacts.has(key);
+          const isSameSnippetReplied = key && snippet && state.lastRepliedSnippets.get(key) === snippet;
           const isProcessed = (fingerprint && state.processedSnapshots.has(fingerprint)) ||
                               (key && state.processedContacts.has(key));
 
-          if (!isReplied && !isProcessed) {
+          if (!isSameSnippetReplied && !isProcessed) {
             targetRow = r;
             selectedIndex = i;
             targetFingerprint = fingerprint;
@@ -1735,7 +1755,8 @@
               const s = DOM.getRowSnippet(r);
               const k = DOM.getStableRowKey(r) || (n ? `contact_${normalizeArabicText(n)}` : null);
               const fp = k ? `${k}__${s}` : null;
-              return (!k || (!state.processedContacts.has(k) && !state.repliedContacts.has(k))) &&
+              const isSame = k && s && state.lastRepliedSnippets.get(k) === s;
+              return (!k || (!state.processedContacts.has(k) && !isSame)) &&
                      (!fp || !state.processedSnapshots.has(fp));
             });
 
@@ -1762,7 +1783,7 @@
 
           if (state.emergencyAbort) break;
 
-          // 3. Clear processedContacts for the new cycle (preserves repliedContacts & processedSnapshots)
+          // 4. Clear processedContacts for the new cycle (preserves lastRepliedSnippets & processedSnapshots)
           state.processedContacts.clear();
           this.hud.setStatus('RUNNING', 'running');
           continue;
@@ -1833,16 +1854,7 @@
 
         const headerName = DOM.getActiveChatContactName();
         if (headerName) {
-          const refinedKey = `contact_${normalizeArabicText(headerName)}`;
-          if (state.repliedContacts.has(refinedKey)) {
-            this.hud.log('INFO', `المحادثة مع ${headerName} تم الرد عليها مسبقاً من الأتمتة. تخطي...`);
-            state.processedContacts.add(contactKey);
-            if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
-            targetRow.style.outline = originalOutline || '';
-            targetRow.style.boxShadow = originalShadow || '';
-            continue;
-          }
-          contactKey = refinedKey;
+          contactKey = `contact_${normalizeArabicText(headerName)}`;
         }
 
         if (state.config.scrollThread) {
@@ -1858,9 +1870,13 @@
         if (lastIsOutbound) {
           state.stats.skippedOutbound++;
           this.hud.updateStats();
-          this.hud.log('WARN', '[Inbound Guard] آخر رسالة مرسلة من الصفحة مسبقاً. تخطي الرد واستعادة غير مقروء...');
+          this.hud.log('INFO', '[حماية] آخر رسالة مرسلة من الصفحة مسبقاً (بانتظار رد العميل). الانتقال للمحادثة التالية دون إعادة التمييز كغير مقروءة...');
 
-          await this.executeBranchB(contactKey, rowFingerprint);
+          // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
+          // This prevents the thread from being trapped in an infinite loop in the unread queue.
+          if (contactKey) state.processedContacts.add(contactKey);
+          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
+
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
 
@@ -1907,8 +1923,9 @@
           // Branch A: Match Found
           const { rule, matchedKeyword } = matchResult;
 
-          state.repliedContacts.add(contactKey);
-          state.processedContacts.add(contactKey);
+          const activeSnippet = DOM.getRowSnippet(targetRow);
+          if (contactKey && activeSnippet) state.lastRepliedSnippets.set(contactKey, activeSnippet);
+          if (contactKey) state.processedContacts.add(contactKey);
           if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
 
           state.stats.matched++;
@@ -1924,7 +1941,7 @@
           }
         } else {
           // Branch B: No Match / Media Message / Skip
-          this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة. استعادة المحادثة كغير مقروءة لمراجعة الكول سنتر...');
+          this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
           await this.executeBranchB(contactKey, rowFingerprint);
         }
 
