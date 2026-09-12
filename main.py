@@ -126,7 +126,7 @@ def format_log(tag: str, msg: str):
         "STOP": Colors.RED
     }
     color = tag_colors.get(tag, Colors.END)
-    print(f"{Colors.GRAY}[{timestamp}]{Colors.END} {color}[{tag}]{Colors.END} {msg}")
+    print(f"{Colors.GRAY}[{timestamp}]{Colors.END} {color}[{tag}]{Colors.END} {msg}", flush=True)
 
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
