@@ -1,0 +1,35 @@
+{
+  "rules": [
+    {
+      "id": "rule_price",
+      "keyword": "سعر,كام,بكام,اسعار,تكلفة,تفاصيل,التفاصيل",
+      "reply": "أهلاً بك! تفاصيل الأسعار والعروض متاحة لدينا الآن، يسعدنا تواصلك وسنوافيك بالتفاصيل فوراً.",
+      "matchType": "contains",
+      "active": true
+    },
+    {
+      "id": "rule_location",
+      "keyword": "مكان,عنوان,الفرع,لوكيشن,موقع,فين,عناوين",
+      "reply": "أهلاً بك! فرعنا متاح لخدمتك دائماً. يمكنك معرفة أقرب موقع والتواصل عبر الرابط أو الرسائل هنا.",
+      "matchType": "contains",
+      "active": true
+    },
+    {
+      "id": "rule_phone",
+      "keyword": "فون,تليفون,رقم,واتس,واتساب,موبايل",
+      "reply": "أهلاً بك! رقم خدمة العملاء والواتساب متاح لمساعدتك على مدار الساعة، تفضل بالاستفسار في أي وقت.",
+      "matchType": "contains",
+      "active": true
+    }
+  ],
+  "config": {
+    "minTypingSpeed": 35,
+    "maxTypingSpeed": 65,
+    "minCooldown": 1200,
+    "maxCooldown": 2200,
+    "scrollThread": false,
+    "highlightRows": true,
+    "monitoringInterval": 6000
+  },
+  "auto_start": false
+}
