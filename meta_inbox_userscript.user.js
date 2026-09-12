@@ -373,6 +373,51 @@
       return rightScrollables[0] || null;
     },
 
+    isUnreadFilterActive() {
+      const unreadBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
+        if (b.closest('#mbs-inbox-automator-root')) return false;
+        const r = b.getBoundingClientRect();
+        const txt = (b.innerText || '').trim();
+        return (txt === 'غير مقروء' || b.getAttribute('aria-label') === 'غير مقروء') &&
+               r.top > 150 && r.top < 240 && r.right >= window.innerWidth * 0.48;
+      });
+
+      if (!unreadBtn) return false;
+
+      const inner = unreadBtn.querySelector('div') || unreadBtn;
+      const ics = window.getComputedStyle(inner);
+      const cs = window.getComputedStyle(unreadBtn);
+
+      const isBlueBg = (ics.backgroundColor.includes('225') && ics.backgroundColor.includes('237')) ||
+                       (cs.backgroundColor.includes('225') && cs.backgroundColor.includes('237'));
+      const isBlueColor = (ics.color.includes('10') && ics.color.includes('120')) ||
+                          (cs.color.includes('10') && cs.color.includes('120')) ||
+                          ics.color.includes('124') || cs.color.includes('124');
+
+      return isBlueBg || isBlueColor;
+    },
+
+    async ensureUnreadFilterActive(logger) {
+      if (this.isUnreadFilterActive()) return true;
+
+      const unreadBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
+        if (b.closest('#mbs-inbox-automator-root')) return false;
+        const r = b.getBoundingClientRect();
+        const txt = (b.innerText || '').trim();
+        return (txt === 'غير مقروء' || b.getAttribute('aria-label') === 'غير مقروء') &&
+               r.top > 150 && r.top < 240 && r.right >= window.innerWidth * 0.48;
+      });
+
+      if (unreadBtn) {
+        if (logger) logger.log('INFO', 'تفعيل فلتر "غير مقروء" تلقائياً وتثبيته...');
+        unreadBtn.focus();
+        unreadBtn.click();
+        await sleep(900);
+        return true;
+      }
+      return false;
+    },
+
     getChatCanvas() {
       const selectors = [
         'div[role="main"]',
@@ -1599,7 +1644,8 @@
       state.emergencyAbort = false;
       state.currentIndex = 0;
       this.hud.setStatus('RUNNING', 'running');
-      this.hud.log('INIT', 'بدء فحص قائمة المحادثات (وفق فلتر غير مقروء اليدوي)...');
+      await DOM.ensureUnreadFilterActive(this.hud);
+      this.hud.log('INIT', 'بدء فحص قائمة المحادثات (تثبيت فلتر غير مقروء التلقائي)...');
 
       try {
         await this.runLoop();
@@ -1631,16 +1677,20 @@
 
     async runLoop() {
       while (state.isRunning && !state.emergencyAbort) {
+        // STEP 0: Enforce "غير مقروء" (Unread) Filter Lock
+        await DOM.ensureUnreadFilterActive(this.hud);
+
         // STEP 1: Query current rows
         let rows = DOM.getConversationRows();
         if (!rows || rows.length === 0) {
-          this.hud.log('WARN', 'لا توجد محادثات ظاهرة حالياً. إعادة الفحص خلال 1.5 ثانية...');
-          await sleep(1500);
+          this.hud.setStatus('MONITORING', 'monitoring');
+          this.hud.log('INFO', 'لا توجد محادثات غير مقروءة حالياً. وضع المراقبة بانتظار رسائل جديدة...');
+          await sleep(state.config.monitoringInterval || 4000);
 
           const sidebar = DOM.getSidebarScrollContainer();
           if (sidebar && sidebar.scrollTop > 0) {
             sidebar.scrollTo({ top: 0, behavior: 'smooth' });
-            await sleep(1000);
+            await sleep(800);
           }
           continue;
         }
@@ -1702,9 +1752,12 @@
             await sleep(1000);
           }
 
-          // 2. Transition to Standby Monitoring Mode
+          // 2. Ensure filter is still active
+          await DOM.ensureUnreadFilterActive(this.hud);
+
+          // 3. Transition to Standby Monitoring Mode
           this.hud.setStatus('MONITORING', 'monitoring');
-          this.hud.log('INFO', `اكتمل فحص جميع المحادثات. وضع المراقبة الذكية بانتظار رسائل جديدة (إعادة الفحص من أول محادثة كل ${state.config.monitoringInterval / 1000} ثوانٍ)...`);
+          this.hud.log('INFO', `اكتمل فحص جميع المحادثات غير المقروءة. وضع المراقبة الذكية بانتظار رسائل جديدة (إعادة الفحص من أول محادثة كل ${state.config.monitoringInterval / 1000} ثوانٍ)...`);
           await sleep(state.config.monitoringInterval);
 
           if (state.emergencyAbort) break;
