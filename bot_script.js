@@ -874,6 +874,11 @@
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
           .hud-card {
+            resize: both;
+            min-width: 320px;
+            min-height: 52px;
+            max-width: 95vw;
+            max-height: 90vh;
             width: 470px;
             max-height: 610px;
             background: rgba(15, 23, 42, 0.95);
@@ -887,7 +892,28 @@
             color: #f8fafc;
             user-select: none;
           }
+          .header-icon-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #cbd5e1;
+            border-radius: 6px;
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+          }
+          .header-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            transform: scale(1.05);
+          }
           .hud-header {
+            cursor: grab;
             padding: 12px 16px;
             background: rgba(30, 41, 59, 0.85);
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -1145,12 +1171,23 @@
         </style>
 
         <div class="hud-card">
-          <div class="hud-header">
+          <div class="hud-header" id="hud-header">
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="header-icon-btn" id="btn-minimize" title="تصغير إلى شريط مصغر">—</button>
+              <button class="header-icon-btn" id="btn-maximize" title="تكبير / توسيع النافذة">⛶</button>
+            </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.4 Prod</span>
+              <span style="font-size: 10px; color: #64748b;">V4.4.2</span>
             </div>
-            <div id="hud-status" class="status-badge status-ready">READY</div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
+                <span style="font-size: 11px; color: #38bdf8;">فحص: <b id="min-stat-eval">0</b></span>
+                <span style="font-size: 11px; color: #4ade80;">رد: <b id="min-stat-match">0</b></span>
+                <span style="font-size: 11px; color: #facc15;">استعادة: <b id="min-stat-unread">0</b></span>
+              </div>
+              <div id="hud-status" class="status-badge status-ready">READY</div>
+            </div>
           </div>
 
           <div class="hud-stats-bar">
@@ -1240,6 +1277,122 @@
     }
 
     bindEvents() {
+      // Draggable window implementation
+      const header = this.shadow.getElementById('hud-header');
+      let isDragging = false;
+      let startX = 0, startY = 0;
+      let initialLeft = 0, initialTop = 0;
+
+      header.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button, input, select, label')) return;
+        isDragging = true;
+        header.style.cursor = 'grabbing';
+        startX = e.clientX;
+        startY = e.clientY;
+        
+        const rect = this.container.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        this.container.style.bottom = 'auto';
+        this.container.style.right = 'auto';
+        this.container.style.left = `${initialLeft}px`;
+        this.container.style.top = `${initialTop}px`;
+
+        const onMouseMove = (moveEvent) => {
+          if (!isDragging) return;
+          const dx = moveEvent.clientX - startX;
+          const dy = moveEvent.clientY - startY;
+
+          let newLeft = initialLeft + dx;
+          let newTop = initialTop + dy;
+
+          const w = this.container.offsetWidth || 470;
+          const h = this.container.offsetHeight || 300;
+
+          newLeft = Math.max(10, Math.min(window.innerWidth - w - 10, newLeft));
+          newTop = Math.max(10, Math.min(window.innerHeight - h - 10, newTop));
+
+          this.container.style.left = `${newLeft}px`;
+          this.container.style.top = `${newTop}px`;
+        };
+
+        const onMouseUp = () => {
+          isDragging = false;
+          header.style.cursor = 'grab';
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+
+      // Minimize / Restore Toggle
+      const btnMin = this.shadow.getElementById('btn-minimize');
+      const btnMax = this.shadow.getElementById('btn-maximize');
+      let isMinimized = false;
+      let isMaximized = false;
+
+      btnMin.addEventListener('click', () => {
+        isMinimized = !isMinimized;
+        const card = this.shadow.querySelector('.hud-card');
+        const stats = this.shadow.querySelector('.hud-stats-bar');
+        const tabs = this.shadow.querySelector('.hud-tabs');
+        const content = this.shadow.querySelector('.hud-content');
+        const footer = this.shadow.querySelector('.hud-footer');
+        const minSummary = this.shadow.getElementById('hud-minimized-summary');
+
+        if (isMinimized) {
+          stats.style.display = 'none';
+          tabs.style.display = 'none';
+          content.style.display = 'none';
+          footer.style.display = 'none';
+          minSummary.style.display = 'flex';
+          card.style.width = '360px';
+          card.style.maxHeight = '52px';
+          card.style.resize = 'none';
+          btnMin.textContent = '🗖';
+          btnMin.title = 'استعادة النافذة بالحجم الطبيعي';
+        } else {
+          stats.style.display = 'grid';
+          tabs.style.display = 'flex';
+          content.style.display = 'block';
+          footer.style.display = 'flex';
+          minSummary.style.display = 'none';
+          card.style.width = isMaximized ? '680px' : '470px';
+          card.style.maxHeight = isMaximized ? '750px' : '610px';
+          card.style.resize = 'both';
+          btnMin.textContent = '—';
+          btnMin.title = 'تصغير إلى شريط مصغر';
+        }
+      });
+
+      btnMax.addEventListener('click', () => {
+        if (isMinimized) {
+          btnMin.click();
+        }
+        isMaximized = !isMaximized;
+        const card = this.shadow.querySelector('.hud-card');
+        const content = this.shadow.querySelector('.hud-content');
+        const terminal = this.shadow.getElementById('terminal');
+
+        if (isMaximized) {
+          card.style.width = '680px';
+          card.style.maxHeight = '750px';
+          content.style.maxHeight = '480px';
+          if (terminal) terminal.style.height = '380px';
+          btnMax.textContent = '🗗';
+          btnMax.title = 'الحجم الافتراضي';
+        } else {
+          card.style.width = '470px';
+          card.style.maxHeight = '610px';
+          content.style.maxHeight = '290px';
+          if (terminal) terminal.style.height = '220px';
+          btnMax.textContent = '⛶';
+          btnMax.title = 'تكبير / توسيع النافذة';
+        }
+      });
       const tabBtns = this.shadow.querySelectorAll('.tab-btn');
       tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1384,6 +1537,12 @@
 
     updateStats() {
       this.shadow.getElementById('stat-evaluated').textContent = state.stats.evaluated;
+      const mEval = this.shadow.getElementById('min-stat-eval');
+      if (mEval) mEval.textContent = state.stats.evaluated;
+      const mMatch = this.shadow.getElementById('min-stat-match');
+      if (mMatch) mMatch.textContent = state.stats.matched;
+      const mUnread = this.shadow.getElementById('min-stat-unread');
+      if (mUnread) mUnread.textContent = state.stats.unreadRestored;
       this.shadow.getElementById('stat-matched').textContent = state.stats.matched;
       this.shadow.getElementById('stat-unread').textContent = state.stats.unreadRestored;
       this.shadow.getElementById('stat-skipped').textContent = state.stats.skippedOutbound;
