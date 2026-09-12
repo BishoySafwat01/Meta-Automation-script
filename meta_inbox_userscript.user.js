@@ -103,6 +103,7 @@
     config: loadConfig(),
     processedContacts: new Set(),
     repliedContacts: new Set(),
+    processedSnapshots: new Set(),
     activeRowElement: null,
     stats: {
       evaluated: 0,
@@ -307,13 +308,43 @@
       return null;
     },
 
+    getRowSnippet(row) {
+      if (!row) return '';
+      const lines = (row.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
+      return lines.slice(1).join(' | ');
+    },
+
+    getRowClickTarget(row) {
+      if (!row) return null;
+      // Search for customer name or message text safely away from hover action buttons (like "نقل إلى المجلد تم")
+      const textEl = Array.from(row.querySelectorAll('span, div')).find(el => {
+        if (el.closest('[aria-label*="تم"], [aria-label*="done"], [aria-label*="متابعة"], [role="gridcell"]')) return false;
+        return el.children.length === 0 && (el.innerText || '').trim().length >= 2;
+      });
+      return textEl || row;
+    },
+
     getActiveChatContactName() {
+      // 1. Primary heading in contact details panel (top 70-160, left < 400)
+      const headings = Array.from(document.querySelectorAll('[role="heading"], h1, h2, h3')).filter(el => {
+        if (el.closest('#mbs-inbox-automator-root')) return false;
+        const r = el.getBoundingClientRect();
+        const t = (el.innerText || '').trim();
+        return r.top >= 70 && r.top <= 160 && r.left < 400 && r.width > 0 &&
+               !['البريد الوارد', 'تفاصيل الاتصال', 'التسميات', 'الملاحظات', 'Inbox', 'Contact Details', 'Labels', 'Notes'].includes(t);
+      });
+      if (headings.length > 0) {
+        return headings[0].innerText.trim();
+      }
+
+      // 2. Chat header / banner heading fallback
       const chatCanvas = this.getChatCanvas();
-      if (!chatCanvas) return '';
-      const header = chatCanvas.querySelector('header, div[role="banner"]') || chatCanvas.parentElement?.querySelector('header');
-      if (header) {
-        const heading = header.querySelector('h1, h2, div[role="heading"], span[style*="font-weight"]');
-        if (heading) return heading.innerText?.trim() || '';
+      if (chatCanvas) {
+        const header = chatCanvas.querySelector('header, div[role="banner"]') || chatCanvas.parentElement?.querySelector('header');
+        if (header) {
+          const heading = header.querySelector('h1, h2, div[role="heading"], span[style*="font-weight"]');
+          if (heading) return heading.innerText?.trim() || '';
+        }
       }
       const topName = document.querySelector('div[role="main"] div[style*="font-weight"], main div[style*="font-weight"]');
       if (topName) return topName.innerText?.trim() || '';
@@ -433,9 +464,9 @@
     },
 
     async executeRestoreToUnread(logger) {
-      const maxLeft = window.innerWidth * 0.55;
+      const maxLeft = 500;
 
-      // 1. Direct Envelope Button
+      // 1. Direct Envelope Button (in chat toolbar, strictly left < 500, top < 250)
       const selectors = [
         'button[aria-label*="غير مقروء" i]',
         'button[aria-label*="unread" i]',
@@ -450,7 +481,7 @@
         const btns = Array.from(document.querySelectorAll(sel)).filter(b => {
           if (b.closest('#mbs-inbox-automator-root')) return false;
           const r = b.getBoundingClientRect();
-          return r.top < 380 && r.left < maxLeft && r.width > 0 && r.height > 0;
+          return r.top < 250 && r.left < maxLeft && r.width > 0 && r.height > 0;
         });
         if (btns.length > 0) {
           const btn = btns[0];
@@ -460,67 +491,44 @@
         }
       }
 
-      // 2. Toolbar Done Sibling Fallback
-      const doneSelectors = [
-        'button[aria-label*="تم" i]',
-        'button[aria-label*="done" i]',
-        'button[aria-label*="اكتمل" i]',
-        'div[role="button"][aria-label*="تم" i]',
-        'div[role="button"][aria-label*="done" i]'
-      ];
+      // NOTE: Done Sibling Fallback is permanently REMOVED to prevent any accidental click on "تم" / Done!
 
-      for (const dSel of doneSelectors) {
-        const doneBtns = Array.from(document.querySelectorAll(dSel)).filter(b => {
-          if (b.closest('#mbs-inbox-automator-root')) return false;
-          const r = b.getBoundingClientRect();
-          return r.top < 380 && r.left < maxLeft;
-        });
-
-        for (const doneBtn of doneBtns) {
-          const parent = doneBtn.parentElement;
-          if (parent) {
-            const siblings = Array.from(parent.querySelectorAll('button, div[role="button"]'));
-            const doneIdx = siblings.indexOf(doneBtn);
-            if (doneIdx !== -1) {
-              const nextSibling = siblings[doneIdx + 1] || siblings[doneIdx - 1];
-              if (nextSibling && nextSibling.getBoundingClientRect().width > 0) {
-                await HumanSimulator.flashEnvelopeButton(nextSibling);
-                await HumanSimulator.naturalClick(nextSibling);
-                return true;
-              }
-            }
-          }
-        }
-      }
-
-      // 3. Responsive Dropdown Fallback: "فتح القائمة المنسدلة" -> "تمييز كغير مقروءة"
-      logger.log('SCAN', 'فحص القائمة المنسدلة العلوية (Dropdown Fallback)...');
+      // 2. Responsive Dropdown Fallback: "فتح القائمة المنسدلة" -> "تمييز كغير مقروءة"
+      logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
       const dropdownBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
         if (b.closest('#mbs-inbox-automator-root')) return false;
         const t = (b.innerText || '').trim();
+        const aria = b.getAttribute('aria-label') || '';
         const r = b.getBoundingClientRect();
-        return (t.includes('فتح القائمة المنسدلة') || b.getAttribute('aria-label')?.includes('المزيد') || b.getAttribute('aria-label')?.includes('More')) &&
-               r.top < 380 && r.left < maxLeft && r.width > 0;
+        return (t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More')) &&
+               r.top > 100 && r.top < 220 && r.left < maxLeft && r.left > 150 && r.width > 0;
       });
 
       if (dropdownBtn) {
         await HumanSimulator.flashEnvelopeButton(dropdownBtn);
+        dropdownBtn.focus();
         dropdownBtn.click();
-        await sleep(600);
+        await sleep(500);
 
-        const unreadMenuItem = Array.from(document.querySelectorAll('div[role="menuitem"], div[role="button"], span, div')).find(el => {
+        // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
+        const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"]'));
+        const unreadMenuItem = menuItems.find(el => {
           if (el.closest('#mbs-inbox-automator-root')) return false;
           const txt = (el.innerText || '').trim();
-          return (txt === 'تمييز كغير مقروءة' || txt.includes('كغير مقروءة') || txt === 'وضع علامة كغير مقروء') && el.getBoundingClientRect().width > 0;
+          const r = el.getBoundingClientRect();
+          return (txt.includes('غير مقروء') || txt.toLowerCase().includes('unread')) &&
+                 !txt.includes('نقل') && !txt.includes('المجلد') && !txt.includes('حذف') &&
+                 r.height > 15 && r.height < 60 && r.width > 0;
         });
 
         if (unreadMenuItem) {
+          unreadMenuItem.focus();
           unreadMenuItem.click();
+          await sleep(350);
           return true;
         } else {
-          // Close menu gently by clicking on canvas
-          const chat = DOM.getChatCanvas();
-          if (chat) chat.click();
+          // Close menu gently with Escape if unread item wasn't found
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
         }
       }
 
@@ -661,8 +669,8 @@
       await sleep(randomRange(50, 90));
 
       const rect = element.getBoundingClientRect();
-      const clientX = rect.left + rect.width / 2 + randomRange(-3, 3);
-      const clientY = rect.top + rect.height / 2 + randomRange(-3, 3);
+      const clientX = rect.left + Math.min(rect.width * 0.25, 45) + randomRange(-2, 2);
+      const clientY = rect.top + rect.height / 2 + randomRange(-2, 2);
 
       const events = [
         new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY, pointerType: 'mouse' }),
@@ -679,11 +687,6 @@
       try {
         if (typeof element.click === 'function') element.click();
       } catch (_) {}
-
-      const innerLink = element.querySelector('a, div[role="button"], div[tabindex="0"]');
-      if (innerLink && innerLink !== element) {
-        try { innerLink.click(); } catch (_) {}
-      }
 
       return true;
     },
@@ -1631,65 +1634,90 @@
         // STEP 1: Query current rows
         let rows = DOM.getConversationRows();
         if (!rows || rows.length === 0) {
-          this.hud.log('WARN', 'لم يتم العثور على أي صفوف محادثات. إعادة الفحص خلال 1.2 ثانية...');
-          await sleep(1200);
+          this.hud.log('WARN', 'لا توجد محادثات ظاهرة حالياً. إعادة الفحص خلال 1.5 ثانية...');
+          await sleep(1500);
+
+          const sidebar = DOM.getSidebarScrollContainer();
+          if (sidebar && sidebar.scrollTop > 0) {
+            sidebar.scrollTo({ top: 0, behavior: 'smooth' });
+            await sleep(1000);
+          }
           continue;
         }
 
         // Sequential Pointer Selection with Skip of already handled rows
         let targetRow = null;
         let selectedIndex = -1;
+        let targetFingerprint = null;
+        let targetContactKey = null;
 
         for (let i = 0; i < rows.length; i++) {
           const r = rows[i];
-          const key = DOM.getStableRowKey(r);
           const name = DOM.getRowCustomerName(r);
-          const nameKey = name ? `contact_${normalizeArabicText(name)}` : null;
+          const snippet = DOM.getRowSnippet(r);
+          const key = DOM.getStableRowKey(r) || (name ? `contact_${normalizeArabicText(name)}` : null);
+          const fingerprint = key ? `${key}__${snippet}` : null;
 
-          const isHandled = (key && (state.processedContacts.has(key) || state.repliedContacts.has(key))) ||
-                            (nameKey && (state.processedContacts.has(nameKey) || state.repliedContacts.has(nameKey)));
+          const isReplied = key && state.repliedContacts.has(key);
+          const isProcessed = (fingerprint && state.processedSnapshots.has(fingerprint)) ||
+                              (key && state.processedContacts.has(key));
 
-          if (!isHandled) {
+          if (!isReplied && !isProcessed) {
             targetRow = r;
             selectedIndex = i;
+            targetFingerprint = fingerprint;
+            targetContactKey = key;
             break;
           }
         }
 
-        // Check if sidebar scrolling is needed
+        // Check if sidebar scrolling is needed or queue finished
         if (!targetRow) {
-          this.hud.log('INFO', `تمت معالجة كافة الصفوف الظاهرة (${rows.length}). جاري تمرير القائمة لجلب المزيد...`);
           const sidebar = DOM.getSidebarScrollContainer();
-          if (sidebar) {
+          let canScrollMore = false;
+          if (sidebar && sidebar.scrollTop + sidebar.clientHeight < sidebar.scrollHeight - 15) {
+            this.hud.log('INFO', `تمت معالجة الصفوف الظاهرة (${rows.length}). جاري التمرير لأسفل لجلب المزيد...`);
             sidebar.scrollBy({ top: 220, behavior: 'smooth' });
             await sleep(1500);
             const updatedRows = DOM.getConversationRows();
-            const hasNewRows = updatedRows.some(r => {
-              const k = DOM.getStableRowKey(r);
+            canScrollMore = updatedRows.some(r => {
               const n = DOM.getRowCustomerName(r);
-              const nk = n ? `contact_${normalizeArabicText(n)}` : null;
+              const s = DOM.getRowSnippet(r);
+              const k = DOM.getStableRowKey(r) || (n ? `contact_${normalizeArabicText(n)}` : null);
+              const fp = k ? `${k}__${s}` : null;
               return (!k || (!state.processedContacts.has(k) && !state.repliedContacts.has(k))) &&
-                     (!nk || (!state.processedContacts.has(nk) && !state.repliedContacts.has(nk)));
+                     (!fp || !state.processedSnapshots.has(fp));
             });
 
-            if (hasNewRows) {
+            if (canScrollMore) {
               continue;
             }
           }
 
-          // Transition to Standby Monitoring Mode
+          // Loop completed:
+          // 1. Scroll back smoothly to top of sidebar
+          if (sidebar && sidebar.scrollTop > 0) {
+            this.hud.log('SCROLL', 'اكتمل فحص القائمة. العودة لأعلى القائمة (Scroll to Top)...');
+            sidebar.scrollTo({ top: 0, behavior: 'smooth' });
+            await sleep(1000);
+          }
+
+          // 2. Transition to Standby Monitoring Mode
           this.hud.setStatus('MONITORING', 'monitoring');
-          this.hud.log('INFO', `اكتمل فحص جميع المحادثات المتاحة. وضع المراقبة بانتظار رسائل جديدة (فحص كل ${state.config.monitoringInterval / 1000} ثوانٍ)...`);
+          this.hud.log('INFO', `اكتمل فحص جميع المحادثات. وضع المراقبة الذكية بانتظار رسائل جديدة (إعادة الفحص من أول محادثة كل ${state.config.monitoringInterval / 1000} ثوانٍ)...`);
           await sleep(state.config.monitoringInterval);
 
           if (state.emergencyAbort) break;
 
+          // 3. Clear processedContacts for the new cycle (preserves repliedContacts & processedSnapshots)
+          state.processedContacts.clear();
           this.hud.setStatus('RUNNING', 'running');
           continue;
         }
 
         const contactName = DOM.getRowCustomerName(targetRow);
-        let contactKey = DOM.getStableRowKey(targetRow) || (contactName ? `contact_${normalizeArabicText(contactName)}` : `row_${Date.now()}`);
+        let contactKey = targetContactKey || DOM.getStableRowKey(targetRow) || (contactName ? `contact_${normalizeArabicText(contactName)}` : `row_${Date.now()}`);
+        let rowFingerprint = targetFingerprint || `${contactKey}__${DOM.getRowSnippet(targetRow)}`;
 
         state.stats.evaluated++;
         this.hud.updateStats();
@@ -1704,34 +1732,47 @@
           state.activeRowElement = targetRow;
         }
 
-        // STEP 2: Thread Activation & Viewport Sync
-        await HumanSimulator.naturalClick(targetRow);
+        // STEP 2: Safe Thread Activation & Viewport Sync
+        const clickTarget = DOM.getRowClickTarget(targetRow);
+        await HumanSimulator.naturalClick(clickTarget);
 
-        this.hud.log('SCAN', 'انتظار تحميل وتطابق نافذة المحادثة...');
+        this.hud.log('SCAN', 'انتظار تطابق نافذة المحادثة مع العميل...');
         let chatLoaded = false;
         const normTarget = normalizeArabicText(contactName);
         const startHydrate = Date.now();
 
-        while (Date.now() - startHydrate < 2000) {
+        while (Date.now() - startHydrate < 2800) {
           if (state.emergencyAbort) throw new Error('ABORT_SIGNAL');
           const headerName = DOM.getActiveChatContactName();
           const normHeader = normalizeArabicText(headerName);
           const composer = DOM.getComposer();
 
-          if (composer && (normTarget ? (normHeader.includes(normTarget) || normTarget.includes(normHeader)) : true)) {
+          if (composer && normTarget && normHeader && (normHeader.includes(normTarget) || normTarget.includes(normHeader))) {
             chatLoaded = true;
             break;
+          }
+
+          // Retry click if switch hasn't happened after 1.2s
+          if (Date.now() - startHydrate > 1200 && !chatLoaded) {
+            await HumanSimulator.naturalClick(clickTarget);
           }
           await sleep(150);
         }
 
-        if (!chatLoaded && DOM.getComposer()) {
-          chatLoaded = true;
+        // Looser check if composer exists and contact matches
+        if (!chatLoaded) {
+          const headerName = DOM.getActiveChatContactName();
+          const normHeader = normalizeArabicText(headerName);
+          if (DOM.getComposer() && (!normTarget || (normHeader && (normHeader.includes(normTarget) || normTarget.includes(normHeader))))) {
+            chatLoaded = true;
+          }
         }
 
         if (!chatLoaded) {
-          this.hud.log('WARN', 'استغرق تحميل المحادثة وقتاً طويلاً. حفظ كمعالج والانتقال للتالي.');
+          const currHeader = DOM.getActiveChatContactName();
+          this.hud.log('WARN', `تعذر تبديل المحادثة للعميل "${contactName}" (المحادثة المعروضة حالياً: "${currHeader || 'غير محددة'}"). تخطي لحماية المحادثة الحالية.`);
           state.processedContacts.add(contactKey);
+          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
           continue;
@@ -1740,9 +1781,10 @@
         const headerName = DOM.getActiveChatContactName();
         if (headerName) {
           const refinedKey = `contact_${normalizeArabicText(headerName)}`;
-          if (state.repliedContacts.has(refinedKey) || state.processedContacts.has(refinedKey)) {
-            this.hud.log('INFO', `تأكيد العنوان: المحادثة مع ${headerName} تمت معالجتها مسبقاً. تخطي...`);
+          if (state.repliedContacts.has(refinedKey)) {
+            this.hud.log('INFO', `المحادثة مع ${headerName} تم الرد عليها مسبقاً من الأتمتة. تخطي...`);
             state.processedContacts.add(contactKey);
+            if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
             targetRow.style.outline = originalOutline || '';
             targetRow.style.boxShadow = originalShadow || '';
             continue;
@@ -1765,7 +1807,7 @@
           this.hud.updateStats();
           this.hud.log('WARN', '[Inbound Guard] آخر رسالة مرسلة من الصفحة مسبقاً. تخطي الرد واستعادة غير مقروء...');
 
-          await this.executeBranchB(contactKey);
+          await this.executeBranchB(contactKey, rowFingerprint);
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
 
@@ -1778,7 +1820,7 @@
 
         if (customerBubbles.length === 0) {
           this.hud.log('INFO', 'لا توجد رسائل نصية واردة جديدة (وسائط/صورة فقط). استعادة كغير مقروء...');
-          await this.executeBranchB(contactKey);
+          await this.executeBranchB(contactKey, rowFingerprint);
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
 
@@ -1814,6 +1856,7 @@
 
           state.repliedContacts.add(contactKey);
           state.processedContacts.add(contactKey);
+          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
 
           state.stats.matched++;
           this.hud.updateStats();
@@ -1829,7 +1872,7 @@
         } else {
           // Branch B: No Match / Media Message / Skip
           this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة. استعادة المحادثة كغير مقروءة لمراجعة الكول سنتر...');
-          await this.executeBranchB(contactKey);
+          await this.executeBranchB(contactKey, rowFingerprint);
         }
 
         // STEP 6: Viewport Scrolling & Next-Row Progression
@@ -1854,8 +1897,9 @@
       }
     },
 
-    async executeBranchB(contactKey) {
-      state.processedContacts.add(contactKey);
+    async executeBranchB(contactKey, rowFingerprint) {
+      if (contactKey) state.processedContacts.add(contactKey);
+      if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
 
       await sleep(randomRange(150, 250));
       const restored = await DOM.executeRestoreToUnread(this.hud);
@@ -1863,9 +1907,9 @@
       if (restored) {
         state.stats.unreadRestored++;
         this.hud.updateStats();
-        this.hud.log('UNREAD', '[UNREAD] Conversation restored to Unread for Call Center review.');
+        this.hud.log('UNREAD', '[UNREAD] تم تمييز المحادثة كغير مقروءة بنجاح.');
       } else {
-        this.hud.log('WARN', 'تعذر العثور على زر الظرف (✉) المباشر أو القائمة المنسدلة.');
+        this.hud.log('WARN', 'تعذر العثور على زر تمييز كغير مقروءة في شريط الأدوات أو القائمة المنسدلة.');
       }
     }
   };
