@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.5)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.6)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.5
+// @version      4.9.6
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.5)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.6)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V495_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V496_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V495_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V496_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -408,28 +408,107 @@
       return unique;
     },
 
+    isTimestampOrBadge(text) {
+      if (!text) return true;
+      const t = text.trim();
+      if (t.length < 2) return true;
+      // Single numbers or counter badges like "1", "2", "99+"
+      if (/^\d+\+?$/.test(t)) return true;
+      // Exact time formats: e.g. "10:25", "10:25 ص", "10:25 م", "8:43 am", "8:43 pm"
+      if (/^\d{1,2}:\d{2}(?:\s*(?:ص|م|am|pm|AM|PM))?$/i.test(t)) return true;
+      // Arabic prefixed time: e.g. "ص 10:25", "م 8:43"
+      if (/^(?:ص|م)\s*\d{1,2}:\d{2}$/i.test(t)) return true;
+      // Relative time indicators (Arabic & English)
+      if (/^(?:منذ\s+[\d\u0660-\u0669]+|أمس|اليوم|الآن|yesterday|today|now|[\d\u0660-\u0669]+\s*(?:د|س|ي|أ|ش|ث|m|h|d|w|mo|y|min|mins|hr|hrs|days?))$/i.test(t)) return true;
+      // Common status pills, labels & Meta system words
+      if (/^(?:غير مقروء|مقروء|نشط الآن|تم الرد|مغلق|طلب جديد|مكتمل|unread|read|active now|closed|new)$/i.test(t)) return true;
+      if (['Messenger', 'Instagram', 'WhatsApp', 'Facebook', 'Meta Business Suite'].includes(t)) return true;
+      return false;
+    },
+
+    isSnippetOrPreview(text) {
+      if (!text) return false;
+      const t = text.trim();
+      // Prefix indicators for automated / agent previews
+      if (t.startsWith('أنت:') || t.startsWith('أنت :') || t.startsWith('You:') || t.startsWith('You :') ||
+          t.startsWith('تم إرسال:') || t.startsWith('تم إرسال') || t.startsWith('Sent:') || 
+          t.startsWith('رد تلقائي:') || t.startsWith('رد آلي:') || t.startsWith('Automated response:')) {
+        return true;
+      }
+      // Multiline text or very long strings (>45 chars) in conversation rows are message previews, not names
+      if (t.includes('\n') || t.length > 45) return true;
+      return false;
+    },
+
     getRowCustomerName(row) {
       if (!row) return '';
+
+      const isValidName = (txt) => {
+        if (!txt) return false;
+        const clean = txt.trim();
+        if (clean.length < 2 || clean.length > 45) return false;
+        if (this.isTimestampOrBadge(clean)) return false;
+        if (this.isSnippetOrPreview(clean)) return false;
+        return true;
+      };
+
+      // 1. Aria-label inspection (cleaning conversation/unread prefixes)
       const aria = row.getAttribute('aria-label');
-      if (aria && !aria.includes('inbox') && !aria.includes('message')) {
-        return aria.split(/[,،\n]/)[0].trim();
+      if (aria) {
+        let cleanedAria = aria
+          .replace(/^محادثة\s+(?:مع\s+)?/i, '')
+          .replace(/^Conversation\s+with\s+/i, '')
+          .replace(/^(?:غير مقروءة?|Unread)\s*[,،-]?\s*/i, '');
+        const firstSegment = cleanedAria.split(/[,،\n•·|]/)[0].trim();
+        if (isValidName(firstSegment)) {
+          return firstSegment;
+        }
       }
 
-      const bolds = Array.from(row.querySelectorAll('span, div, h2, h3, strong')).filter(el => {
-        const w = parseInt(window.getComputedStyle(el).fontWeight, 10) || 400;
-        const txt = (el.innerText || '').trim();
-        return w >= 600 && txt.length >= 2 && txt.length <= 40 &&
-               !txt.includes(':') && !txt.includes('Messenger') && !txt.includes('Instagram');
+      // 2. Primary header / title element inside the conversation row
+      const headingEl = row.querySelector('[role="heading"], h2, h3, h4, [data-testid*="name"], [data-testid*="contact"]');
+      if (headingEl) {
+        const txt = (headingEl.innerText || headingEl.textContent || '').trim();
+        const candidate = txt.split(/[,،\n•·|]/)[0].trim();
+        if (isValidName(candidate)) return candidate;
+      }
+
+      // 3. Inspect leaf text blocks: span[dir="auto"], div[dir="auto"], strong, span
+      const candidates = Array.from(row.querySelectorAll('span[dir="auto"], div[dir="auto"], span, strong')).filter(el => {
+        if (el.closest('#mbs-inbox-automator-root')) return false;
+        // Prefer leaf nodes to avoid aggregating multiple lines
+        if (el.children.length > 0 && Array.from(el.children).some(c => (c.innerText || '').trim().length > 0)) {
+          return false;
+        }
+        const txt = (el.innerText || el.textContent || '').trim();
+        return isValidName(txt);
       });
 
-      if (bolds.length > 0) return bolds[0].innerText.trim();
+      // 3.a Prefer bold / semi-bold leaf candidate (MBS contact name weight >= 500)
+      for (const el of candidates) {
+        try {
+          const weight = parseInt(window.getComputedStyle(el).fontWeight, 10) || 400;
+          const txt = (el.innerText || el.textContent || '').trim();
+          if (weight >= 500 && isValidName(txt)) {
+            return txt;
+          }
+        } catch (_) {}
+      }
 
+      // 3.b First valid leaf candidate
+      if (candidates.length > 0) {
+        const txt = (candidates[0].innerText || candidates[0].textContent || '').trim();
+        if (isValidName(txt)) return txt;
+      }
+
+      // 4. Fallback: Parse row lines, picking the first line matching valid name criteria
       const lines = (row.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
       for (const line of lines) {
-        if (line.length > 1 && !/^[0-9]+[ ]*(م|ص|د|س)$/.test(line) && !line.includes('Messenger') && !line.includes('Instagram') && !line.includes(':')) {
+        if (isValidName(line)) {
           return line;
         }
       }
+
       return lines[0] || '';
     },
 
@@ -452,8 +531,12 @@
 
     getRowSnippet(row) {
       if (!row) return '';
-      const lines = (row.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
-      return lines.slice(1).join(' | ');
+      const name = this.getRowCustomerName(row);
+      const lines = (row.innerText || '')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l && l !== name && !this.isTimestampOrBadge(l));
+      return lines.join(' | ');
     },
 
     getRowClickTarget(row) {
@@ -467,13 +550,14 @@
     },
 
     getActiveChatContactName() {
+      const isValid = (t) => t && t.length >= 2 && !['البريد الوارد', 'تفاصيل الاتصال', 'التسميات', 'الملاحظات', 'Inbox', 'Contact Details', 'Labels', 'Notes'].includes(t) && !this.isTimestampOrBadge(t) && !this.isSnippetOrPreview(t);
+
       // 1. Primary heading in contact details panel (top 70-160, left < 400)
       const headings = Array.from(document.querySelectorAll('[role="heading"], h1, h2, h3')).filter(el => {
         if (el.closest('#mbs-inbox-automator-root')) return false;
         const r = el.getBoundingClientRect();
         const t = (el.innerText || '').trim();
-        return r.top >= 70 && r.top <= 160 && r.left < 400 && r.width > 0 &&
-               !['البريد الوارد', 'تفاصيل الاتصال', 'التسميات', 'الملاحظات', 'Inbox', 'Contact Details', 'Labels', 'Notes'].includes(t);
+        return r.top >= 70 && r.top <= 160 && r.left < 400 && r.width > 0 && isValid(t);
       });
       if (headings.length > 0) {
         return headings[0].innerText.trim();
@@ -485,11 +569,17 @@
         const header = chatCanvas.querySelector('header, div[role="banner"]') || chatCanvas.parentElement?.querySelector('header');
         if (header) {
           const heading = header.querySelector('h1, h2, div[role="heading"], span[style*="font-weight"]');
-          if (heading) return heading.innerText?.trim() || '';
+          if (heading) {
+            const txt = (heading.innerText || heading.textContent || '').trim();
+            if (isValid(txt)) return txt;
+          }
         }
       }
       const topName = document.querySelector('div[role="main"] div[style*="font-weight"], main div[style*="font-weight"]');
-      if (topName) return topName.innerText?.trim() || '';
+      if (topName) {
+        const txt = (topName.innerText || topName.textContent || '').trim();
+        if (isValid(txt)) return txt;
+      }
       return '';
     },
 
@@ -969,35 +1059,39 @@
 
     async highlightCustomerBubble(bubble) {
       if (!bubble) return;
-      const origBorderRadius = bubble.style.borderRadius;
-      const origShadow = bubble.style.boxShadow;
-      const origTransition = bubble.style.transition;
+      try {
+        const origBorderRadius = bubble.style.borderRadius;
+        const origShadow = bubble.style.boxShadow;
+        const origTransition = bubble.style.transition;
 
-      bubble.style.setProperty('border-radius', '16px', 'important');
-      bubble.style.setProperty('box-shadow', '0 0 0 1.5px rgba(56, 189, 248, 0.45), 0 6px 20px rgba(14, 165, 233, 0.14)', 'important');
-      bubble.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
+        bubble.style.setProperty('border-radius', '16px', 'important');
+        bubble.style.setProperty('box-shadow', '0 0 0 1.5px rgba(56, 189, 248, 0.45), 0 6px 20px rgba(14, 165, 233, 0.14)', 'important');
+        bubble.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
 
-      await sleep(600);
+        await sleep(600);
 
-      if (origBorderRadius) bubble.style.borderRadius = origBorderRadius;
-      else bubble.style.removeProperty('border-radius');
+        if (origBorderRadius) bubble.style.borderRadius = origBorderRadius;
+        else bubble.style.removeProperty('border-radius');
 
-      if (origShadow) bubble.style.boxShadow = origShadow;
-      else bubble.style.removeProperty('box-shadow');
+        if (origShadow) bubble.style.boxShadow = origShadow;
+        else bubble.style.removeProperty('box-shadow');
 
-      if (origTransition) bubble.style.transition = origTransition;
-      else bubble.style.removeProperty('transition');
+        if (origTransition) bubble.style.transition = origTransition;
+        else bubble.style.removeProperty('transition');
+      } catch (_) {}
     },
 
     async flashEnvelopeButton(btn) {
       if (!btn) return;
-      const origOutline = btn.style.outline;
-      const origShadow = btn.style.boxShadow;
-      btn.style.outline = '2px solid #22c55e';
-      btn.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.7)';
-      await sleep(400);
-      btn.style.outline = origOutline || '';
-      btn.style.boxShadow = origShadow || '';
+      try {
+        const origOutline = btn.style.outline;
+        const origShadow = btn.style.boxShadow;
+        btn.style.outline = '2px solid #22c55e';
+        btn.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.7)';
+        await sleep(400);
+        btn.style.outline = origOutline || '';
+        btn.style.boxShadow = origShadow || '';
+      } catch (_) {}
     },
 
     async simulateThreadScroll(logger) {
@@ -1175,7 +1269,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V4.9.6).');
     }
 
     render() {
@@ -2227,28 +2321,83 @@
       }
     },
 
-    clearActiveRowHighlight() {
-      if (state.activeRowElement && state.activeRowOriginalStyles) {
-        const row = state.activeRowElement;
-        const orig = state.activeRowOriginalStyles;
-        if (orig.borderRadius) row.style.borderRadius = orig.borderRadius; else row.style.removeProperty('border-radius');
-        if (orig.background) row.style.background = orig.background; else row.style.removeProperty('background');
-        if (orig.webkitBackdropFilter) row.style.webkitBackdropFilter = orig.webkitBackdropFilter; else row.style.removeProperty('-webkit-backdrop-filter');
-        if (orig.backdropFilter) row.style.backdropFilter = orig.backdropFilter; else row.style.removeProperty('backdrop-filter');
-        if (orig.border) row.style.border = orig.border; else row.style.removeProperty('border');
-        if (orig.boxShadow) row.style.boxShadow = orig.boxShadow; else row.style.removeProperty('box-shadow');
-        if (orig.transition) row.style.transition = orig.transition; else row.style.removeProperty('transition');
-      } else if (state.activeRowElement) {
-        state.activeRowElement.style.removeProperty('border-radius');
-        state.activeRowElement.style.removeProperty('background');
-        state.activeRowElement.style.removeProperty('-webkit-backdrop-filter');
-        state.activeRowElement.style.removeProperty('backdrop-filter');
-        state.activeRowElement.style.removeProperty('border');
-        state.activeRowElement.style.removeProperty('box-shadow');
-        state.activeRowElement.style.removeProperty('transition');
+    clearActiveRowHighlight(row = null) {
+      try {
+        const target = row || state.activeRowElement;
+        if (target) {
+          if (target.dataset) {
+            if (target.dataset.origBorderRadius !== undefined) {
+              target.style.borderRadius = target.dataset.origBorderRadius;
+              delete target.dataset.origBorderRadius;
+            } else {
+              target.style.removeProperty('border-radius');
+            }
+
+            if (target.dataset.origBackground !== undefined) {
+              target.style.background = target.dataset.origBackground;
+              delete target.dataset.origBackground;
+            } else {
+              target.style.removeProperty('background');
+            }
+
+            if (target.dataset.origBoxShadow !== undefined) {
+              target.style.boxShadow = target.dataset.origBoxShadow;
+              delete target.dataset.origBoxShadow;
+            } else {
+              target.style.removeProperty('box-shadow');
+            }
+
+            if (target.dataset.origBorder !== undefined) {
+              target.style.border = target.dataset.origBorder;
+              delete target.dataset.origBorder;
+            } else {
+              target.style.removeProperty('border');
+            }
+
+            if (target.dataset.origBackdropFilter !== undefined) {
+              target.style.backdropFilter = target.dataset.origBackdropFilter;
+              delete target.dataset.origBackdropFilter;
+            } else {
+              target.style.removeProperty('backdrop-filter');
+            }
+
+            if (target.dataset.origWebkitBackdropFilter !== undefined) {
+              target.style.webkitBackdropFilter = target.dataset.origWebkitBackdropFilter;
+              delete target.dataset.origWebkitBackdropFilter;
+            } else {
+              target.style.removeProperty('-webkit-backdrop-filter');
+            }
+
+            if (target.dataset.origTransition !== undefined) {
+              target.style.transition = target.dataset.origTransition;
+              delete target.dataset.origTransition;
+            } else {
+              target.style.removeProperty('transition');
+            }
+
+            if (target.dataset.origOutline !== undefined) {
+              target.style.outline = target.dataset.origOutline;
+              delete target.dataset.origOutline;
+            } else {
+              target.style.removeProperty('outline');
+            }
+          } else {
+            target.style.removeProperty('border-radius');
+            target.style.removeProperty('background');
+            target.style.removeProperty('box-shadow');
+            target.style.removeProperty('border');
+            target.style.removeProperty('backdrop-filter');
+            target.style.removeProperty('-webkit-backdrop-filter');
+            target.style.removeProperty('transition');
+            target.style.removeProperty('outline');
+          }
+        }
+      } catch (err) {
+        console.warn('[MBS Automator] Error restoring active row styles:', err);
+      } finally {
+        state.activeRowElement = null;
+        state.activeRowOriginalStyles = null;
       }
-      state.activeRowElement = null;
-      state.activeRowOriginalStyles = null;
     },
 
     stop() {
@@ -2372,26 +2521,29 @@
         this.hud.updateStats();
         this.hud.log('SCAN', `--- [محادثة #${selectedIndex + 1}/${rows.length}] تفعيل العميل: "${contactName || contactKey}" ---`);
 
-        // Apple Liquid Glass Pill Framing on active conversation row
-        const originalRowStyles = {
-          borderRadius: targetRow.style.borderRadius,
-          background: targetRow.style.background,
-          webkitBackdropFilter: targetRow.style.webkitBackdropFilter,
-          backdropFilter: targetRow.style.backdropFilter,
-          border: targetRow.style.border,
-          boxShadow: targetRow.style.boxShadow,
-          transition: targetRow.style.transition,
-        };
+        // Safe backup into dataset
+        try {
+          targetRow.dataset.origBorderRadius = targetRow.style.borderRadius || '';
+          targetRow.dataset.origBackground = targetRow.style.background || '';
+          targetRow.dataset.origBoxShadow = targetRow.style.boxShadow || '';
+          targetRow.dataset.origBorder = targetRow.style.border || '';
+          targetRow.dataset.origBackdropFilter = targetRow.style.backdropFilter || '';
+          targetRow.dataset.origWebkitBackdropFilter = targetRow.style.webkitBackdropFilter || '';
+          targetRow.dataset.origTransition = targetRow.style.transition || '';
+          targetRow.dataset.origOutline = targetRow.style.outline || '';
+        } catch (_) {}
+
         if (state.config.highlightRows) {
-          targetRow.style.setProperty('border-radius', '18px', 'important');
-          targetRow.style.setProperty('background', 'linear-gradient(135deg, rgba(224, 242, 254, 0.45), rgba(243, 232, 255, 0.35))', 'important');
-          targetRow.style.setProperty('-webkit-backdrop-filter', 'blur(8px)', 'important');
-          targetRow.style.setProperty('backdrop-filter', 'blur(8px)', 'important');
-          targetRow.style.setProperty('border', '1px solid rgba(56, 189, 248, 0.45)', 'important');
-          targetRow.style.setProperty('box-shadow', '0 4px 18px rgba(14, 165, 233, 0.12), inset 0 1px 0.5px rgba(255, 255, 255, 0.8)', 'important');
-          targetRow.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
+          try {
+            targetRow.style.setProperty('border-radius', '18px', 'important');
+            targetRow.style.setProperty('background', 'linear-gradient(135deg, rgba(224, 242, 254, 0.45), rgba(243, 232, 255, 0.35))', 'important');
+            targetRow.style.setProperty('-webkit-backdrop-filter', 'blur(8px)', 'important');
+            targetRow.style.setProperty('backdrop-filter', 'blur(8px)', 'important');
+            targetRow.style.setProperty('border', '1px solid rgba(56, 189, 248, 0.45)', 'important');
+            targetRow.style.setProperty('box-shadow', '0 4px 18px rgba(14, 165, 233, 0.12), inset 0 1px 0.5px rgba(255, 255, 255, 0.8)', 'important');
+            targetRow.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
+          } catch (_) {}
           state.activeRowElement = targetRow;
-          state.activeRowOriginalStyles = originalRowStyles;
         }
 
         // STEP 2: Safe Thread Activation & Viewport Sync
@@ -2438,8 +2590,7 @@
             state.processedSnapshots.add(rowFingerprint);
             pruneLRUCache(state.processedSnapshots, 350, 100);
           }
-          targetRow.style.outline = originalOutline || '';
-          targetRow.style.boxShadow = originalShadow || '';
+          this.clearActiveRowHighlight(targetRow);
           continue;
         }
 
@@ -2471,8 +2622,7 @@
             pruneLRUCache(state.processedSnapshots, 350, 100);
           }
 
-          targetRow.style.outline = originalOutline || '';
-          targetRow.style.boxShadow = originalShadow || '';
+          this.clearActiveRowHighlight(targetRow);
 
           const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
           this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
@@ -2484,8 +2634,7 @@
         if (customerBubbles.length === 0) {
           this.hud.log('INFO', 'لا توجد رسائل نصية واردة جديدة (وسائط/صورة فقط). استعادة كغير مقروء...');
           await this.executeBranchB(contactKey, rowFingerprint);
-          targetRow.style.outline = originalOutline || '';
-          targetRow.style.boxShadow = originalShadow || '';
+          this.clearActiveRowHighlight(targetRow);
 
           const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
           this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
@@ -2546,7 +2695,7 @@
         }
 
         // STEP 6: Viewport Scrolling & Next-Row Progression
-        this.clearActiveRowHighlight();
+        this.clearActiveRowHighlight(targetRow);
 
         // Auto-scroll sidebar if nearing the bottom
         if (selectedIndex >= rows.length - 2) {
@@ -2612,5 +2761,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.5] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V4.9.6] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

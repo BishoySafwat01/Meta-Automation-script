@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 :: =============================================================================
 ::  META BUSINESS SUITE INBOX AUTOMATOR - WINDOWS ZERO-TOUCH PREREQUISITES SETUP
-::  Version: V4.9.5 (Pure Python Zero-Extension Enterprise Deployment)
+::  Version: V4.9.6 (Pure Python Zero-Extension Enterprise Deployment)
 ::  Author: Bishoy Safwat (Senior Automation Engineer)
 :: =============================================================================
 ::  Purpose:
@@ -16,12 +16,12 @@ setlocal enabledelayedexpansion
 ::  - Automatically launches 'launch_mbs_server.bat' upon successful setup.
 :: =============================================================================
 
-title Meta Business Suite Automator - Prerequisites Setup (V4.9.5)
+title Meta Business Suite Automator - Prerequisites Setup (V4.9.6)
 
 color 0B
 echo.
 echo  =============================================================================
-echo   META BUSINESS SUITE INBOX AUTOMATOR - PREREQUISITES AUTO-INSTALLER (V4.9.5)
+echo   META BUSINESS SUITE INBOX AUTOMATOR - PREREQUISITES AUTO-INSTALLER (V4.9.6)
 echo  =============================================================================
 echo   - Automated Google Chrome Silent Installation
 echo   - Python 3 ^& Playwright Automation Environment Verification
