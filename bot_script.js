@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.3)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.4)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.3
-// @description  Iridescent Liquid Aqua-Glass Edition: Fluid Ocean Crystal UI, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
+// @version      4.9.4
+// @description  Apple Frosted Light Ice-Blue Glass Edition: Translucent Ice-Blue Glass UI, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,14 +13,15 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.3)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.4)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. IRIDESCENT LIQUID AQUA-GLASS INTERFACE & CLEAN CONTROLS:
- *    - Fluid ocean-crystal glass surface (blur 36px, saturate 210%, dual chromatic refraction rim).
- *    - Translucent blended header (linear-gradient top reflection).
- *    - Glass pills for actions & active tab, minimal iridescent stealth dock.
- *    - SF Pro / Apple typography hierarchy with clean "Meta Automation" branding (zero version chips).
+ * 1. APPLE FROSTED LIGHT ICE-BLUE GLASS INTERFACE:
+ *    - Translucent light ice-blue glass surface (blur 34px, saturate 180%).
+ *    - Specular crystal top edge & delicate sky-blue rim.
+ *    - Pure white active tabs, crisp slate typography (#0f172a, #334155, #475569).
+ *    - Glass pills for actions & minimal ice-blue stealth capsule.
+ *    - Clean "Meta Automation" branding with zero version chips.
  *    - Single-field typing speed control (ms/char) & decimal seconds duration controls.
  * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
@@ -39,9 +40,10 @@
  *    - Length & Context gate prevents valid customer inquiries referencing ads from being dropped.
  * 7. LRU MEMORY RING-BUFFER:
  *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
+ *    - Evicts stale thread IDs to prevent memory leaks during prolonged unattended runs.
  * 8. GHOST STEALTH DOCK:
  *    - Minimal fluid crystal capsule (100x32px) with monochrome counter and clean pulsing dot.
- *    - Chromatic refraction rim & top specular reflection.
+ *    - Delicate sky-blue rim & top specular reflection.
  * 9. INBOUND MESSAGE BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly after the last staff/page reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
@@ -58,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V493_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V494_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V493_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V494_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1159,7 +1161,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Iridescent Liquid Aqua-Glass Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Frosted Light Ice-Blue Glass Edition).');
     }
 
     render() {
@@ -1177,25 +1179,23 @@
             max-height: 90vh;
             width: 480px;
             max-height: 620px;
-            background: linear-gradient(145deg, 
-              rgba(13, 27, 42, 0.72) 0%, 
-              rgba(8, 20, 32, 0.76) 50%, 
-              rgba(10, 34, 48, 0.68) 100%
+            background: linear-gradient(135deg, 
+              rgba(240, 249, 255, 0.85) 0%, 
+              rgba(224, 242, 254, 0.80) 50%, 
+              rgba(207, 250, 254, 0.78) 100%
             );
-            -webkit-backdrop-filter: blur(36px) saturate(210%);
-            backdrop-filter: blur(36px) saturate(210%);
-            /* Dual chromatic refraction rim */
-            border: 1px solid rgba(165, 243, 252, 0.18);
+            -webkit-backdrop-filter: blur(34px) saturate(180%);
+            backdrop-filter: blur(34px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.85);
             box-shadow: 
-              0 30px 60px rgba(3, 10, 18, 0.55),
-              inset 0 1.5px 0.5px rgba(255, 255, 255, 0.4),          /* Top specular reflection */
-              inset 0 -1px 2px rgba(45, 212, 191, 0.12),            /* Aqua curvature glow */
-              inset 1px 0 2px rgba(244, 114, 182, 0.08);            /* Subtle iridescent edge */
-            border-radius: 24px;
+              0 24px 50px rgba(15, 23, 42, 0.12),
+              inset 0 1.5px 1px rgba(255, 255, 255, 0.95),        /* Specular crystal top edge */
+              inset 0 -1.5px 2px rgba(56, 189, 248, 0.20);        /* Delicate sky-blue rim */
+            border-radius: 22px;
+            color: #0f172a;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            color: #F5F5F7;
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
             transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, border-radius 0.25s ease;
@@ -1211,12 +1211,13 @@
             max-height: 32px !important;
             border-radius: 999px !important;
             padding: 0 12px !important;
-            background: linear-gradient(135deg, rgba(14, 28, 44, 0.7), rgba(8, 20, 32, 0.75)) !important;
-            backdrop-filter: blur(24px) saturate(210%) !important;
-            -webkit-backdrop-filter: blur(24px) saturate(210%) !important;
-            border: 1px solid rgba(165, 243, 252, 0.25) !important;
-            box-shadow: 0 12px 28px rgba(3, 10, 18, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
-            opacity: 0.85;
+            background: rgba(240, 249, 255, 0.88) !important;
+            backdrop-filter: blur(24px) !important;
+            -webkit-backdrop-filter: blur(24px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.95) !important;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            color: #0f172a !important;
+            opacity: 0.92;
             cursor: pointer;
             resize: none !important;
             flex-direction: row !important;
@@ -1225,8 +1226,8 @@
           }
           .hud-card.ghost-mode:hover {
             opacity: 1.0 !important;
-            box-shadow: 0 14px 34px rgba(6, 182, 212, 0.25) !important;
-            border-color: rgba(165, 243, 252, 0.45) !important;
+            box-shadow: 0 12px 28px rgba(2, 132, 199, 0.2) !important;
+            border-color: #ffffff !important;
           }
 
           @keyframes pulse-dot {
@@ -1238,14 +1239,14 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #8E8E93;
+            background: #94a3b8;
             display: inline-block;
             animation: pulse-dot 2s infinite ease-in-out;
           }
-          .ghost-dot.running { background: #34C759; box-shadow: 0 0 8px rgba(52, 199, 89, 0.6); }
-          .ghost-dot.cooldown { background: #FF9F0A; box-shadow: 0 0 8px rgba(255, 159, 10, 0.6); }
-          .ghost-dot.monitoring { background: #0A84FF; box-shadow: 0 0 8px rgba(10, 132, 255, 0.6); }
-          .ghost-dot.stopped { background: #FF453A; box-shadow: 0 0 8px rgba(255, 69, 58, 0.6); }
+          .ghost-dot.running { background: #16a34a; box-shadow: 0 0 8px rgba(22, 163, 74, 0.5); }
+          .ghost-dot.cooldown { background: #d97706; box-shadow: 0 0 8px rgba(217, 119, 6, 0.5); }
+          .ghost-dot.monitoring { background: #0284c7; box-shadow: 0 0 8px rgba(2, 132, 199, 0.5); }
+          .ghost-dot.stopped { background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, 0.5); }
 
           .ghost-dock-content {
             display: none;
@@ -1255,7 +1256,7 @@
             justify-content: space-between;
             font-size: 11px;
             font-weight: 600;
-            color: #F5F5F7;
+            color: #0f172a;
             user-select: none;
           }
           .hud-card.ghost-mode .ghost-dock-content {
@@ -1269,10 +1270,11 @@
             display: none !important;
           }
 
-          .header-icon-btn {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #F5F5F7;
+          .header-icon-btn, .hud-btn {
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            color: #334155;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
             border-radius: 50%;
             width: 28px;
             height: 28px;
@@ -1284,16 +1286,16 @@
             transition: all 0.2s ease;
             user-select: none;
           }
-          .header-icon-btn:hover {
-            background: rgba(255, 255, 255, 0.18);
-            color: #FFFFFF;
+          .header-icon-btn:hover, .hud-btn:hover {
+            background: rgba(255, 255, 255, 0.9);
+            color: #0f172a;
             transform: scale(1.05);
           }
           .hud-header {
             cursor: grab;
             padding: 13px 18px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.45);
+            border-bottom: 1px solid rgba(186, 230, 253, 0.45);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1301,24 +1303,25 @@
           .hud-title {
             font-size: 13px;
             font-weight: 600;
-            color: #F5F5F7;
+            color: #0f172a;
+            letter-spacing: -0.015em;
             display: flex;
             align-items: center;
             gap: 8px;
-            letter-spacing: -0.2px;
           }
           .hud-title-text {
             font-weight: 600;
-            color: #F5F5F7;
+            color: #0f172a;
+            letter-spacing: -0.015em;
           }
           .hud-tenant-badge {
             font-size: 9.5px;
             font-weight: 500;
             padding: 2px 7px;
             border-radius: 6px;
-            background: rgba(10, 132, 255, 0.12);
-            color: #0A84FF;
-            border: 1px solid rgba(10, 132, 255, 0.25);
+            background: rgba(224, 242, 254, 0.85);
+            color: #0369a1;
+            border: 1px solid rgba(186, 230, 253, 0.9);
           }
           .status-badge {
             font-size: 9.5px;
@@ -1328,42 +1331,47 @@
             letter-spacing: 0.3px;
             text-transform: uppercase;
           }
-          .status-ready { background: rgba(142, 142, 147, 0.18); color: #8E8E93; border: 1px solid rgba(142, 142, 147, 0.25); }
-          .status-running { background: rgba(52, 199, 89, 0.18); color: #34C759; border: 1px solid rgba(52, 199, 89, 0.3); }
-          .status-cooldown { background: rgba(255, 159, 10, 0.18); color: #FF9F0A; border: 1px solid rgba(255, 159, 10, 0.3); }
-          .status-monitoring { background: rgba(10, 132, 255, 0.18); color: #0A84FF; border: 1px solid rgba(10, 132, 255, 0.3); }
-          .status-stopped { background: rgba(255, 69, 58, 0.18); color: #FF453A; border: 1px solid rgba(255, 69, 58, 0.3); }
+          .status-ready { background: rgba(148, 163, 184, 0.2); color: #475569; border: 1px solid rgba(148, 163, 184, 0.35); }
+          .status-running { background: rgba(34, 197, 94, 0.16); color: #15803d; border: 1px solid rgba(34, 197, 94, 0.3); }
+          .status-cooldown { background: rgba(245, 158, 11, 0.16); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.3); }
+          .status-monitoring { background: rgba(2, 132, 199, 0.16); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3); }
+          .status-stopped { background: rgba(239, 68, 68, 0.16); color: #b91c1c; border: 1px solid rgba(239, 68, 68, 0.3); }
 
-          .hud-stats-bar {
+          .hud-stats-bar, .hud-stats {
             padding: 10px 18px;
-            background: rgba(0, 0, 0, 0.14);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            background: transparent;
+            border-bottom: 1px solid rgba(186, 230, 253, 0.4);
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 8px;
             text-align: center;
           }
           .stat-item {
+            background: rgba(255, 255, 255, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 14px;
+            padding: 7px 4px;
             display: flex;
             flex-direction: column;
             gap: 2px;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
           }
           .stat-value {
             font-size: 15px;
-            font-weight: 600;
-            color: #F5F5F7;
+            font-weight: 700;
+            color: #0f172a;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
           }
           .stat-label {
             font-size: 9.5px;
             font-weight: 500;
-            color: rgba(235, 235, 245, 0.6);
+            color: #475569;
           }
 
           .hud-tabs {
             display: flex;
-            background: rgba(4, 12, 20, 0.35);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(219, 234, 254, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.7);
             border-radius: 14px;
             padding: 3px;
             margin: 10px 18px 6px;
@@ -1374,7 +1382,7 @@
             padding: 7px 12px;
             background: transparent;
             border: 1px solid transparent;
-            color: rgba(235, 235, 245, 0.65);
+            color: #475569;
             font-size: 11.5px;
             font-weight: 500;
             cursor: pointer;
@@ -1383,13 +1391,13 @@
             font-family: inherit;
           }
           .tab-btn:hover {
-            color: #FFFFFF;
+            color: #0f172a;
           }
           .tab-btn.active {
-            color: #ffffff;
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(20, 184, 166, 0.18));
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            background: #ffffff;
+            color: #0284c7;
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 3px 10px rgba(2, 132, 199, 0.12), 0 1px 2px rgba(0, 0, 0, 0.04);
             border-radius: 11px;
             font-weight: 600;
           }
@@ -1404,9 +1412,9 @@
           .tab-pane.active { display: block; }
 
           /* Terminal Tab */
-          .terminal-box {
-            background: rgba(0, 0, 0, 0.28);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+          .terminal-box, .log-container {
+            background: rgba(255, 255, 255, 0.55);
+            border: 1px solid rgba(186, 230, 253, 0.6);
             border-radius: 14px;
             padding: 12px;
             font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -1416,35 +1424,38 @@
             display: flex;
             flex-direction: column;
             gap: 5px;
-            color: #A1A1A6;
+            color: #1e293b;
+            box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
           }
           .log-line { line-height: 1.45; word-break: break-word; }
-          .log-time { color: rgba(235, 235, 245, 0.4); margin-left: 6px; font-size: 9.5px; }
-          .log-tag-INIT { color: #8E8E93; }
-          .log-tag-SCAN { color: #A1A1A6; }
-          .log-tag-MATCH { color: #34C759; font-weight: 600; }
-          .log-tag-UNREAD { color: #FF9F0A; }
-          .log-tag-TYPING { color: #BF5AF2; }
-          .log-tag-SCROLL { color: #8E8E93; }
-          .log-tag-INFO { color: #0A84FF; }
-          .log-tag-WARN { color: #FF9F0A; }
-          .log-tag-ERROR { color: #FF453A; font-weight: 600; }
-          .log-tag-STOP { color: #FF453A; }
+          .log-time { color: #64748b; margin-left: 6px; font-size: 9.5px; }
+          .log-tag-INIT { color: #64748b; font-weight: 500; }
+          .log-tag-SCAN { color: #475569; }
+          .log-tag-MATCH { color: #16a34a; font-weight: 600; }
+          .log-tag-UNREAD { color: #d97706; font-weight: 600; }
+          .log-tag-TYPING { color: #9333ea; font-weight: 500; }
+          .log-tag-SCROLL { color: #64748b; }
+          .log-tag-INFO { color: #0284c7; font-weight: 500; }
+          .log-tag-WARN { color: #d97706; font-weight: 600; }
+          .log-tag-ERROR { color: #dc2626; font-weight: 600; }
+          .log-tag-STOP { color: #dc2626; font-weight: 600; }
 
           /* Rules Tab */
           .rule-card {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.45);
+            border: 1px solid rgba(186, 230, 253, 0.7);
             border-radius: 14px;
             padding: 12px;
             margin-bottom: 8px;
             display: flex;
             flex-direction: column;
             gap: 8px;
-            transition: background 0.2s ease;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
           }
           .rule-card:hover {
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.75);
+            border-color: rgba(186, 230, 253, 0.95);
           }
           .rule-header {
             display: flex;
@@ -1454,33 +1465,36 @@
           .rule-title {
             font-size: 11px;
             font-weight: 600;
-            color: #0A84FF;
+            color: #0284c7;
           }
           .rule-match-type {
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(186, 230, 253, 0.85);
             border-radius: 8px;
             padding: 3px 8px;
-            color: #F5F5F7;
+            color: #0f172a;
             font-size: 10.5px;
             font-family: inherit;
             outline: none;
           }
           .rule-keywords-input, .rule-reply-input {
             width: 100%;
-            background: rgba(0, 0, 0, 0.22);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(186, 230, 253, 0.85);
             border-radius: 10px;
             padding: 7px 10px;
-            color: #F5F5F7;
+            color: #0f172a;
             font-size: 11px;
             font-family: inherit;
             direction: rtl;
             box-sizing: border-box;
-            transition: border-color 0.2s ease;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+            transition: border-color 0.2s ease, background 0.2s ease;
           }
           .rule-keywords-input:focus, .rule-reply-input:focus {
-            border-color: rgba(10, 132, 255, 0.6);
+            background: #ffffff;
+            border-color: #0284c7;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
             outline: none;
           }
           .rule-reply-input {
@@ -1490,19 +1504,19 @@
           .add-rule-btn {
             width: 100%;
             padding: 9px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px dashed rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px dashed rgba(2, 132, 199, 0.45);
             border-radius: 12px;
-            color: #0A84FF;
+            color: #0284c7;
             font-size: 11.5px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
             font-family: inherit;
             transition: all 0.2s ease;
           }
           .add-rule-btn:hover {
-            background: rgba(10, 132, 255, 0.08);
-            border-color: rgba(10, 132, 255, 0.4);
+            background: rgba(224, 242, 254, 0.7);
+            border-color: #0284c7;
           }
 
           /* Apple iOS Style Switch */
@@ -1518,7 +1532,7 @@
             position: absolute;
             cursor: pointer;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(120, 120, 128, 0.32);
+            background-color: rgba(203, 213, 225, 0.7);
             transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             border-radius: 999px;
           }
@@ -1529,12 +1543,12 @@
             width: 18px;
             left: 2px;
             bottom: 2px;
-            background-color: #FFFFFF;
+            background-color: #ffffff;
             border-radius: 50%;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.18);
             transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
           }
-          input:checked + .slider { background-color: #34C759; }
+          input:checked + .slider { background-color: #0284c7; }
           input:checked + .slider:before { transform: translateX(18px); }
 
           /* Config Tab */
@@ -1543,78 +1557,82 @@
             align-items: center;
             justify-content: space-between;
             padding: 10px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(186, 230, 253, 0.4);
           }
           .config-label {
             font-size: 11.5px;
-            color: rgba(235, 235, 245, 0.8);
-            font-weight: 400;
+            color: #1e293b;
+            font-weight: 500;
           }
           .config-input {
-            background: rgba(0, 0, 0, 0.22);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(186, 230, 253, 0.85);
             border-radius: 10px;
             padding: 6px 10px;
-            color: #FFFFFF;
+            color: #0f172a;
+            font-weight: 600;
             font-size: 12px;
             text-align: center;
             font-family: inherit;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
             outline: none;
           }
           .config-input:focus {
-            border-color: rgba(10, 132, 255, 0.6);
-            box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.15);
+            background: #ffffff;
+            border-color: #0284c7;
+            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+            outline: none;
           }
 
           /* Footer */
           .hud-footer {
             padding: 13px 18px;
-            background: rgba(0, 0, 0, 0.12);
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.45);
+            border-top: 1px solid rgba(186, 230, 253, 0.45);
             display: flex;
             gap: 10px;
           }
-          .btn-primary {
+          .btn-primary, #btn-start {
             flex: 2;
             padding: 10px 16px;
-            background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
+            background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
             color: #ffffff;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            box-shadow: 0 6px 20px rgba(14, 165, 233, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            border-radius: 15px;
             font-size: 12.5px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: inherit;
           }
-          .btn-primary:hover {
+          .btn-primary:hover, #btn-start:hover {
             opacity: 0.95;
             transform: translateY(-1px);
-            box-shadow: 0 8px 24px rgba(14, 165, 233, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 24px rgba(2, 132, 199, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.5);
           }
-          .btn-primary:active {
+          .btn-primary:active, #btn-start:active {
             transform: translateY(0);
           }
-          .btn-danger {
+          .btn-danger, #btn-stop {
             flex: 1;
             padding: 10px 16px;
-            background: rgba(239, 68, 68, 0.14);
-            color: #fca5a5;
-            border: 1px solid rgba(239, 68, 68, 0.25);
-            border-radius: 16px;
+            background: rgba(254, 226, 226, 0.75);
+            color: #dc2626;
+            border: 1px solid rgba(252, 165, 165, 0.7);
+            border-radius: 15px;
             font-size: 12.5px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: inherit;
           }
-          .btn-danger:hover {
-            background: rgba(239, 68, 68, 0.22);
+          .btn-danger:hover, #btn-stop:hover {
+            background: rgba(254, 226, 226, 0.95);
             transform: translateY(-1px);
           }
-          .btn-danger:active {
+          .btn-danger:active, #btn-stop:active {
             transform: translateY(0);
           }
         </style>
@@ -1624,12 +1642,12 @@
           <div class="ghost-dock-content" id="ghost-dock" title="وضع الشبح النشط (انقر للتوسيع)">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="ghost-dot ${state.isRunning ? 'running' : 'stopped'}" id="ghost-dot"></span>
-              <span style="display: flex; align-items: center; gap: 4px; color: #F5F5F7; font-size: 11px; font-weight: 600;">
-                <span id="ghost-reply-counter" style="color: #F5F5F7; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">${state.stats.matched}</span>
-                <span style="font-size: 9.5px; color: rgba(235, 235, 245, 0.6); font-weight: 500;">رد</span>
+              <span style="display: flex; align-items: center; gap: 4px; color: #0f172a; font-size: 11px; font-weight: 600;">
+                <span id="ghost-reply-counter" style="color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">${state.stats.matched}</span>
+                <span style="font-size: 9.5px; color: #475569; font-weight: 500;">رد</span>
               </span>
             </div>
-            <span style="font-size: 11px; color: rgba(235, 235, 245, 0.5); cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
+            <span style="font-size: 11px; color: #64748b; cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
           </div>
 
           <div class="hud-header" id="hud-header">
@@ -1644,9 +1662,9 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
               <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
-                <span style="font-size: 11px; color: #F5F5F7;">فحص: <b id="min-stat-eval">0</b></span>
-                <span style="font-size: 11px; color: #34C759;">رد: <b id="min-stat-match">0</b></span>
-                <span style="font-size: 11px; color: #FF9F0A;">استعادة: <b id="min-stat-unread">0</b></span>
+                <span style="font-size: 11px; color: #0f172a;">فحص: <b id="min-stat-eval">0</b></span>
+                <span style="font-size: 11px; color: #16a34a;">رد: <b id="min-stat-match">0</b></span>
+                <span style="font-size: 11px; color: #d97706;">استعادة: <b id="min-stat-unread">0</b></span>
               </div>
               <div id="hud-status" class="status-badge status-ready">READY</div>
             </div>
@@ -1658,15 +1676,15 @@
               <span class="stat-label">المفحوص</span>
             </div>
             <div class="stat-item">
-              <span id="stat-matched" class="stat-value" style="color: #34C759;">0</span>
+              <span id="stat-matched" class="stat-value" style="color: #16a34a;">0</span>
               <span class="stat-label">تم الرد</span>
             </div>
             <div class="stat-item">
-              <span id="stat-unread" class="stat-value" style="color: #FF9F0A;">0</span>
+              <span id="stat-unread" class="stat-value" style="color: #d97706;">0</span>
               <span class="stat-label">غير مقروء</span>
             </div>
             <div class="stat-item">
-              <span id="stat-skipped" class="stat-value" style="color: #8E8E93;">0</span>
+              <span id="stat-skipped" class="stat-value" style="color: #64748b;">0</span>
               <span class="stat-label">مستبعد (حماية)</span>
             </div>
           </div>
@@ -2545,5 +2563,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.3] Initialized successfully (Iridescent Liquid Aqua-Glass Edition).');
+  console.log('[MBS Automator V4.9.4] Initialized successfully (Apple Frosted Light Ice-Blue Glass Edition).');
 })();
