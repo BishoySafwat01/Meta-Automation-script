@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.4 Python Runner)
+⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.6.0 Python Runner)
 =============================================================================
 Architecture & Features:
 - Connects to active Google Chrome via Chrome DevTools Protocol (CDP port 9222).
-- Injects a complete Glassmorphism RTL Arabic HUD directly into Meta Business Suite.
-- Dynamic First-Unhandled Queue Traversal (eliminates index-shift drift bug).
-- Expanded Envelope (✉) Locator (top < 380 + Done Sibling fallback + Toolbar fallback).
+- Injects a complete Frosted Glass RTL Arabic HUD + Ghost Stealth Mode directly into Meta Business Suite.
+- Resolution-Invariant Envelope Discovery & Dropdown Fallback.
+- Anti-False-Drop Ad Guard (Length & Context Gate for inquiries referencing ads).
+- LRU Memory Ring-Buffer to prevent memory leaks during 24/7 continuous operation.
 - Inbound Boundary Parsing (strictly evaluates incoming customer messages after last agent reply).
 - Visual Inspection & Framing (Sky-blue active row, green dashed customer bubble, flashing envelope).
 - Complete Arabic Text Normalization & Keyword Matching (exact, word, contains).
@@ -131,13 +132,13 @@ def format_log(tag: str, msg: str):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.4)
+  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.6.0)
   ⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (Production)
 ============================================================================={Colors.END}
-  • الفلترة المتقدمة للمحادثات وقفل الحدود بعد آخر رد
-  • واجهة تحكم متكاملة (HUD) مدمجة في صفحة فيسبوك مباشرة
-  • لوحة تحكم للقواعد وتعديل سرعات الكتابة والتهدئة
-  • حماية من استبعاد المحادثات وتخطي التكرار
+  • محدد ظرف ديناميكي نسبي للحاوية بدون إحداثيات ثابتة
+  • حماية من إسقاط رسائل الإعلانات الزائفة وقفل الطول والسياق (< 45 حرف)
+  • درع ذاكرة حلقي LRU Ring-Buffer للتشغيل المستمر 24/7 دون تسريب
+  • واجهة Frosted Glass بتصميم Google Sans ووضع الشبح الفائق (Ghost Mode 👻)
 =============================================================================
 """
     print(banner)

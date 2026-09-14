@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Production V4.4.2)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Production V4.6.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.4.2
-// @description  Automates Meta Business Suite Inbox (RTL Arabic) with Sequential Queue, Expanded Envelope Locator & Dropdown Fallback, Clean Ad Filters, Visual Framing, Post-Agent Inbound Boundary Parsing, and Standby Monitoring.
+// @version      4.6.0
+// @description  Automates Meta Business Suite Inbox (RTL Arabic) with Container-Relative Envelope Locator, Anti-False-Drop Ad Guard, LRU Memory Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
 // @author       Principal Frontend Architect & Reverse-Engineering Architect
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,53 +13,68 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (V4.4.2 PRODUCTION GRADE)
+ * META BUSINESS SUITE INBOX AUTOMATOR (V4.6.0 PRODUCTION GRADE)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. SEQUENTIAL & DYNAMIC QUEUE PROGRESSION:
  *    - Sequential traversal with natural sidebar scrolling (scrollBy top: 220).
  *    - Stable contact tracking to prevent duplicate processing.
- * 2. EXPANDED ENVELOPE (✉) LOCATOR & DROPDOWN MENU FALLBACK:
- *    - Direct toolbar query (top < 380, left < 55%).
- *    - Sibling search adjacent to Done (✓ / تم).
- *    - Responsive Dropdown Fallback: automatically expands "فتح القائمة المنسدلة"
- *      and triggers "تمييز كغير مقروءة" on compact and laptop displays.
- * 3. POST-AGENT INBOUND BOUNDARY PARSING:
+ * 2. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
+ *    - Scoped chat header & action toolbar discovery without hardcoded coordinates.
+ *    - 4-Tier discovery strategy: attributes -> "Done" sibling -> envelope SVG path -> scoped dropdown fallback.
+ * 3. ANTI-FALSE-DROP AD GUARD:
+ *    - Length & Context gate prevents valid customer inquiries referencing ads from being dropped.
+ * 4. LRU MEMORY RING-BUFFER:
+ *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
+ * 5. GOOGLE GLASS UI & GHOST STEALTH DOCK:
+ *    - Frosted glass design (blur 16px, saturate 180%, ambient shadow).
+ *    - Ultra-compact floating pill (110x32px) with live reply counter and pulsing status dot.
+ * 6. POST-AGENT INBOUND BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly AFTER the last agent reply.
- *    - Immediately skips and restores unread if the latest thread message is outbound.
- * 4. COMPLETE VISUAL SUPERVISION & FRAMING:
+ *    - Immediately skips and preserves unread status if the latest thread message is outbound.
+ * 7. COMPLETE VISUAL SUPERVISION & FRAMING:
  *    - Sky-blue border (3px solid #38bdf8 with soft glow) on active row.
  *    - Green dashed frame (2px dashed #22c55e) on evaluated customer bubble for 500ms.
  *    - Green pulse outline (2px solid #22c55e with glow) on envelope button for 400ms.
- * 5. HUMAN SIMULATOR:
+ * 8. HUMAN SIMULATOR:
  *    - Character-by-character typing with natural jitter (35-65ms) and punctuation delays.
  *    - Lexical composer clearing verification.
  *    - Natural human cooldowns (1.5s - 2.5s).
- * 6. ISOLATED SHADOW DOM HUD:
- *    - Complete dark glassmorphism HUD mounted in an open Shadow DOM.
- *    - Live terminal logs, live stats, rule manager with active toggles and match types,
- *      and human timing configuration.
- *    - Global [Escape] key emergency kill switch with e.isTrusted verification.
  * ============================================================================
  */
 
 (function () {
   'use strict';
 
-  if (window.__MBS_AUTOMATOR_V44_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V46_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V44_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V46_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. STATE CONFIGURATION & PERSISTENCE
   // ---------------------------------------------------------------------------
   const STORAGE_KEY_RULES = 'MBS_AUTO_RULES_V44';
   const STORAGE_KEY_CONFIG = 'MBS_AUTO_CONFIG_V44';
+  const STORAGE_KEY_GHOST = 'MBS_AUTO_GHOST_MODE_V46';
+
+  function pruneLRUCache(collection, maxLimit = 350, pruneCount = 100) {
+    if (!collection) return;
+    if (collection instanceof Map || collection instanceof Set) {
+      if (collection.size > maxLimit) {
+        let removed = 0;
+        for (const key of collection.keys()) {
+          collection.delete(key);
+          removed++;
+          if (removed >= pruneCount) break;
+        }
+      }
+    }
+  }
 
   const defaultRules = [
     {
@@ -509,24 +524,30 @@
     },
 
     async executeRestoreToUnread(logger) {
-      const maxLeft = 500;
+      // Container-Relative & Dynamic Coordinate Scope:
+      // Dynamically scope toolbar horizontally using composer bounds (with safe fallback)
+      const composer = this.getComposer();
+      const compRect = composer ? composer.getBoundingClientRect() : null;
+      const minLeft = compRect ? Math.max(0, compRect.left - 80) : 0;
+      const maxRight = compRect ? Math.min(window.innerWidth, compRect.right + 80) : (window.innerWidth * 0.55);
 
-      // 1. Direct Envelope Button (in chat toolbar, strictly left < 500, top < 250)
-      const selectors = [
+      // TIER 1: Direct Button with Unread Label Attributes in Chat Header
+      const unreadSelectors = [
         'button[aria-label*="غير مقروء" i]',
         'button[aria-label*="unread" i]',
         'div[role="button"][aria-label*="غير مقروء" i]',
         'div[role="button"][aria-label*="unread" i]',
         'button[title*="غير مقروء" i]',
         'div[role="button"][title*="غير مقروء" i]',
-        'button[aria-label*="علامة كغير" i]'
+        'button[aria-label*="علامة كغير" i]',
+        'div[role="button"][aria-label*="علامة كغير" i]'
       ];
 
-      for (const sel of selectors) {
+      for (const sel of unreadSelectors) {
         const btns = Array.from(document.querySelectorAll(sel)).filter(b => {
           if (b.closest('#mbs-inbox-automator-root')) return false;
           const r = b.getBoundingClientRect();
-          return r.top < 250 && r.left < maxLeft && r.width > 0 && r.height > 0;
+          return r.top < 280 && r.left >= minLeft && r.right <= maxRight && r.width > 0 && r.height > 0;
         });
         if (btns.length > 0) {
           const btn = btns[0];
@@ -536,17 +557,69 @@
         }
       }
 
-      // NOTE: Done Sibling Fallback is permanently REMOVED to prevent any accidental click on "تم" / Done!
-
-      // 2. Responsive Dropdown Fallback: "فتح القائمة المنسدلة" -> "تمييز كغير مقروءة"
-      logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
-      const dropdownBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
+      // TIER 2: Sibling Check Relative to "Done" Button (CRITICAL: Only click the unread sibling, NEVER Done!)
+      const allHeaderButtons = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => {
         if (b.closest('#mbs-inbox-automator-root')) return false;
-        const t = (b.innerText || '').trim();
-        const aria = b.getAttribute('aria-label') || '';
         const r = b.getBoundingClientRect();
-        return (t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More')) &&
-               r.top > 100 && r.top < 220 && r.left < maxLeft && r.left > 150 && r.width > 0;
+        return r.top < 280 && r.left >= minLeft && r.right <= maxRight && r.width > 0 && r.height > 0;
+      });
+
+      const doneBtn = allHeaderButtons.find(b => {
+        const txt = (b.innerText || '').trim();
+        const aria = (b.getAttribute('aria-label') || '').trim();
+        const title = (b.getAttribute('title') || '').trim();
+        return /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(txt) ||
+               /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(aria) ||
+               /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(title);
+      });
+
+      if (doneBtn && doneBtn.parentElement) {
+        const siblings = Array.from(doneBtn.parentElement.children).filter(el => el !== doneBtn);
+        for (const sib of siblings) {
+          const targetBtn = (sib.matches && sib.matches('button, div[role="button"]')) ? sib : sib.querySelector('button, div[role="button"]');
+          if (!targetBtn) continue;
+          const sAria = (targetBtn.getAttribute('aria-label') || '').toLowerCase();
+          const sTitle = (targetBtn.getAttribute('title') || '').toLowerCase();
+          const sTxt = (targetBtn.innerText || '').toLowerCase();
+          if (sAria.includes('done') || sAria.includes('تم') || sTitle.includes('تم') || sTxt.includes('تم')) continue;
+
+          if (sAria.includes('غير مقروء') || sAria.includes('unread') ||
+              sTitle.includes('غير مقروء') || sTitle.includes('unread') ||
+              targetBtn.querySelector('svg')) {
+            await HumanSimulator.flashEnvelopeButton(targetBtn);
+            await HumanSimulator.naturalClick(targetBtn);
+            return true;
+          }
+        }
+      }
+
+      // TIER 3: Envelope SVG Path Discovery (Inspect paths in header buttons)
+      for (const btn of allHeaderButtons) {
+        const svg = btn.querySelector('svg');
+        if (!svg) continue;
+        const aria = (btn.getAttribute('aria-label') || svg.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        if (aria.includes('done') || aria.includes('تم') || title.includes('تم')) continue;
+
+        const path = btn.querySelector('path');
+        const d = path ? (path.getAttribute('d') || '') : '';
+        if (aria.includes('unread') || aria.includes('غير مقروء') ||
+            title.includes('unread') || title.includes('غير مقروء') ||
+            (d.length > 25 && (d.includes('M') || d.includes('m')) && (aria.includes('mail') || aria.includes('envelope') || svg.innerHTML.includes('envelope')))) {
+          await HumanSimulator.flashEnvelopeButton(btn);
+          await HumanSimulator.naturalClick(btn);
+          return true;
+        }
+      }
+
+      // TIER 4: Responsive Dropdown Fallback ("فتح القائمة المنسدلة" / "المزيد")
+      if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
+      const dropdownBtn = allHeaderButtons.find(b => {
+        const t = (b.innerText || '').trim();
+        const aria = (b.getAttribute('aria-label') || '').trim();
+        const title = (b.getAttribute('title') || '').trim();
+        return t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More') ||
+               title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة');
       });
 
       if (dropdownBtn) {
@@ -556,14 +629,16 @@
         await sleep(500);
 
         // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
-        const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"]'));
+        const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]'));
         const unreadMenuItem = menuItems.find(el => {
           if (el.closest('#mbs-inbox-automator-root')) return false;
           const txt = (el.innerText || '').trim();
+          const aria = (el.getAttribute('aria-label') || '').trim();
+          const allTxt = `${txt} ${aria}`.toLowerCase();
           const r = el.getBoundingClientRect();
-          return (txt.includes('غير مقروء') || txt.toLowerCase().includes('unread')) &&
-                 !txt.includes('نقل') && !txt.includes('المجلد') && !txt.includes('حذف') &&
-                 r.height > 15 && r.height < 60 && r.width > 0;
+          return (allTxt.includes('غير مقروء') || allTxt.includes('unread')) &&
+                 !allTxt.includes('نقل') && !allTxt.includes('المجلد') && !allTxt.includes('حذف') &&
+                 r.height > 15 && r.height < 70 && r.width > 0;
         });
 
         if (unreadMenuItem) {
@@ -582,15 +657,24 @@
 
     isAdOrMetadataElement(el, txt) {
       if (!el) return false;
-      if (el.closest) {
-        if (el.closest('a[href*="/ads/"], [data-ad-id]')) return true;
-        if (el.closest('[aria-label*="إعلان ممول" i], [aria-label*="Sponsored" i]')) return true;
-      }
+      const isAdContainer = Boolean(el.closest && (
+        el.closest('a[href*="/ads/"], [data-ad-id]') ||
+        el.closest('[aria-label*="إعلان ممول" i], [aria-label*="Sponsored" i]')
+      ));
+      if (isAdContainer) return true;
+
       const text = (txt || el.innerText || '').trim();
       if (!text) return false;
+
+      // Anti-False-Drop Ad Guard:
+      // Only drop text matching ad regex IF inside an ad container OR text is short (< 45 chars).
+      // Longer customer inquiries referencing an ad (e.g. "شفت إعلان ممول وعايز أعرف السعر") are preserved.
       if (/(?:تم الإرسال من إعلان|الرد على الإعلان|إعلان ممول|محتوى ممول|Sponsored Ad|Sent from ad)/i.test(text)) {
-        return true;
+        if (isAdContainer || text.length < 45) {
+          return true;
+        }
       }
+
       if (/^\+?201\d{9}\s+حاليا[ً]?\s+متوفر/i.test(text)) {
         return true;
       }
@@ -911,6 +995,7 @@
       this.container = null;
       this.shadow = null;
       this.activeTab = 'console';
+      this.isGhostMode = false;
       this.init();
     }
 
@@ -920,6 +1005,12 @@
         existing.remove();
       }
 
+      try {
+        this.isGhostMode = localStorage.getItem(STORAGE_KEY_GHOST) === 'true';
+      } catch (_) {
+        this.isGhostMode = false;
+      }
+
       this.container = document.createElement('div');
       this.container.id = 'mbs-inbox-automator-root';
       this.container.style.position = 'fixed';
@@ -927,14 +1018,14 @@
       this.container.style.left = '20px';
       this.container.style.zIndex = '9999999';
       this.container.style.direction = 'rtl';
-      this.container.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      this.container.style.fontFamily = "'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif";
 
       this.shadow = this.container.attachShadow({ mode: 'open' });
       this.render();
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.4 بنجاح وجاهزة لبدء الأتمتة.');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.6.0 بنجاح وجاهزة لبدء الأتمتة.');
     }
 
     render() {
@@ -949,17 +1040,88 @@
             max-height: 90vh;
             width: 470px;
             max-height: 610px;
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(18px);
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 14px;
-            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
             overflow: hidden;
             color: #f8fafc;
             user-select: none;
+            transition: width 0.25s ease, height 0.25s ease, opacity 0.25s ease, border-radius 0.25s ease;
           }
+
+          /* Ghost Stealth Mode Pill */
+          .hud-card.ghost-mode {
+            width: 110px !important;
+            min-width: 110px !important;
+            max-width: 110px !important;
+            height: 32px !important;
+            min-height: 32px !important;
+            max-height: 32px !important;
+            border-radius: 999px !important;
+            padding: 0 10px !important;
+            background: rgba(15, 23, 42, 0.85) !important;
+            backdrop-filter: blur(16px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+            opacity: 0.35;
+            cursor: pointer;
+            resize: none !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+          }
+          .hud-card.ghost-mode:hover {
+            opacity: 1.0 !important;
+            box-shadow: 0 12px 35px rgba(56, 189, 248, 0.25) !important;
+            border-color: rgba(56, 189, 248, 0.3) !important;
+          }
+
+          @keyframes pulse-dot {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.18); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
+          }
+          .ghost-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            display: inline-block;
+            animation: pulse-dot 2s infinite ease-in-out;
+          }
+          .ghost-dot.running { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+          .ghost-dot.cooldown { background: #facc15; box-shadow: 0 0 8px #facc15; }
+          .ghost-dot.monitoring { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+          .ghost-dot.stopped { background: #f87171; box-shadow: 0 0 8px #f87171; }
+
+          .ghost-dock-content {
+            display: none;
+            width: 100%;
+            height: 100%;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 700;
+            color: #f8fafc;
+            user-select: none;
+          }
+          .hud-card.ghost-mode .ghost-dock-content {
+            display: flex !important;
+          }
+          .hud-card.ghost-mode .hud-header,
+          .hud-card.ghost-mode .hud-stats-bar,
+          .hud-card.ghost-mode .hud-tabs,
+          .hud-card.ghost-mode .hud-content,
+          .hud-card.ghost-mode .hud-footer {
+            display: none !important;
+          }
+
           .header-icon-btn {
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1238,15 +1400,27 @@
           .btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
         </style>
 
-        <div class="hud-card">
+        <div class="hud-card${this.isGhostMode ? ' ghost-mode' : ''}">
+          <!-- Ghost Stealth Mode Pill Content -->
+          <div class="ghost-dock-content" id="ghost-dock" title="وضع الشبح النشط (انقر للتوسيع)">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="ghost-dot ${state.isRunning ? 'running' : 'stopped'}" id="ghost-dot"></span>
+              <span style="display: flex; align-items: center; gap: 2px; color: #38bdf8; font-size: 10.5px;">
+                ⚡<span id="ghost-reply-counter" style="color: #4ade80; font-family: monospace;">${state.stats.matched}</span>
+              </span>
+            </div>
+            <span style="font-size: 12px; color: #94a3b8; cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
+          </div>
+
           <div class="hud-header" id="hud-header">
             <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="header-icon-btn" id="btn-ghost" title="وضع الشبح (Ghost Mode)">👻</button>
               <button class="header-icon-btn" id="btn-minimize" title="تصغير إلى شريط مصغر">—</button>
               <button class="header-icon-btn" id="btn-maximize" title="تكبير / توسيع النافذة">⛶</button>
             </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.4.2</span>
+              <span style="font-size: 10px; color: #64748b;">V4.6.0</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
               <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
@@ -1344,17 +1518,38 @@
       this.renderRulesList();
     }
 
+    toggleGhostMode(enable) {
+      this.isGhostMode = enable;
+      try {
+        localStorage.setItem(STORAGE_KEY_GHOST, enable ? 'true' : 'false');
+      } catch (_) {}
+
+      const card = this.shadow.querySelector('.hud-card');
+      if (!card) return;
+
+      if (enable) {
+        card.classList.add('ghost-mode');
+        this.log('INFO', 'تفعيل وضع الشبح الفائق (Ghost Stealth Mode 👻). انقر على الشريط لاستعادة الواجهة.');
+      } else {
+        card.classList.remove('ghost-mode');
+        this.log('INFO', 'استعادة واجهة التحكم الكاملة.');
+      }
+    }
+
     bindEvents() {
-      // Draggable window implementation
+      // Draggable window implementation (supports both full header and ghost dock)
       const header = this.shadow.getElementById('hud-header');
+      const ghostDock = this.shadow.getElementById('ghost-dock');
       let isDragging = false;
       let startX = 0, startY = 0;
       let initialLeft = 0, initialTop = 0;
+      let dragDistance = 0;
 
-      header.addEventListener('mousedown', (e) => {
+      const handleStartDrag = (e) => {
         if (e.target.closest('button, input, select, label')) return;
         isDragging = true;
-        header.style.cursor = 'grabbing';
+        dragDistance = 0;
+        if (header) header.style.cursor = 'grabbing';
         startX = e.clientX;
         startY = e.clientY;
         
@@ -1371,12 +1566,13 @@
           if (!isDragging) return;
           const dx = moveEvent.clientX - startX;
           const dy = moveEvent.clientY - startY;
+          dragDistance = Math.hypot(dx, dy);
 
           let newLeft = initialLeft + dx;
           let newTop = initialTop + dy;
 
-          const w = this.container.offsetWidth || 470;
-          const h = this.container.offsetHeight || 300;
+          const w = this.container.offsetWidth || 110;
+          const h = this.container.offsetHeight || 32;
 
           newLeft = Math.max(10, Math.min(window.innerWidth - w - 10, newLeft));
           newTop = Math.max(10, Math.min(window.innerHeight - h - 10, newTop));
@@ -1387,14 +1583,33 @@
 
         const onMouseUp = () => {
           isDragging = false;
-          header.style.cursor = 'grab';
+          if (header) header.style.cursor = 'grab';
           document.removeEventListener('mousemove', onMouseMove);
           document.removeEventListener('mouseup', onMouseUp);
         };
 
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
-      });
+      };
+
+      if (header) header.addEventListener('mousedown', handleStartDrag);
+      if (ghostDock) {
+        ghostDock.addEventListener('mousedown', handleStartDrag);
+        ghostDock.addEventListener('click', (e) => {
+          if (dragDistance > 5) return;
+          e.stopPropagation();
+          this.toggleGhostMode(false);
+        });
+      }
+
+      // Ghost Mode Button Toggle
+      const btnGhost = this.shadow.getElementById('btn-ghost');
+      if (btnGhost) {
+        btnGhost.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleGhostMode(true);
+        });
+      }
 
       // Minimize / Restore Toggle
       const btnMin = this.shadow.getElementById('btn-minimize');
@@ -1403,6 +1618,9 @@
       let isMaximized = false;
 
       btnMin.addEventListener('click', () => {
+        if (this.isGhostMode) {
+          this.toggleGhostMode(false);
+        }
         isMinimized = !isMinimized;
         const card = this.shadow.querySelector('.hud-card');
         const stats = this.shadow.querySelector('.hud-stats-bar');
@@ -1437,6 +1655,9 @@
       });
 
       btnMax.addEventListener('click', () => {
+        if (this.isGhostMode) {
+          this.toggleGhostMode(false);
+        }
         if (isMinimized) {
           btnMin.click();
         }
@@ -1595,25 +1816,37 @@
 
     setStatus(text, type = 'ready') {
       const el = this.shadow.getElementById('hud-status');
-      if (!el) return;
-      el.textContent = text;
-      el.className = `status-badge status-${type}`;
+      if (el) {
+        el.textContent = text;
+        el.className = `status-badge status-${type}`;
+      }
+      const gDot = this.shadow.getElementById('ghost-dot');
+      if (gDot) {
+        gDot.className = `ghost-dot ${type}`;
+      }
       if (window.pyOnStateChange) {
         window.pyOnStateChange(text).catch(() => {});
       }
     }
 
     updateStats() {
-      this.shadow.getElementById('stat-evaluated').textContent = state.stats.evaluated;
+      const sEval = this.shadow.getElementById('stat-evaluated');
+      if (sEval) sEval.textContent = state.stats.evaluated;
       const mEval = this.shadow.getElementById('min-stat-eval');
       if (mEval) mEval.textContent = state.stats.evaluated;
       const mMatch = this.shadow.getElementById('min-stat-match');
       if (mMatch) mMatch.textContent = state.stats.matched;
       const mUnread = this.shadow.getElementById('min-stat-unread');
       if (mUnread) mUnread.textContent = state.stats.unreadRestored;
-      this.shadow.getElementById('stat-matched').textContent = state.stats.matched;
-      this.shadow.getElementById('stat-unread').textContent = state.stats.unreadRestored;
-      this.shadow.getElementById('stat-skipped').textContent = state.stats.skippedOutbound;
+      const sMatch = this.shadow.getElementById('stat-matched');
+      if (sMatch) sMatch.textContent = state.stats.matched;
+      const sUnread = this.shadow.getElementById('stat-unread');
+      if (sUnread) sUnread.textContent = state.stats.unreadRestored;
+      const sSkip = this.shadow.getElementById('stat-skipped');
+      if (sSkip) sSkip.textContent = state.stats.skippedOutbound;
+
+      const gCounter = this.shadow.getElementById('ghost-reply-counter');
+      if (gCounter) gCounter.textContent = state.stats.matched;
 
       if (window.pyUpdateStats) {
         window.pyUpdateStats(state.stats).catch(() => {});
@@ -1846,7 +2079,10 @@
           const currHeader = DOM.getActiveChatContactName();
           this.hud.log('WARN', `تعذر تبديل المحادثة للعميل "${contactName}" (المحادثة المعروضة حالياً: "${currHeader || 'غير محددة'}"). تخطي لحماية المحادثة الحالية.`);
           state.processedContacts.add(contactKey);
-          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
+          if (rowFingerprint) {
+            state.processedSnapshots.add(rowFingerprint);
+            pruneLRUCache(state.processedSnapshots, 350, 100);
+          }
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
           continue;
@@ -1875,7 +2111,10 @@
           // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
           // This prevents the thread from being trapped in an infinite loop in the unread queue.
           if (contactKey) state.processedContacts.add(contactKey);
-          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
+          if (rowFingerprint) {
+            state.processedSnapshots.add(rowFingerprint);
+            pruneLRUCache(state.processedSnapshots, 350, 100);
+          }
 
           targetRow.style.outline = originalOutline || '';
           targetRow.style.boxShadow = originalShadow || '';
@@ -1924,9 +2163,15 @@
           const { rule, matchedKeyword } = matchResult;
 
           const activeSnippet = DOM.getRowSnippet(targetRow);
-          if (contactKey && activeSnippet) state.lastRepliedSnippets.set(contactKey, activeSnippet);
+          if (contactKey && activeSnippet) {
+            state.lastRepliedSnippets.set(contactKey, activeSnippet);
+            pruneLRUCache(state.lastRepliedSnippets, 350, 100);
+          }
           if (contactKey) state.processedContacts.add(contactKey);
-          if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
+          if (rowFingerprint) {
+            state.processedSnapshots.add(rowFingerprint);
+            pruneLRUCache(state.processedSnapshots, 350, 100);
+          }
 
           state.stats.matched++;
           this.hud.updateStats();
@@ -1959,6 +2204,10 @@
           }
         }
 
+        // Periodic LRU cache guard
+        pruneLRUCache(state.lastRepliedSnippets, 350, 100);
+        pruneLRUCache(state.processedSnapshots, 350, 100);
+
         const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
         this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
         this.hud.log('INFO', `تهدئة بشرية: انتظار ${(cooldown / 1000).toFixed(1)} ثانية...`);
@@ -1969,7 +2218,10 @@
 
     async executeBranchB(contactKey, rowFingerprint) {
       if (contactKey) state.processedContacts.add(contactKey);
-      if (rowFingerprint) state.processedSnapshots.add(rowFingerprint);
+      if (rowFingerprint) {
+        state.processedSnapshots.add(rowFingerprint);
+        pruneLRUCache(state.processedSnapshots, 350, 100);
+      }
 
       await sleep(randomRange(150, 250));
       const restored = await DOM.executeRestoreToUnread(this.hud);
@@ -2005,5 +2257,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.4.2] Bootstrapped successfully.');
+  console.log('[MBS Automator V4.6.0] Bootstrapped successfully.');
 })();
