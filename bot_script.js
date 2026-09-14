@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.6)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.0.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.6
-// @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
+// @version      5.0.0
+// @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.6)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.0.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -23,7 +23,7 @@
  *    - Pure white active tabs, crisp slate typography (#0f172a, #334155, #475569).
  *    - Clean "Meta Automation" branding with zero version chips.
  *    - Single-field typing speed control (ms/char) & decimal seconds duration controls.
- * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
+ * 2. DYNAMIC PAGE STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
  *    - Namespaces all localStorage keys: MBS_RULES_${asset_id}, MBS_CONFIG_${asset_id}, MBS_GHOST_${asset_id}.
  *    - Dynamic SPA re-hydration: auto-switches rules/config when operator navigates between pages.
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V496_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V500_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V496_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V500_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -206,14 +206,19 @@
     return JSON.parse(JSON.stringify(defaultRules));
   }
 
+  let rulesDebounceTimer = null;
   function saveRules() {
     try {
       const { rulesKey } = getTenantStorageKeys();
       localStorage.setItem(rulesKey, JSON.stringify(state.rules));
+    } catch (_) {}
+
+    if (rulesDebounceTimer) clearTimeout(rulesDebounceTimer);
+    rulesDebounceTimer = setTimeout(() => {
       if (window.pySaveConfig) {
         window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
       }
-    } catch (_) {}
+    }, 400);
   }
 
   function loadConfig() {
@@ -237,14 +242,19 @@
     return cfg;
   }
 
+  let configDebounceTimer = null;
   function saveConfig() {
     try {
       const { configKey } = getTenantStorageKeys();
       localStorage.setItem(configKey, JSON.stringify(state.config));
+    } catch (_) {}
+
+    if (configDebounceTimer) clearTimeout(configDebounceTimer);
+    configDebounceTimer = setTimeout(() => {
       if (window.pySaveConfig) {
         window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
       }
-    } catch (_) {}
+    }, 400);
   }
 
   function checkAndRehydrateTenant(hud) {
@@ -263,7 +273,7 @@
         hud.updateTenantUI(latestTenantId);
         hud.renderRulesList();
         hud.updateConfigUI();
-        hud.log('INFO', `[Multi-Tenant] تم تبديل الصفحة/الفرع (Tenant Switch: [${prevTenantId}] ➔ [${latestTenantId}]). تم إعادة تحميل القواعد والإعدادات تلقائياً.`);
+        hud.log('INFO', `[Page] تم تبديل الصفحة النشطة (Page Switch: [${prevTenantId}] ➔ [${latestTenantId}]). تم إعادة تحميل القواعد والإعدادات تلقائياً.`);
       }
       return true;
     }
@@ -347,6 +357,40 @@
   }
 
   const randomRange = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+  function dispatchFullClick(el) {
+    if (!el) return;
+    try {
+      if (typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+      }
+    } catch (_) {}
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+      try {
+        el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+      } catch (_) {}
+    });
+  }
+
+  function releaseChatFocus() {
+    try {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      const composer = DOM.getComposer();
+      if (composer) {
+        composer.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+      }
+      const chatCanvas = DOM.getChatCanvas();
+      if (chatCanvas) {
+        chatCanvas.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+      }
+      const neutral = document.querySelector('header, div[role="banner"], #mbs-inbox-automator-root');
+      if (neutral) {
+        neutral.dispatchEvent(new MouseEvent('click', { bubbles: true, view: window }));
+      }
+    } catch (_) {}
+  }
 
   // ---------------------------------------------------------------------------
   // 3. DOM QUERY ENGINE & SELECTORS
@@ -435,20 +479,40 @@
           t.startsWith('رد تلقائي:') || t.startsWith('رد آلي:') || t.startsWith('Automated response:')) {
         return true;
       }
-      // Multiline text or very long strings (>45 chars) in conversation rows are message previews, not names
-      if (t.includes('\n') || t.length > 45) return true;
+      // Multiline text or long strings (>35 chars) in conversation rows are message previews, not names
+      if (t.includes('\n') || t.length > 35) return true;
       return false;
     },
 
     getRowCustomerName(row) {
       if (!row) return '';
 
+      const matchesMessageBubble = (txt) => {
+        if (!txt) return false;
+        const clean = txt.trim().toLowerCase();
+        if (clean.length < 2) return false;
+        try {
+          const chatCanvas = this.getChatCanvas();
+          if (chatCanvas) {
+            const bubbles = Array.from(chatCanvas.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
+            for (const b of bubbles) {
+              const bTxt = (b.innerText || '').trim().toLowerCase();
+              if (bTxt && (bTxt === clean || (clean.length > 8 && bTxt.includes(clean)))) {
+                return true;
+              }
+            }
+          }
+        } catch (_) {}
+        return false;
+      };
+
       const isValidName = (txt) => {
         if (!txt) return false;
         const clean = txt.trim();
-        if (clean.length < 2 || clean.length > 45) return false;
+        if (clean.length < 2 || clean.length > 35) return false;
         if (this.isTimestampOrBadge(clean)) return false;
         if (this.isSnippetOrPreview(clean)) return false;
+        if (matchesMessageBubble(clean)) return false;
         return true;
       };
 
@@ -509,7 +573,7 @@
         }
       }
 
-      return lines[0] || '';
+      return (lines[0] && isValidName(lines[0])) ? lines[0] : '';
     },
 
     getStableRowKey(row) {
@@ -537,6 +601,46 @@
         .map(l => l.trim())
         .filter(l => l && l !== name && !this.isTimestampOrBadge(l));
       return lines.join(' | ');
+    },
+
+    isRowVisuallyUnread(row) {
+      if (!row) return false;
+      try {
+        const aria = (row.getAttribute('aria-label') || '').toLowerCase();
+        if (aria.includes('غير مقروء') || aria.includes('unread')) return true;
+
+        const childUnread = row.querySelector('[aria-label*="غير مقروء" i], [aria-label*="unread" i], [title*="غير مقروء" i], [title*="unread" i]');
+        if (childUnread) return true;
+
+        const className = (typeof row.className === 'string') ? row.className.toLowerCase() : '';
+        if (className.includes('unread')) return true;
+
+        const dots = Array.from(row.querySelectorAll('span, div')).filter(el => {
+          if (el.closest('#mbs-inbox-automator-root')) return false;
+          if (el.children.length > 0) return false;
+          const rect = el.getBoundingClientRect();
+          if (rect.width >= 5 && rect.width <= 20 && rect.height >= 5 && rect.height <= 20) {
+            const style = window.getComputedStyle(el);
+            const br = style.borderRadius;
+            const bg = style.backgroundColor;
+            if ((br.includes('50%') || parseInt(br, 10) >= 4) && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+              return true;
+            }
+          }
+          return false;
+        });
+        if (dots.length > 0) return true;
+
+        const bolds = Array.from(row.querySelectorAll('span[dir="auto"], span, div, strong')).filter(el => {
+          if (el.closest('#mbs-inbox-automator-root')) return false;
+          try {
+            const w = parseInt(window.getComputedStyle(el).fontWeight, 10) || 400;
+            return w >= 600;
+          } catch (_) { return false; }
+        });
+        if (bolds.length > 0) return true;
+      } catch (_) {}
+      return false;
     },
 
     getRowClickTarget(row) {
@@ -740,7 +844,7 @@
       return null;
     },
 
-    async executeRestoreToUnread(logger) {
+    async executeRestoreToUnread(logger, targetRow, contactKey) {
       // Container-Relative & Dynamic Coordinate Scope:
       // Dynamically scope toolbar horizontally using composer bounds (with safe fallback)
       const composer = this.getComposer();
@@ -748,125 +852,192 @@
       const minLeft = compRect ? Math.max(0, compRect.left - 80) : 0;
       const maxRight = compRect ? Math.min(window.innerWidth, compRect.right + 80) : (window.innerWidth * 0.55);
 
-      // TIER 1: Direct Button with Unread Label Attributes in Chat Header
-      const unreadSelectors = [
-        'button[aria-label*="غير مقروء" i]',
-        'button[aria-label*="unread" i]',
-        'div[role="button"][aria-label*="غير مقروء" i]',
-        'div[role="button"][aria-label*="unread" i]',
-        'button[title*="غير مقروء" i]',
-        'div[role="button"][title*="غير مقروء" i]',
-        'button[aria-label*="علامة كغير" i]',
-        'div[role="button"][aria-label*="علامة كغير" i]'
-      ];
-
-      for (const sel of unreadSelectors) {
-        const btns = Array.from(document.querySelectorAll(sel)).filter(b => {
+      const getHeaderButtons = () => {
+        return Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => {
           if (b.closest('#mbs-inbox-automator-root')) return false;
           const r = b.getBoundingClientRect();
           return r.top < 280 && r.left >= minLeft && r.right <= maxRight && r.width > 0 && r.height > 0;
         });
-        if (btns.length > 0) {
-          const btn = btns[0];
-          await HumanSimulator.flashEnvelopeButton(btn);
-          await HumanSimulator.naturalClick(btn);
-          return true;
+      };
+
+      const findDirectButton = () => {
+        // TIER 1: Direct Button with Unread Label Attributes in Chat Header
+        const unreadSelectors = [
+          'button[aria-label*="غير مقروء" i]',
+          'button[aria-label*="unread" i]',
+          'div[role="button"][aria-label*="غير مقروء" i]',
+          'div[role="button"][aria-label*="unread" i]',
+          'button[title*="غير مقروء" i]',
+          'div[role="button"][title*="غير مقروء" i]',
+          'button[aria-label*="علامة كغير" i]',
+          'div[role="button"][aria-label*="علامة كغير" i]'
+        ];
+
+        for (const sel of unreadSelectors) {
+          const btns = Array.from(document.querySelectorAll(sel)).filter(b => {
+            if (b.closest('#mbs-inbox-automator-root')) return false;
+            const r = b.getBoundingClientRect();
+            return r.top < 280 && r.left >= minLeft && r.right <= maxRight && r.width > 0 && r.height > 0;
+          });
+          if (btns.length > 0) return btns[0];
         }
-      }
 
-      // TIER 2: Sibling Check Relative to "Done" Button (CRITICAL: Only click the unread sibling, NEVER Done!)
-      const allHeaderButtons = Array.from(document.querySelectorAll('button, div[role="button"]')).filter(b => {
-        if (b.closest('#mbs-inbox-automator-root')) return false;
-        const r = b.getBoundingClientRect();
-        return r.top < 280 && r.left >= minLeft && r.right <= maxRight && r.width > 0 && r.height > 0;
-      });
-
-      const doneBtn = allHeaderButtons.find(b => {
-        const txt = (b.innerText || '').trim();
-        const aria = (b.getAttribute('aria-label') || '').trim();
-        const title = (b.getAttribute('title') || '').trim();
-        return /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(txt) ||
-               /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(aria) ||
-               /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(title);
-      });
-
-      if (doneBtn && doneBtn.parentElement) {
-        const siblings = Array.from(doneBtn.parentElement.children).filter(el => el !== doneBtn);
-        for (const sib of siblings) {
-          const targetBtn = (sib.matches && sib.matches('button, div[role="button"]')) ? sib : sib.querySelector('button, div[role="button"]');
-          if (!targetBtn) continue;
-          const sAria = (targetBtn.getAttribute('aria-label') || '').toLowerCase();
-          const sTitle = (targetBtn.getAttribute('title') || '').toLowerCase();
-          const sTxt = (targetBtn.innerText || '').toLowerCase();
-          if (sAria.includes('done') || sAria.includes('تم') || sTitle.includes('تم') || sTxt.includes('تم')) continue;
-
-          if (sAria.includes('غير مقروء') || sAria.includes('unread') ||
-              sTitle.includes('غير مقروء') || sTitle.includes('unread') ||
-              targetBtn.querySelector('svg')) {
-            await HumanSimulator.flashEnvelopeButton(targetBtn);
-            await HumanSimulator.naturalClick(targetBtn);
-            return true;
-          }
-        }
-      }
-
-      // TIER 3: Envelope SVG Path Discovery (Inspect paths in header buttons)
-      for (const btn of allHeaderButtons) {
-        const svg = btn.querySelector('svg');
-        if (!svg) continue;
-        const aria = (btn.getAttribute('aria-label') || svg.getAttribute('aria-label') || '').toLowerCase();
-        const title = (btn.getAttribute('title') || '').toLowerCase();
-        if (aria.includes('done') || aria.includes('تم') || title.includes('تم')) continue;
-
-        const path = btn.querySelector('path');
-        const d = path ? (path.getAttribute('d') || '') : '';
-        if (aria.includes('unread') || aria.includes('غير مقروء') ||
-            title.includes('unread') || title.includes('غير مقروء') ||
-            (d.length > 25 && (d.includes('M') || d.includes('m')) && (aria.includes('mail') || aria.includes('envelope') || svg.innerHTML.includes('envelope')))) {
-          await HumanSimulator.flashEnvelopeButton(btn);
-          await HumanSimulator.naturalClick(btn);
-          return true;
-        }
-      }
-
-      // TIER 4: Responsive Dropdown Fallback ("فتح القائمة المنسدلة" / "المزيد")
-      if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
-      const dropdownBtn = allHeaderButtons.find(b => {
-        const t = (b.innerText || '').trim();
-        const aria = (b.getAttribute('aria-label') || '').trim();
-        const title = (b.getAttribute('title') || '').trim();
-        return t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More') ||
-               title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة');
-      });
-
-      if (dropdownBtn) {
-        await HumanSimulator.flashEnvelopeButton(dropdownBtn);
-        dropdownBtn.focus();
-        dropdownBtn.click();
-        await sleep(500);
-
-        // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
-        const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]'));
-        const unreadMenuItem = menuItems.find(el => {
-          if (el.closest('#mbs-inbox-automator-root')) return false;
-          const txt = (el.innerText || '').trim();
-          const aria = (el.getAttribute('aria-label') || '').trim();
-          const allTxt = `${txt} ${aria}`.toLowerCase();
-          const r = el.getBoundingClientRect();
-          return (allTxt.includes('غير مقروء') || allTxt.includes('unread')) &&
-                 !allTxt.includes('نقل') && !allTxt.includes('المجلد') && !allTxt.includes('حذف') &&
-                 r.height > 15 && r.height < 70 && r.width > 0;
+        // TIER 2: Sibling Check Relative to "Done" Button (CRITICAL: Only click the unread sibling, NEVER Done!)
+        const allHeaderButtons = getHeaderButtons();
+        const doneBtn = allHeaderButtons.find(b => {
+          const txt = (b.innerText || '').trim();
+          const aria = (b.getAttribute('aria-label') || '').trim();
+          const title = (b.getAttribute('title') || '').trim();
+          return /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(txt) ||
+                 /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(aria) ||
+                 /^(تم|نقل إلى تم|Done|Mark as done)$/i.test(title);
         });
 
-        if (unreadMenuItem) {
-          unreadMenuItem.focus();
-          unreadMenuItem.click();
-          await sleep(350);
-          return true;
-        } else {
-          // Close menu gently with Escape if unread item wasn't found
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+        if (doneBtn && doneBtn.parentElement) {
+          const siblings = Array.from(doneBtn.parentElement.children).filter(el => el !== doneBtn);
+          for (const sib of siblings) {
+            const targetBtn = (sib.matches && sib.matches('button, div[role="button"]')) ? sib : sib.querySelector('button, div[role="button"]');
+            if (!targetBtn) continue;
+            const sAria = (targetBtn.getAttribute('aria-label') || '').toLowerCase();
+            const sTitle = (targetBtn.getAttribute('title') || '').toLowerCase();
+            const sTxt = (targetBtn.innerText || '').toLowerCase();
+            if (sAria.includes('done') || sAria.includes('تم') || sTitle.includes('تم') || sTxt.includes('تم')) continue;
+
+            if (sAria.includes('غير مقروء') || sAria.includes('unread') ||
+                sTitle.includes('غير مقروء') || sTitle.includes('unread') ||
+                targetBtn.querySelector('svg')) {
+              return targetBtn;
+            }
+          }
         }
+
+        // TIER 3: Envelope SVG Path Discovery (Inspect paths in header buttons)
+        for (const btn of allHeaderButtons) {
+          const svg = btn.querySelector('svg');
+          if (!svg) continue;
+          const aria = (btn.getAttribute('aria-label') || svg.getAttribute('aria-label') || '').toLowerCase();
+          const title = (btn.getAttribute('title') || '').toLowerCase();
+          if (aria.includes('done') || aria.includes('تم') || title.includes('تم')) continue;
+
+          const path = btn.querySelector('path');
+          const d = path ? (path.getAttribute('d') || '') : '';
+          if (aria.includes('unread') || aria.includes('غير مقروء') ||
+              title.includes('unread') || title.includes('غير مقروء') ||
+              (d.length > 25 && (d.includes('M') || d.includes('m')) && (aria.includes('mail') || aria.includes('envelope') || svg.innerHTML.includes('envelope')))) {
+            return btn;
+          }
+        }
+        return null;
+      };
+
+      const tryClickDropdown = async () => {
+        if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
+        const allHeaderButtons = getHeaderButtons();
+        const dropdownBtn = allHeaderButtons.find(b => {
+          const t = (b.innerText || '').trim();
+          const aria = (b.getAttribute('aria-label') || '').trim();
+          const title = (b.getAttribute('title') || '').trim();
+          return t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More') ||
+                 title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة');
+        });
+
+        if (dropdownBtn) {
+          await HumanSimulator.flashEnvelopeButton(dropdownBtn);
+          releaseChatFocus();
+          dispatchFullClick(dropdownBtn);
+          await sleep(500);
+
+          // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
+          const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]'));
+          const unreadMenuItem = menuItems.find(el => {
+            if (el.closest('#mbs-inbox-automator-root')) return false;
+            const txt = (el.innerText || '').trim();
+            const aria = (el.getAttribute('aria-label') || '').trim();
+            const allTxt = `${txt} ${aria}`.toLowerCase();
+            const r = el.getBoundingClientRect();
+            return (allTxt.includes('غير مقروء') || allTxt.includes('unread')) &&
+                   !allTxt.includes('نقل') && !allTxt.includes('المجلد') && !allTxt.includes('حذف') &&
+                   r.height > 15 && r.height < 70 && r.width > 0;
+          });
+
+          if (unreadMenuItem) {
+            dispatchFullClick(unreadMenuItem);
+            releaseChatFocus();
+            await sleep(350);
+            return true;
+          } else {
+            // Close menu gently with Escape if unread item wasn't found
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+          }
+        }
+        return false;
+      };
+
+      const checkVerifiedUnread = () => {
+        if (!targetRow) return true;
+        let row = targetRow;
+        if (!document.body.contains(row) && contactKey) {
+          const rows = this.getConversationRows();
+          row = rows.find(r => this.getStableRowKey(r) === contactKey) || targetRow;
+        }
+        return this.isRowVisuallyUnread(row);
+      };
+
+      const pollVerification = async (timeoutMs = 1500) => {
+        if (!targetRow) return true;
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          if (checkVerifiedUnread()) return true;
+          await sleep(150);
+        }
+        return checkVerifiedUnread();
+      };
+
+      // ATTEMPT 1: Focus release -> Click Direct or Dropdown -> Focus release -> Verification poll
+      releaseChatFocus();
+      let clicked = false;
+      let usedDropdown = false;
+      const directBtn = findDirectButton();
+
+      if (directBtn) {
+        await HumanSimulator.flashEnvelopeButton(directBtn);
+        releaseChatFocus();
+        dispatchFullClick(directBtn);
+        releaseChatFocus();
+        clicked = true;
+      } else {
+        usedDropdown = true;
+        clicked = await tryClickDropdown();
+      }
+
+      if (clicked) {
+        const verified = await pollVerification(1500);
+        if (verified) return true;
+      }
+
+      // ATTEMPT 2 (RETRY with alternate selector / dropdown):
+      if (logger) logger.log('WARN', 'لم يتم تأكيد حالة غير مقروء في المحاولة الأولى، جاري إعادة المحاولة...');
+      releaseChatFocus();
+      await sleep(250);
+
+      if (!usedDropdown) {
+        clicked = await tryClickDropdown();
+      } else {
+        const retryBtn = findDirectButton();
+        if (retryBtn) {
+          await HumanSimulator.flashEnvelopeButton(retryBtn);
+          releaseChatFocus();
+          dispatchFullClick(retryBtn);
+          releaseChatFocus();
+          clicked = true;
+        } else {
+          clicked = await tryClickDropdown();
+        }
+      }
+
+      if (clicked) {
+        const verified = await pollVerification(1500);
+        return verified;
       }
 
       return false;
@@ -1269,7 +1440,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V4.9.6).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.0.0).');
     }
 
     render() {
@@ -1770,7 +1941,7 @@
             </div>
             <div class="hud-title">
               <span class="hud-title-text">Meta Automation</span>
-              <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
+              <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Page ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Page: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
               <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
@@ -2117,7 +2288,7 @@
     updateTenantUI(tenantId) {
       const badge = this.shadow.getElementById('hud-tenant-badge');
       if (badge) {
-        badge.textContent = tenantId === 'default' ? 'Default Page' : `Tenant: ${tenantId}`;
+        badge.textContent = tenantId === 'default' ? 'Default Page' : `Page: ${tenantId}`;
       }
     }
 
@@ -2633,7 +2804,7 @@
 
         if (customerBubbles.length === 0) {
           this.hud.log('INFO', 'لا توجد رسائل نصية واردة جديدة (وسائط/صورة فقط). استعادة كغير مقروء...');
-          await this.executeBranchB(contactKey, rowFingerprint);
+          await this.executeBranchB(contactKey, rowFingerprint, targetRow);
           this.clearActiveRowHighlight(targetRow);
 
           const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
@@ -2691,7 +2862,7 @@
         } else {
           // Branch B: No Match / Media Message / Skip
           this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
-          await this.executeBranchB(contactKey, rowFingerprint);
+          await this.executeBranchB(contactKey, rowFingerprint, targetRow);
         }
 
         // STEP 6: Viewport Scrolling & Next-Row Progression
@@ -2718,7 +2889,7 @@
       }
     },
 
-    async executeBranchB(contactKey, rowFingerprint) {
+    async executeBranchB(contactKey, rowFingerprint, targetRow) {
       if (contactKey) state.processedContacts.add(contactKey);
       if (rowFingerprint) {
         state.processedSnapshots.add(rowFingerprint);
@@ -2726,14 +2897,14 @@
       }
 
       await sleep(randomRange(150, 250));
-      const restored = await DOM.executeRestoreToUnread(this.hud);
+      const restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey);
 
       if (restored) {
         state.stats.unreadRestored++;
         this.hud.updateStats();
         this.hud.log('UNREAD', '[UNREAD] تم تمييز المحادثة كغير مقروءة بنجاح.');
       } else {
-        this.hud.log('WARN', 'تعذر العثور على زر تمييز كغير مقروءة في شريط الأدوات أو القائمة المنسدلة.');
+        this.hud.log('WARN', 'تعذر تأكيد استعادة حالة غير مقروء للمحادثة في شريط الأدوات أو القائمة المنسدلة.');
       }
     }
   };
@@ -2761,5 +2932,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.6] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V5.0.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
