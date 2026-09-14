@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.2)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.3)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.2
-// @description  Slate-Blue Apple Glass Edition: Single-Field Typing & Duration Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
+// @version      4.9.3
+// @description  Iridescent Liquid Aqua-Glass Edition: Fluid Ocean Crystal UI, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,13 +13,14 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.2)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.3)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. SLATE-BLUE APPLE LIQUID GLASS INTERFACE & CLEAN CONTROLS:
- *    - Frosted slate-blue glass surface (blur 32px, saturate 190%, subtle inner luminous highlight).
- *    - Header styled in deep slate translucent glass (rgba(30, 41, 59, 0.55)).
- *    - SF Pro / Apple typography hierarchy with clean "Meta Automation" branding.
+ * 1. IRIDESCENT LIQUID AQUA-GLASS INTERFACE & CLEAN CONTROLS:
+ *    - Fluid ocean-crystal glass surface (blur 36px, saturate 210%, dual chromatic refraction rim).
+ *    - Translucent blended header (linear-gradient top reflection).
+ *    - Glass pills for actions & active tab, minimal iridescent stealth dock.
+ *    - SF Pro / Apple typography hierarchy with clean "Meta Automation" branding (zero version chips).
  *    - Single-field typing speed control (ms/char) & decimal seconds duration controls.
  * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
@@ -39,7 +40,8 @@
  * 7. LRU MEMORY RING-BUFFER:
  *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
  * 8. GHOST STEALTH DOCK:
- *    - Minimal translucent capsule (100x32px) with monochrome counter and clean pulsing dot.
+ *    - Minimal fluid crystal capsule (100x32px) with monochrome counter and clean pulsing dot.
+ *    - Chromatic refraction rim & top specular reflection.
  * 9. INBOUND MESSAGE BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly after the last staff/page reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
@@ -56,14 +58,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V492_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V493_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V492_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V493_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1157,7 +1159,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.2 بنجاح (Slate-Blue Apple Glass Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Iridescent Liquid Aqua-Glass Edition).');
     }
 
     render() {
@@ -1175,12 +1177,21 @@
             max-height: 90vh;
             width: 480px;
             max-height: 620px;
-            background: rgba(22, 30, 46, 0.76);
-            -webkit-backdrop-filter: blur(32px) saturate(190%);
-            backdrop-filter: blur(32px) saturate(190%);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 24px 48px rgba(10, 15, 26, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            border-radius: 20px;
+            background: linear-gradient(145deg, 
+              rgba(13, 27, 42, 0.72) 0%, 
+              rgba(8, 20, 32, 0.76) 50%, 
+              rgba(10, 34, 48, 0.68) 100%
+            );
+            -webkit-backdrop-filter: blur(36px) saturate(210%);
+            backdrop-filter: blur(36px) saturate(210%);
+            /* Dual chromatic refraction rim */
+            border: 1px solid rgba(165, 243, 252, 0.18);
+            box-shadow: 
+              0 30px 60px rgba(3, 10, 18, 0.55),
+              inset 0 1.5px 0.5px rgba(255, 255, 255, 0.4),          /* Top specular reflection */
+              inset 0 -1px 2px rgba(45, 212, 191, 0.12),            /* Aqua curvature glow */
+              inset 1px 0 2px rgba(244, 114, 182, 0.08);            /* Subtle iridescent edge */
+            border-radius: 24px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -1200,12 +1211,12 @@
             max-height: 32px !important;
             border-radius: 999px !important;
             padding: 0 12px !important;
-            background: rgba(28, 28, 30, 0.68) !important;
+            background: linear-gradient(135deg, rgba(14, 28, 44, 0.7), rgba(8, 20, 32, 0.75)) !important;
             backdrop-filter: blur(24px) saturate(210%) !important;
             -webkit-backdrop-filter: blur(24px) saturate(210%) !important;
-            border: 1px solid rgba(255, 255, 255, 0.14) !important;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
-            opacity: 0.8;
+            border: 1px solid rgba(165, 243, 252, 0.25) !important;
+            box-shadow: 0 12px 28px rgba(3, 10, 18, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+            opacity: 0.85;
             cursor: pointer;
             resize: none !important;
             flex-direction: row !important;
@@ -1214,8 +1225,8 @@
           }
           .hud-card.ghost-mode:hover {
             opacity: 1.0 !important;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45) !important;
-            border-color: rgba(255, 255, 255, 0.25) !important;
+            box-shadow: 0 14px 34px rgba(6, 182, 212, 0.25) !important;
+            border-color: rgba(165, 243, 252, 0.45) !important;
           }
 
           @keyframes pulse-dot {
@@ -1281,8 +1292,8 @@
           .hud-header {
             cursor: grab;
             padding: 13px 18px;
-            background: rgba(30, 41, 59, 0.55);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1299,16 +1310,6 @@
           .hud-title-text {
             font-weight: 600;
             color: #F5F5F7;
-          }
-          .hud-version-badge {
-            font-size: 10px;
-            font-weight: 500;
-            padding: 2px 6px;
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(235, 235, 245, 0.65);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            font-family: -apple-system, BlinkMacSystemFont, monospace;
           }
           .hud-tenant-badge {
             font-size: 9.5px;
@@ -1361,33 +1362,35 @@
 
           .hud-tabs {
             display: flex;
-            background: rgba(0, 0, 0, 0.22);
-            padding: 3px;
-            border-radius: 12px;
-            margin: 10px 18px 6px;
+            background: rgba(4, 12, 20, 0.35);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 3px;
+            margin: 10px 18px 6px;
             gap: 3px;
           }
           .tab-btn {
             flex: 1;
             padding: 7px 12px;
             background: transparent;
-            border: none;
+            border: 1px solid transparent;
             color: rgba(235, 235, 245, 0.65);
             font-size: 11.5px;
             font-weight: 500;
             cursor: pointer;
-            border-radius: 9px;
+            border-radius: 11px;
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
             font-family: inherit;
           }
           .tab-btn:hover {
-            color: #F5F5F7;
+            color: #FFFFFF;
           }
           .tab-btn.active {
-            color: #FFFFFF;
-            background: rgba(255, 255, 255, 0.16);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            color: #ffffff;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(20, 184, 166, 0.18));
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            border-radius: 11px;
             font-weight: 600;
           }
 
@@ -1575,21 +1578,21 @@
           .btn-primary {
             flex: 2;
             padding: 10px 16px;
-            background: #0071E3;
-            color: #FFFFFF;
-            border: none;
-            border-radius: 14px;
+            background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 6px 20px rgba(14, 165, 233, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+            border-radius: 16px;
             font-size: 12.5px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25);
             font-family: inherit;
           }
           .btn-primary:hover {
-            background: #0077ED;
+            opacity: 0.95;
             transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(0, 113, 227, 0.35);
+            box-shadow: 0 8px 24px rgba(14, 165, 233, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4);
           }
           .btn-primary:active {
             transform: translateY(0);
@@ -1597,10 +1600,10 @@
           .btn-danger {
             flex: 1;
             padding: 10px 16px;
-            background: rgba(255, 69, 58, 0.15);
-            color: #FF453A;
-            border: 1px solid rgba(255, 69, 58, 0.25);
-            border-radius: 14px;
+            background: rgba(239, 68, 68, 0.14);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: 16px;
             font-size: 12.5px;
             font-weight: 500;
             cursor: pointer;
@@ -1608,7 +1611,7 @@
             font-family: inherit;
           }
           .btn-danger:hover {
-            background: rgba(255, 69, 58, 0.22);
+            background: rgba(239, 68, 68, 0.22);
             transform: translateY(-1px);
           }
           .btn-danger:active {
@@ -1637,7 +1640,6 @@
             </div>
             <div class="hud-title">
               <span class="hud-title-text">Meta Automation</span>
-              <span class="hud-version-badge">4.9.2</span>
               <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -2543,5 +2545,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.2] Initialized successfully (Slate-Blue Apple Glass Edition).');
+  console.log('[MBS Automator V4.9.3] Initialized successfully (Iridescent Liquid Aqua-Glass Edition).');
 })();
