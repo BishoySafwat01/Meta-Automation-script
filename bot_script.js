@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.2.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.3.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      5.2.0
+// @version      5.3.0
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.2.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.3.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V520_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V530_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V520_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V530_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -922,6 +922,39 @@
       return null;
     },
 
+    parseSequentialReplies(rawText) {
+      if (!rawText || typeof rawText !== 'string') return [];
+      return rawText
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    },
+
+    async waitForComposerClear(composer, maxWaitMs = 1500) {
+      if (!composer) return true;
+      const startTime = Date.now();
+      const placeholderTokens = ['رد في messenger', 'رد في instagram', 'reply in messenger', 'reply in instagram', 'اكتب رسالة', 'type a message', 'اكتب رد'];
+
+      while (Date.now() - startTime < maxWaitMs) {
+        const text = (composer.innerText || composer.textContent || '').trim().toLowerCase();
+        if (!text || placeholderTokens.some(token => text === token)) {
+          return true;
+        }
+        await sleep(100);
+      }
+
+      // Emergency fallback if Lexical retains text after dispatch
+      try {
+        composer.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('delete', false, null);
+        if (typeof composer.dispatchEvent === 'function') {
+          composer.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        }
+      } catch (_) {}
+      return true;
+    },
+
     async executeRestoreToUnread(logger, targetRow, contactKey) {
       // Container-Relative & Dynamic Coordinate Scope:
       // Dynamically scope toolbar horizontally using composer bounds (with safe fallback)
@@ -1557,7 +1590,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.2.0).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.3.0).');
     }
 
     render() {
@@ -2452,7 +2485,8 @@
             </div>
           </div>
           <input type="text" class="rule-keywords-input" data-idx="${idx}" placeholder="الكلمات المفتاحية مفصولة بفاصلة" value="${rule.keyword || ''}">
-          <textarea class="rule-reply-input" data-idx="${idx}" placeholder="نص الرد الفوري...">${rule.reply || ''}</textarea>
+          <textarea class="rule-reply-input" data-idx="${idx}" placeholder="نص الرد... (كل سطر جديد يرسل كفقاعة منفصلة)">${rule.reply || ''}</textarea>
+          <div style="font-size: 10px; color: rgba(148, 163, 184, 0.9); margin-top: 2px; text-align: right;">💡 كل سطر جديد (Enter) يُرسل كرسالة منفصلة</div>
         </div>
       `).join('');
 
@@ -2839,11 +2873,18 @@
           state.activeRowElement = targetRow;
         }
 
+        let rowTimeoutId = null;
+        let extendWatchdog = null;
         try {
-          const ROW_TIMEOUT_MS = 8000;
-          let timeoutId = null;
           const timeoutPromise = new Promise((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error('ROW_TIMEOUT_EXCEEDED')), ROW_TIMEOUT_MS);
+            const setTimer = (ms) => {
+              if (rowTimeoutId) clearTimeout(rowTimeoutId);
+              rowTimeoutId = setTimeout(() => reject(new Error('ROW_TIMEOUT_EXCEEDED')), ms);
+            };
+            setTimer(9000);
+            extendWatchdog = (additionalMs) => {
+              setTimer(additionalMs);
+            };
           });
 
           const processRowPromise = (async () => {
@@ -2980,8 +3021,29 @@
               if (!composer) {
                 this.hud.log('ERROR', 'محرر الرسائل غير متاح. تعذر إرسال الرد.');
               } else {
-                await HumanSimulator.typeIntoComposer(composer, rule.reply, this.hud);
-                this.hud.log('INFO', `تم إرسال الرد بنجاح للعميل ${contactName || contactKey}.`);
+                const replies = DOM.parseSequentialReplies(rule.reply);
+                if (replies.length === 0) {
+                  this.hud.log('WARN', 'نص الرد فارغ. تعذر الإرسال.');
+                } else {
+                  const totalChars = replies.reduce((acc, r) => acc + r.length, 0);
+                  const neededMs = Math.max(9000, 5000 + (totalChars * 80) + (replies.length * 2200));
+                  if (typeof extendWatchdog === 'function') {
+                    extendWatchdog(neededMs);
+                  }
+
+                  for (let idx = 0; idx < replies.length; idx++) {
+                    if (state.emergencyAbort || !state.isRunning) break;
+                    const snippetText = replies[idx].length > 25 ? `${replies[idx].substring(0, 25)}...` : replies[idx];
+                    this.hud.log('TYPING', `إرسال الفقاعة (${idx + 1}/${replies.length}): "${snippetText}"`);
+                    composer.focus();
+                    await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
+                    if (idx < replies.length - 1) {
+                      await DOM.waitForComposerClear(composer, 1800);
+                      await sleep(randomRange(900, 1500));
+                    }
+                  }
+                  this.hud.log('INFO', `تم إرسال كافة الردود بنجاح للعميل ${contactName || contactKey} (${replies.length} فقاعة).`);
+                }
               }
             } else {
               // Branch B: No Match / Media Message / Skip
@@ -2996,7 +3058,7 @@
           try {
             rowResult = await Promise.race([processRowPromise, timeoutPromise]);
           } finally {
-            if (timeoutId) clearTimeout(timeoutId);
+            if (rowTimeoutId) clearTimeout(rowTimeoutId);
           }
 
           if (rowResult && rowResult.skipLoop) {
@@ -3010,7 +3072,7 @@
         } catch (err) {
           if (err && err.message === 'ABORT_SIGNAL') throw err;
           if (err && err.message === 'ROW_TIMEOUT_EXCEEDED') {
-            this.hud.log('WARN', 'تجاوزت المحادثة الحد الزمني الأقصى (8s). تخطي إجباري لحماية المحرك...');
+            this.hud.log('WARN', 'تجاوزت المحادثة الحد الزمني المخصص لها. تخطي إجباري لحماية المحرك...');
             try {
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
               releaseChatFocus();
@@ -3106,5 +3168,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V5.2.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V5.3.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
