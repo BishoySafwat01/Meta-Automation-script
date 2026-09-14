@@ -2,23 +2,20 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.8.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.9.0 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
-Architecture & Core Features:
-- Connects to Google Chrome via Chrome DevTools Protocol (CDP port 9222).
-- Zero-Latency Instant Hard-Stop Engine (cancellable sleep aborts within <10ms).
-- Bulletproof Multi-Tenant Storage Isolation (dynamic asset_id / mailbox_id namespacing).
-- Zero Cross-Talk Guarantee for simultaneous multi-page operation.
-- Injects a complete Frosted Glass RTL Arabic HUD + Ghost Stealth Mode directly into Meta Business Suite.
-- Resolution-Invariant Envelope Discovery & Dropdown Fallback.
-- Anti-False-Drop Ad Guard (Length & Context Gate for inquiries referencing ads).
-- LRU Memory Ring-Buffer to prevent memory leaks during 24/7 continuous operation.
-- Inbound Boundary Evaluation (strictly evaluates incoming customer messages after last page reply).
-- Visual Inspection & Framing (Sky-blue active row, green dashed customer bubble, flashing envelope).
-- Complete Arabic Text Normalization & Keyword Matching (exact, word, contains).
-- Full Two-Way Synchronization between the browser HUD and config.json.
-- Graceful stop via browser [Escape] key, HUD Stop button, or terminal [Ctrl+C].
+Pure Python Zero-Extension Runner & Native Playwright Injector:
+- Eliminates the need for Tampermonkey extension completely.
+- Injects bot_script.js natively and persistently via Playwright's add_init_script.
+- 3 Primary Operational Modes:
+    1. Active Browser Attach (--attach / -a): Connects via CDP to running Chrome.
+    2. Isolated Persistent Sandbox (--profile / -p [Name]): Sandboxed Chrome instance.
+    3. Concurrent Multi-Tenant Dispatch (--all): Runs multiple isolated page profiles concurrently.
+- Instant Zero-Latency Hard-Stop Engine (<10ms breakout).
+- Dynamic Tenant Storage Isolation & Zero Cross-Talk.
+- Continuous Runtime Anti-Throttling Architecture.
+- Automatic Stale Chrome Lock Cleaning (SingletonLock/Cookie/Socket).
 =============================================================================
 """
 
@@ -27,17 +24,30 @@ import sys
 import json
 import time
 import signal
+import shutil
+import asyncio
 import argparse
 from pathlib import Path
+from typing import Optional, List, Dict, Any
+
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import (
+        async_playwright,
+        Browser,
+        BrowserContext,
+        Page,
+        Playwright,
+        Error as PlaywrightError
+    )
 except ImportError:
     print("\n\033[91m❌ حزمة playwright غير مثبتة في بيئة بايثون الحالية!\033[0m")
     print("\033[93mيرجى تشغيل الأمر التالي لتثبيتها:\033[0m")
     print("pip install playwright --break-system-packages\n")
     sys.exit(1)
 
+# ---------------------------------------------------------------------------
 # ANSI Colors for Terminal Output
+# ---------------------------------------------------------------------------
 class Colors:
     HEADER = '\033[95m'
     BLUE = '\033[94m'
@@ -51,9 +61,90 @@ class Colors:
     UNDERLINE = '\033[4m'
     END = '\033[0m'
 
+# ---------------------------------------------------------------------------
+# Global Constants & Paths
+# ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = SCRIPT_DIR / "config.json"
 BOT_SCRIPT_PATH = SCRIPT_DIR / "bot_script.js"
+
+META_INBOX_URL = "https://business.facebook.com/latest/inbox/all"
+
+ANTI_THROTTLING_ARGS = [
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-features=CalculateNativeWinOcclusion",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-breakpad",
+    "--disable-component-update",
+    "--password-store=basic",
+    "--start-maximized",
+    "--new-window",
+]
+
+# Track active resources for clean signal exit
+ACTIVE_CONTEXTS: List[BrowserContext] = []
+ACTIVE_PAGES: List[Page] = []
+ACTIVE_PROFILE_DIRS: List[Path] = []
+SHUTDOWN_EVENT: asyncio.Event = asyncio.Event()
+
+# ---------------------------------------------------------------------------
+# Platform-Dependent Profile Resolution
+# ---------------------------------------------------------------------------
+def get_profiles_base_dir() -> Path:
+    if sys.platform.startswith("win"):
+        userprofile = os.environ.get("USERPROFILE", str(Path.home()))
+        return Path(userprofile) / "MetaInboxBot_Profiles"
+    else:
+        return Path.home() / ".config" / "meta_inbox_bot" / "profiles"
+
+def get_tenant_profile_dir(profile_name: str) -> Path:
+    base_dir = get_profiles_base_dir()
+    profile_dir = base_dir / profile_name
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+def clean_stale_locks(profile_dir: Path):
+    """Safely remove leftover SingletonLock/SingletonCookie/SingletonSocket files."""
+    if not profile_dir.exists():
+        return
+    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    for lock in lock_files:
+        p = profile_dir / lock
+        try:
+            if p.exists() or p.is_symlink():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+# ---------------------------------------------------------------------------
+# Chrome Executable Discovery
+# ---------------------------------------------------------------------------
+def find_chrome_executable() -> Optional[str]:
+    """Auto-detect system Google Chrome executable path."""
+    if sys.platform.startswith("win"):
+        candidates = [
+            os.environ.get("ProgramFiles", "C:\\Program Files") + "\\Google\\Chrome\\Application\\chrome.exe",
+            os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)") + "\\Google\\Chrome\\Application\\chrome.exe",
+            os.environ.get("LocalAppData", "C:\\Users\\Default\\AppData\\Local") + "\\Google\\Chrome\\Application\\chrome.exe",
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                return c
+    else:
+        candidates = [
+            "google-chrome-stable",
+            "google-chrome",
+            "chromium-browser",
+            "chromium",
+        ]
+        for bin_name in candidates:
+            p = shutil.which(bin_name)
+            if p:
+                return p
+    return None
 
 # ---------------------------------------------------------------------------
 # Configuration Management
@@ -116,7 +207,7 @@ def save_config(config_path: Path, data: dict):
 # ---------------------------------------------------------------------------
 # Terminal Logging Helpers
 # ---------------------------------------------------------------------------
-def format_log(tag: str, msg: str):
+def format_log(tag: str, msg: str, prefix: str = ""):
     timestamp = time.strftime("%H:%M:%S")
     tag_colors = {
         "INIT": Colors.GRAY,
@@ -131,192 +222,463 @@ def format_log(tag: str, msg: str):
         "STOP": Colors.RED
     }
     color = tag_colors.get(tag, Colors.END)
-    print(f"{Colors.GRAY}[{timestamp}]{Colors.END} {color}[{tag}]{Colors.END} {msg}", flush=True)
+    prefix_str = f"{Colors.BOLD}{prefix}{Colors.END} " if prefix else ""
+    print(f"{Colors.GRAY}[{timestamp}]{Colors.END} {prefix_str}{color}[{tag}]{Colors.END} {msg}", flush=True)
 
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V4.8.0)
-  Meta Business Suite Inbox Automation Suite - Enterprise Production Edition
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.9.0 المؤسسي)
+  Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
+  • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
+  • حقن أصلي دائم للمحرك البرمجي عبر Playwright context.add_init_script
+  • دعم كامل لـ 3 أنماط تشغيل: الربط الحي (--attach)، بروفايل معزول (--profile)، أو متعدد (--all)
   • محرك إيقاف طوارئ فوري دون أي تأخير زمني (Instant Hard-Stop <10ms)
-  • حفظ وقراءة موثوقة لقواعد وإعدادات الصفحات دون فقد (Bulletproof Storage)
-  • عزل تخزين الصفحات المتعددة ديناميكياً (Dynamic Multi-Tenant Isolation)
-  • محدد ظرف ديناميكي نسبي للحاوية بدون إحداثيات ثابتة
-  • حماية من إسقاط رسائل الإعلانات الصالحة وقفل الطول والسياق (< 45 حرف)
-  • درع ذاكرة حلقي LRU Ring-Buffer للتشغيل المستمر 24/7 دون تسريب
-  • واجهة تحكم متطورة بتصميم Google Sans ووضع الشبح الخفيف (Ghost Mode)
+  • عزل تخزين الصفحات المتعددة ديناميكياً مع حماية كاملة من تداخل البيانات
+  • تنظيف تلقائي لأقفال كروم التالفة (SingletonLocks) لمنع الإغلاق الصامت
+  • واجهة تحكم Google Glass المتطورة ووضع الشبح الخفيف (Ghost Stealth Mode)
 =============================================================================
 """
     print(banner)
 
 # ---------------------------------------------------------------------------
-# Main Execution Engine
+# Automation Engine Injection & IPC Bridge Setup
 # ---------------------------------------------------------------------------
-def run():
-    parser = argparse.ArgumentParser(description="Meta Business Suite Inbox Automator & Unread Restorer")
-    parser.add_argument("--port", type=int, default=9222, help="Chrome Remote Debugging Port (default: 9222)")
+async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tenant_name: str = ""):
+    """Expose Python bridge functions to the browser page."""
+    prefix = f"[{tenant_name}]" if tenant_name else ""
+
+    async def py_log_handler(tag, message):
+        format_log(tag, message, prefix=prefix)
+
+    async def py_update_stats_handler(stats):
+        eval_c = stats.get("evaluated", 0)
+        match_c = stats.get("matched", 0)
+        unread_c = stats.get("unreadRestored", 0)
+        skip_c = stats.get("skippedOutbound", 0)
+        label = f"{prefix} " if prefix else ""
+        sys.stdout.write(
+            f"\r{label}{Colors.BOLD}📊 الإحصائيات:{Colors.END} [فحص: {eval_c}] | "
+            f"[{Colors.GREEN}رد: {match_c}{Colors.END}] | "
+            f"[{Colors.YELLOW}استعادة: {unread_c}{Colors.END}] | "
+            f"[{Colors.PURPLE}مستبعد: {skip_c}{Colors.END}]  "
+        )
+        sys.stdout.flush()
+
+    async def py_save_config_handler(rules_json_str, config_json_str):
+        try:
+            updated_rules = json.loads(rules_json_str)
+            updated_config = json.loads(config_json_str)
+            settings["rules"] = updated_rules
+            settings["config"] = updated_config
+            save_config(config_path, settings)
+            format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.", prefix=prefix)
+        except Exception as ex:
+            format_log("WARN", f"تعذر تحديث ملف الإعدادات: {ex}", prefix=prefix)
+
+    async def py_state_handler(status_text):
+        format_log("INFO", f"حالة المحرك تغيرت إلى: {status_text}", prefix=prefix)
+
+    for name, handler in [
+        ("pyLog", py_log_handler),
+        ("pyUpdateStats", py_update_stats_handler),
+        ("pySaveConfig", py_save_config_handler),
+        ("pyOnStateChange", py_state_handler)
+    ]:
+        try:
+            await page.expose_function(name, handler)
+        except Exception:
+            # Function already exposed on this page session
+            pass
+
+async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, prefix: str = ""):
+    """Inject the HUD and rules into an active page."""
+    try:
+        await page.evaluate("""() => {
+            if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
+            const root = document.getElementById("mbs-inbox-automator-root");
+            if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V490_LOADED__;
+            delete window.__MBS_AUTOMATOR_V480_LOADED__;
+        }""")
+
+        await page.evaluate("""
+            ({ rules, config }) => {
+                window.__INITIAL_RULES__ = rules;
+                window.__INITIAL_CONFIG__ = config;
+            }
+        """, {"rules": settings.get("rules", []), "config": settings.get("config", {})})
+
+        await page.evaluate(bot_js_code)
+        format_log("INIT", "✨ تم تثبيت واجهة التحكم التفاعلية (HUD) بنجاح في المتصفح!", prefix=prefix)
+    except Exception as e:
+        format_log("ERROR", f"❌ خطأ أثناء حقن واجهة التحكم: {e}", prefix=prefix)
+
+# ---------------------------------------------------------------------------
+# Mode 1: Active Browser Attach (--attach / -a)
+# ---------------------------------------------------------------------------
+async def run_attach_mode(p: Playwright, port: int, settings: dict, config_path: Path, auto_start: bool):
+    print(f"{Colors.CYAN}🚀 جاري الاتصال بمتصفح Chrome المفتوح عبر منفذ CDP {port}...{Colors.END}")
+
+    try:
+        browser = await p.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+    except Exception as e:
+        print(f"\n{Colors.RED}❌ تعذر الاتصال بالمتصفح عبر منفذ CDP {port}!{Colors.END}")
+        print(f"{Colors.GRAY}التفاصيل: {e}{Colors.END}")
+        print(f"\n{Colors.YELLOW}👉 تأكد من إغلاق Chrome تماماً ثم تشغيله مع تفعيل منفذ التحكم بالأمر التالي:{Colors.END}")
+        if sys.platform.startswith("win"):
+            print(f'{Colors.BOLD}chrome.exe --remote-debugging-port={port} --user-data-dir="%USERPROFILE%\\ChromeDevProfile"{Colors.END}\n')
+        else:
+            print(f'{Colors.BOLD}google-chrome --remote-debugging-port={port}{Colors.END}\n')
+        return
+
+    with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
+        bot_js_code = f.read()
+
+    # Search for an open Meta Business Suite tab
+    print(f"{Colors.GRAY}🔍 جاري البحث عن تبويب Meta Business Suite مفتوح...{Colors.END}")
+    target_page = None
+    target_context = None
+
+    for context in browser.contexts:
+        for page in context.pages:
+            if "business.facebook.com" in page.url:
+                target_page = page
+                target_context = context
+                break
+        if target_page:
+            break
+
+    if not target_page:
+        print(f"\n{Colors.YELLOW}⚠️ لم يتم العثور على تبويب Meta Business Suite مفتوح.{Colors.END}")
+        print(f"{Colors.CYAN}🌐 جاري فتح صفحة الصندوق تلقائياً في المتصفح...{Colors.END}")
+        target_context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        target_page = await target_context.new_page()
+        await target_page.goto(META_INBOX_URL)
+        print(f"{Colors.GRAY}⏳ بانتظار تحميل الصفحة...{Colors.END}")
+        try:
+            await target_page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+    # Register persistent init script on context so navigations/refreshes keep HUD
+    try:
+        await target_context.add_init_script(path=str(BOT_SCRIPT_PATH))
+    except Exception:
+        pass
+
+    ACTIVE_PAGES.append(target_page)
+    await target_page.bring_to_front()
+    title = await target_page.title()
+    print(f"{Colors.GREEN}✅ تم الاتصال بنجاح بصفحة: {title}{Colors.END}")
+    print(f"{Colors.GRAY}🔗 رابط الصفحة: {target_page.url}{Colors.END}")
+
+    await setup_page_bridges(target_page, settings, config_path)
+    await inject_hud_and_rules(target_page, bot_js_code, settings)
+
+    # Re-inject on navigation / refresh
+    async def on_page_reloaded():
+        try:
+            await asyncio.sleep(1)
+            await inject_hud_and_rules(target_page, bot_js_code, settings)
+            if auto_start:
+                await asyncio.sleep(0.5)
+                await target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+        except Exception:
+            pass
+
+    target_page.on("domcontentloaded", lambda: asyncio.create_task(on_page_reloaded()))
+
+    if auto_start:
+        print(f"{Colors.YELLOW}⚡ تفعيل بدء الأتمتة التلقائي...{Colors.END}")
+        await asyncio.sleep(1)
+        await target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+
+    print(f"\n{Colors.BOLD}🔘 اضغط [Esc] داخل المتصفح أو [Ctrl+C] هنا للإيقاف الآمن في أي لحظة.{Colors.END}\n")
+
+    while not SHUTDOWN_EVENT.is_set():
+        if target_page.is_closed():
+            print(f"\n{Colors.YELLOW}⚠️ تم إغلاق تبويب Meta Business Suite. جاري إنهاء البرنامج.{Colors.END}")
+            break
+        await asyncio.sleep(1)
+
+# ---------------------------------------------------------------------------
+# Mode 2 & 3: Isolated Sandboxed Profile Launch
+# ---------------------------------------------------------------------------
+async def launch_persistent_context_safe(
+    p: Playwright,
+    profile_dir: Path,
+    headless: bool = False,
+    tenant_name: str = ""
+) -> BrowserContext:
+    """Launch persistent Chrome context with anti-throttling flags and fallback."""
+    clean_stale_locks(profile_dir)
+    ACTIVE_PROFILE_DIRS.append(profile_dir)
+
+    prefix = f"[{tenant_name}]" if tenant_name else ""
+    format_log("INIT", f"إطلاق المتصفح المعزول للملف: {profile_dir.name}", prefix=prefix)
+
+    # 1. Try launching with channel="chrome"
+    try:
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            channel="chrome",
+            headless=headless,
+            args=ANTI_THROTTLING_ARGS,
+            viewport=None,
+            no_viewport=True,
+        )
+        ACTIVE_CONTEXTS.append(context)
+        return context
+    except Exception as ex_channel:
+        format_log("WARN", f"تعذر الإطلاق عبر channel='chrome': {ex_channel}. محاولة البحث عن مسار Chrome...", prefix=prefix)
+
+    # 2. Try auto-detecting Chrome binary path
+    chrome_bin = find_chrome_executable()
+    if chrome_bin:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                executable_path=chrome_bin,
+                headless=headless,
+                args=ANTI_THROTTLING_ARGS,
+                viewport=None,
+                no_viewport=True,
+            )
+            ACTIVE_CONTEXTS.append(context)
+            return context
+        except Exception as ex_exec:
+            format_log("ERROR", f"تعذر الإطلاق عبر المسار {chrome_bin}: {ex_exec}", prefix=prefix)
+
+    # 3. Fallback to default chromium bundled with Playwright
+    try:
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=headless,
+            args=ANTI_THROTTLING_ARGS,
+            viewport=None,
+            no_viewport=True,
+        )
+        ACTIVE_CONTEXTS.append(context)
+        return context
+    except Exception as ex_default:
+        format_log("ERROR", f"فشل إطلاق المتصفح بالكامل للملف {profile_dir.name}: {ex_default}", prefix=prefix)
+        raise ex_default
+
+async def run_tenant_worker(
+    p: Playwright,
+    profile_name: str,
+    settings: dict,
+    config_path: Path,
+    auto_start: bool = False,
+    headless: bool = False
+):
+    """Run a single tenant inside an isolated persistent Playwright context."""
+    profile_dir = get_tenant_profile_dir(profile_name)
+    prefix = f"[{profile_name}]"
+
+    format_log("INIT", f"بدء تهيئة البروفايل المعزول: {profile_dir}", prefix=prefix)
+
+    with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
+        bot_js_code = f.read()
+
+    try:
+        context = await launch_persistent_context_safe(
+            p=p,
+            profile_dir=profile_dir,
+            headless=headless,
+            tenant_name=profile_name
+        )
+    except Exception as e:
+        format_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}", prefix=prefix)
+        return
+
+    # Add native init script for permanent zero-extension execution
+    await context.add_init_script(path=str(BOT_SCRIPT_PATH))
+
+    page = context.pages[0] if context.pages else await context.new_page()
+    ACTIVE_PAGES.append(page)
+
+    await setup_page_bridges(page, settings, config_path, tenant_name=profile_name)
+
+    format_log("INIT", f"فتح صفحة الصندوق: {META_INBOX_URL}", prefix=prefix)
+    try:
+        await page.goto(META_INBOX_URL, wait_until="domcontentloaded", timeout=30000)
+    except Exception as e:
+        if not SHUTDOWN_EVENT.is_set():
+            format_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}", prefix=prefix)
+
+    if SHUTDOWN_EVENT.is_set() or page.is_closed():
+        return
+
+    await asyncio.sleep(2)
+    if SHUTDOWN_EVENT.is_set() or page.is_closed():
+        return
+
+    await inject_hud_and_rules(page, bot_js_code, settings, prefix=prefix)
+
+    # Re-inject on navigation
+    async def on_reloaded():
+        try:
+            await asyncio.sleep(1)
+            await inject_hud_and_rules(page, bot_js_code, settings, prefix=prefix)
+            if auto_start:
+                await asyncio.sleep(0.5)
+                await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+        except Exception:
+            pass
+
+    page.on("domcontentloaded", lambda: asyncio.create_task(on_reloaded()))
+
+    if auto_start:
+        format_log("INFO", "⚡ تفعيل بدء الأتمتة التلقائي...", prefix=prefix)
+        await asyncio.sleep(1)
+        await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+
+    format_log("INFO", "✅ جلسة المتصفح نشطة وتعمل بالخلفية 24/7.", prefix=prefix)
+
+    while not SHUTDOWN_EVENT.is_set():
+        if page.is_closed():
+            format_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.", prefix=prefix)
+            break
+        await asyncio.sleep(1)
+
+    try:
+        if not page.is_closed():
+            await page.evaluate("() => window.__MBS_AUTOMATOR_STOP__ && window.__MBS_AUTOMATOR_STOP__()")
+        await context.close()
+    except Exception:
+        pass
+    finally:
+        clean_stale_locks(profile_dir)
+
+# ---------------------------------------------------------------------------
+# Graceful Shutdown Handler
+# ---------------------------------------------------------------------------
+async def perform_graceful_shutdown():
+    """Stop automator on all pages, close contexts, and clean locks."""
+    print(f"\n{Colors.YELLOW}⏹ جاري إيقاف الأتمتة وتنظيف الجلسات بأمان...{Colors.END}")
+    SHUTDOWN_EVENT.set()
+
+    for page in ACTIVE_PAGES:
+        try:
+            if not page.is_closed():
+                await page.evaluate("() => window.__MBS_AUTOMATOR_STOP__ && window.__MBS_AUTOMATOR_STOP__()")
+        except Exception:
+            pass
+
+    for ctx in ACTIVE_CONTEXTS:
+        try:
+            await ctx.close()
+        except Exception:
+            pass
+
+    for pdir in ACTIVE_PROFILE_DIRS:
+        clean_stale_locks(pdir)
+
+    print(f"{Colors.GREEN}✅ تم إيقاف كافة العمليات وتنظيف أقفال كروم بنجاح.{Colors.END}")
+
+# ---------------------------------------------------------------------------
+# Main Supervisor Entrypoint
+# ---------------------------------------------------------------------------
+async def main():
+    parser = argparse.ArgumentParser(
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V4.9.0)"
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--attach", "-a",
+        action="store_true",
+        help="Mode 1: Connect via CDP to an already running Google Chrome instance"
+    )
+    group.add_argument(
+        "--profile", "-p",
+        type=str,
+        help="Mode 2: Launch a single isolated sandboxed profile (e.g. Profile_PageA)"
+    )
+    group.add_argument(
+        "--all",
+        action="store_true",
+        help="Mode 3: Launch concurrent multi-tenant sandboxes (Profile_PageA & Profile_PageB)"
+    )
+
+    parser.add_argument("--port", type=int, default=9222, help="Chrome Remote Debugging Port for --attach (default: 9222)")
     parser.add_argument("--config", type=str, default=str(DEFAULT_CONFIG_PATH), help="Path to config.json file")
     parser.add_argument("--auto-start", action="store_true", help="Start automator immediately without waiting for HUD button")
+    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode (for background servers)")
+
     args = parser.parse_args()
 
     print_banner()
 
     config_path = Path(args.config)
     settings = load_config(config_path)
-
     auto_start = args.auto_start or settings.get("auto_start", False)
 
     if not BOT_SCRIPT_PATH.exists():
         print(f"{Colors.RED}❌ ملف المحرك البرمجي {BOT_SCRIPT_PATH} غير موجود!{Colors.END}")
         return
 
-    with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
-        bot_js_code = f.read()
-
-    print(f"{Colors.CYAN}🚀 جاري الاتصال بمتصفح Chrome المفتوح عبر منفذ CDP {args.port}...{Colors.END}")
-
-    with sync_playwright() as p:
+    # Signal handlers for clean interruption
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            browser = p.chromium.connect_over_cdp(f"http://localhost:{args.port}")
-        except Exception as e:
-            print(f"\n{Colors.RED}❌ تعذر الاتصال بالمتصفح! التفاصيل: {e}{Colors.END}")
-            print(f"\n{Colors.YELLOW}👉 تأكد من تشغيل Google Chrome مع تفعيل منفذ التحكم بالأمر التالي:{Colors.END}")
-            print(f"{Colors.BOLD}google-chrome --remote-debugging-port={args.port}{Colors.END}")
-            print(f"\nأو في نظام ويندوز:")
-            print(f'chrome.exe --remote-debugging-port={args.port} --user-data-dir="C:\\chrome-dev-profile"')
-            return
-
-        # البحث عن تبويب Meta Business Suite
-        print(f"{Colors.GRAY}🔍 جاري البحث عن تبويب Meta Business Suite مفتوح...{Colors.END}")
-        target_page = None
-
-        for context in browser.contexts:
-            for page in context.pages:
-                if "business.facebook.com" in page.url:
-                    target_page = page
-                    break
-            if target_page:
-                break
-
-        if not target_page:
-            print(f"\n{Colors.YELLOW}⚠️ لم يتم العثور على تبويب Meta Business Suite مفتوح.{Colors.END}")
-            print(f"{Colors.CYAN}🌐 جاري فتح صفحة الصندوق تلقائياً في المتصفح...{Colors.END}")
-            context = browser.contexts[0] if browser.contexts else browser.new_context()
-            target_page = context.new_page()
-            target_page.goto("https://business.facebook.com/latest/inbox/all")
-            print(f"{Colors.GRAY}⏳ بانتظار تحميل الصفحة...{Colors.END}")
-            target_page.wait_for_load_state("domcontentloaded")
-            time.sleep(3)
-
-        target_page.bring_to_front()
-        title = target_page.title()
-        print(f"{Colors.GREEN}✅ تم الاتصال بنجاح بصفحة: {title}{Colors.END}")
-        print(f"{Colors.GRAY}🔗 رابط الصفحة: {target_page.url}{Colors.END}")
-
-        # -----------------------------------------------------------------------
-        # تعريف دوال الربط (Python Bridge Functions)
-        # -----------------------------------------------------------------------
-        def py_log_handler(tag, message):
-            format_log(tag, message)
-
-        def py_update_stats_handler(stats):
-            eval_c = stats.get("evaluated", 0)
-            match_c = stats.get("matched", 0)
-            unread_c = stats.get("unreadRestored", 0)
-            skip_c = stats.get("skippedOutbound", 0)
-            sys.stdout.write(f"\r{Colors.BOLD}📊 الإحصائيات:{Colors.END} [فحص: {eval_c}] | [{Colors.GREEN}رد: {match_c}{Colors.END}] | [{Colors.YELLOW}استعادة: {unread_c}{Colors.END}] | [{Colors.PURPLE}مستبعد: {skip_c}{Colors.END}]  ")
-            sys.stdout.flush()
-
-        def py_save_config_handler(rules_json_str, config_json_str):
-            try:
-                updated_rules = json.loads(rules_json_str)
-                updated_config = json.loads(config_json_str)
-                settings["rules"] = updated_rules
-                settings["config"] = updated_config
-                save_config(config_path, settings)
-                format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.")
-            except Exception as ex:
-                format_log("WARN", f"تعذر تحديث ملف الإعدادات: {ex}")
-
-        def py_state_handler(status_text):
-            format_log("INFO", f"حالة المحرك تغيرت إلى: {status_text}")
-
-        # ربط الدوال بالصفحة
-        try:
-            target_page.expose_function("pyLog", py_log_handler)
-            target_page.expose_function("pyUpdateStats", py_update_stats_handler)
-            target_page.expose_function("pySaveConfig", py_save_config_handler)
-            target_page.expose_function("pyOnStateChange", py_state_handler)
-        except Exception:
-            # في حال كانت الدوال ممررة مسبقاً في نفس جلسة التبويب
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(perform_graceful_shutdown()))
+        except (NotImplementedError, RuntimeError):
+            # Windows signal handling fallback
             pass
 
-        # -----------------------------------------------------------------------
-        # حقن المحرك وواجهة التحكم (HUD) في الصفحة
-        # -----------------------------------------------------------------------
-        def inject_engine():
-            try:
-                target_page.evaluate("""() => {
-                    if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
-                    const root = document.getElementById("mbs-inbox-automator-root");
-                    if (root) root.remove();
-                    delete window.__MBS_AUTOMATOR_V44_LOADED__;
-                }""")
-                # تمرير القواعد والإعدادات المبدئية
-                target_page.evaluate("""
-                    ({ rules, config }) => {
-                        window.__INITIAL_RULES__ = rules;
-                        window.__INITIAL_CONFIG__ = config;
-                    }
-                """, {"rules": settings.get("rules", []), "config": settings.get("config", {})})
-
-                # حقن الكود الكامل
-                target_page.evaluate(bot_js_code)
-                print(f"{Colors.GREEN}✨ تم تثبيت واجهة التحكم التفاعلية (HUD) بنجاح في المتصفح!{Colors.END}")
-                print(f"{Colors.CYAN}💡 يمكنك التحكم بالكامل من النافذة الظاهرة أسفل يسار الشاشة في كروم.{Colors.END}")
-            except Exception as e:
-                print(f"{Colors.RED}❌ خطأ أثناء حقن واجهة التحكم: {e}{Colors.END}")
-
-        inject_engine()
-
-        # إعادة الحقن تلقائياً عند تحديث الصفحة (Refresh / Navigation)
-        def on_page_reloaded():
-            try:
-                time.sleep(1)
-                inject_engine()
-                if auto_start:
-                    time.sleep(0.5)
-                    target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
-            except Exception:
-                pass
-
-        target_page.on("domcontentloaded", lambda: on_page_reloaded())
-
-        # بدء الأتمتة تلقائياً إذا كان مفعل
-        if auto_start:
-            print(f"{Colors.YELLOW}⚡ تفعيل بدء الأتمتة التلقائي...{Colors.END}")
-            time.sleep(1)
-            target_page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
-
-        print(f"\n{Colors.BOLD}🔘 اضغط [Esc] داخل المتصفح أو [Ctrl+C] هنا للإيقاف الآمن في أي لحظة.{Colors.END}\n")
-
-        # حلقة المراقبة الأساسية والانتظار
+    async with async_playwright() as p:
         try:
-            while True:
-                time.sleep(1)
-                # التأكد من بقاء التبويب مفتوحاً
-                if target_page.is_closed():
-                    print(f"\n{Colors.YELLOW}⚠️ تم إغلاق تبويب Meta Business Suite. جاري إنهاء البرنامج.{Colors.END}")
-                    break
-        except KeyboardInterrupt:
-            print(f"\n\n{Colors.YELLOW}⏹ تم استلام إشارة التوقف (Ctrl+C). جاري إيقاف الأتمتة وتنظيف التأطير...{Colors.END}")
-            try:
-                if not target_page.is_closed():
-                    target_page.evaluate("() => window.__MBS_AUTOMATOR_STOP__ && window.__MBS_AUTOMATOR_STOP__()")
-            except Exception:
-                pass
-            print(f"{Colors.GREEN}✅ تم إيقاف الأتمتة بنجاح.{Colors.END}")
+            if args.attach:
+                # Mode 1: Active Browser Attach
+                await run_attach_mode(
+                    p=p,
+                    port=args.port,
+                    settings=settings,
+                    config_path=config_path,
+                    auto_start=auto_start
+                )
+            elif args.profile:
+                # Mode 2: Single Isolated Profile Sandbox
+                await run_tenant_worker(
+                    p=p,
+                    profile_name=args.profile,
+                    settings=settings,
+                    config_path=config_path,
+                    auto_start=auto_start,
+                    headless=args.headless
+                )
+            else:
+                # Mode 3 (Default or --all): Concurrent Multi-Tenant Dispatch
+                print(f"{Colors.CYAN}👥 إطلاق وضبط البروفايلات المعزولة لكافة الصفحات بالتزامن (Multi-Tenant)...{Colors.END}")
+                print(f"{Colors.GRAY}مسار البروفايلات: {get_profiles_base_dir()}{Colors.END}\n")
+
+                tenants = ["Profile_PageA", "Profile_PageB"]
+                tasks = [
+                    run_tenant_worker(
+                        p=p,
+                        profile_name=t,
+                        settings=settings,
+                        config_path=config_path,
+                        auto_start=auto_start,
+                        headless=args.headless
+                    )
+                    for t in tenants
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            await perform_graceful_shutdown()
+        except Exception as e:
+            if not SHUTDOWN_EVENT.is_set():
+                print(f"{Colors.RED}❌ حدث خطأ غير متوقع: {e}{Colors.END}")
+                await perform_graceful_shutdown()
 
 if __name__ == "__main__":
-    run()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

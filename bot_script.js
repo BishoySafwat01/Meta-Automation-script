@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.8.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.8.0
+// @version      4.9.0
 // @description  Enterprise Multi-Tenant Edition: Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.8.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
@@ -53,14 +53,17 @@
 (function () {
   'use strict';
 
-  if (window.__MBS_AUTOMATOR_V480_LOADED__) {
+  // Only run in top-level browsing context (ignore nested iframes)
+  if (window.top !== window.self) return;
+
+  if (window.__MBS_AUTOMATOR_V490_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V480_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V490_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1118,6 +1121,11 @@
     }
 
     init() {
+      if (!document.body) {
+        window.addEventListener('DOMContentLoaded', () => this.init(), { once: true });
+        return;
+      }
+
       const existing = document.getElementById('mbs-inbox-automator-root');
       if (existing) {
         existing.remove();
@@ -1145,7 +1153,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.8.0 بنجاح وجاهزة لبدء الأتمتة (Enterprise Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.0 بنجاح وجاهزة لبدء الأتمتة (Enterprise Edition).');
     }
 
     render() {
@@ -1540,7 +1548,7 @@
             </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.8.0</span>
+              <span style="font-size: 10px; color: #64748b;">V4.9.0</span>
               <span id="hud-tenant-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
@@ -2431,5 +2439,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.8.0] Initialized successfully (Enterprise Multi-Tenant Edition).');
+  console.log('[MBS Automator V4.9.0] Initialized successfully (Enterprise Multi-Tenant Edition).');
 })();

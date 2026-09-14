@@ -4,30 +4,29 @@ setlocal enabledelayedexpansion
 
 :: =============================================================================
 ::  META BUSINESS SUITE INBOX AUTOMATOR - WINDOWS ZERO-TOUCH PREREQUISITES SETUP
-::  Version: V4.8.0 (Enterprise Production Deployment)
+::  Version: V4.9.0 (Pure Python Zero-Extension Enterprise Deployment)
 ::  Author: Bishoy Safwat (Senior Automation Engineer)
 :: =============================================================================
 ::  Purpose:
 ::  - Automated zero-touch installation & environment hardening for Windows 11 / Server.
 ::  - Checks for administrative elevation and self-elevates if necessary.
 ::  - Detects Google Chrome; downloads and silently installs it if missing.
-::  - Configures Chrome Enterprise Policy to auto-provision the Tampermonkey extension
-::    across all existing and newly created multi-tenant sandbox profiles.
+::  - Verifies Python 3 and Playwright automation packages.
 ::  - Hardens Windows Power settings (disables sleep, standby, and hibernation for 24/7 uptime).
 ::  - Automatically launches 'launch_mbs_server.bat' upon successful setup.
 :: =============================================================================
 
-title Meta Business Suite Automator - Prerequisites Setup (V4.8.0)
+title Meta Business Suite Automator - Prerequisites Setup (V4.9.0)
 
 color 0B
 echo.
 echo  =============================================================================
-echo   META BUSINESS SUITE INBOX AUTOMATOR - PREREQUISITES AUTO-INSTALLER (V4.8.0)
+echo   META BUSINESS SUITE INBOX AUTOMATOR - PREREQUISITES AUTO-INSTALLER (V4.9.0)
 echo  =============================================================================
 echo   - Automated Google Chrome Silent Installation
-echo   - Enterprise Policy Tampermonkey Provisioning (Force-Install)
-echo   - 24/7 Continuous Server Power Hardening (Sleep & Standby Disabled)
-echo   - Multi-Tenant Sandbox Profiles Initialization
+echo   - Python 3 ^& Playwright Automation Environment Verification
+echo   - 24/7 Continuous Server Power Hardening (Sleep ^& Standby Disabled)
+echo   - Multi-Tenant Sandbox Profiles Initialization (Pure Python Zero-Extension)
 echo  =============================================================================
 echo.
 
@@ -103,20 +102,28 @@ if defined CHROME_EXE (
 echo.
 
 :: -----------------------------------------------------------------------------
-:: 4. TAMPERMONKEY EXTENSION AUTO-PROVISIONING (CHROME ENTERPRISE POLICY)
+:: 4. PYTHON 3 & PLAYWRIGHT AUTOMATION VERIFICATION
 :: -----------------------------------------------------------------------------
-echo [3/4] Configuring Chrome Enterprise Policy for Tampermonkey Auto-Provisioning...
+echo [3/4] Verifying Python 3 and Playwright Environment...
 
+python --version >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] Python 3 detected.
+    python -c "import playwright" >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo   [INSTALLING] Installing playwright package...
+        pip install playwright
+    ) else (
+        echo   [OK] Playwright automation package verified.
+    )
+) else (
+    echo   [NOTICE] Python 3 not in system PATH. Install from python.org for zero-extension execution.
+)
+
+:: Optional: Enterprise policy for Tampermonkey legacy fallback
 set "POLICY_KEY=HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"
 set "TM_ENTRY=dhdgffkkebhmkfjojejmpbldmpobfkfo;https://clients2.google.com/service/update2/crx"
-
 reg add "%POLICY_KEY%" /v 1 /t REG_SZ /d "%TM_ENTRY%" /f >nul 2>&1
-if %errorlevel% equ 0 (
-    echo   [OK] Chrome Enterprise Policy successfully updated.
-    echo   [OK] Tampermonkey will automatically be pre-installed across all profiles!
-) else (
-    echo   [WARN] Could not update Registry policy. Please run script as Administrator.
-)
 echo.
 
 :: -----------------------------------------------------------------------------
