@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Production V4.6.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.7.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.6.0
-// @description  Automates Meta Business Suite Inbox (RTL Arabic) with Container-Relative Envelope Locator, Anti-False-Drop Ad Guard, LRU Memory Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
+// @version      4.7.0
+// @description  Enterprise Multi-Tenant Edition: Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
 // @author       Principal Frontend Architect & Reverse-Engineering Architect
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,30 +13,34 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (V4.6.0 PRODUCTION GRADE)
+ * META BUSINESS SUITE INBOX AUTOMATOR (V4.7.0 ENTERPRISE MULTI-TENANT)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. SEQUENTIAL & DYNAMIC QUEUE PROGRESSION:
+ * 1. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
+ *    - Automatically detects active asset_id / mailbox_id from URL query/path.
+ *    - Namespaces all localStorage keys: MBS_RULES_${asset_id}, MBS_CONFIG_${asset_id}, MBS_GHOST_${asset_id}.
+ *    - Dynamic SPA re-hydration: auto-switches rules/config when operator navigates between pages.
+ * 2. SEQUENTIAL & DYNAMIC QUEUE PROGRESSION:
  *    - Sequential traversal with natural sidebar scrolling (scrollBy top: 220).
  *    - Stable contact tracking to prevent duplicate processing.
- * 2. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
+ * 3. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
  *    - Scoped chat header & action toolbar discovery without hardcoded coordinates.
  *    - 4-Tier discovery strategy: attributes -> "Done" sibling -> envelope SVG path -> scoped dropdown fallback.
- * 3. ANTI-FALSE-DROP AD GUARD:
+ * 4. ANTI-FALSE-DROP AD GUARD:
  *    - Length & Context gate prevents valid customer inquiries referencing ads from being dropped.
- * 4. LRU MEMORY RING-BUFFER:
+ * 5. LRU MEMORY RING-BUFFER:
  *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
- * 5. GOOGLE GLASS UI & GHOST STEALTH DOCK:
+ * 6. GOOGLE GLASS UI & GHOST STEALTH DOCK:
  *    - Frosted glass design (blur 16px, saturate 180%, ambient shadow).
  *    - Ultra-compact floating pill (110x32px) with live reply counter and pulsing status dot.
- * 6. POST-AGENT INBOUND BOUNDARY PARSING:
+ * 7. POST-AGENT INBOUND BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly AFTER the last agent reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
- * 7. COMPLETE VISUAL SUPERVISION & FRAMING:
+ * 8. COMPLETE VISUAL SUPERVISION & FRAMING:
  *    - Sky-blue border (3px solid #38bdf8 with soft glow) on active row.
  *    - Green dashed frame (2px dashed #22c55e) on evaluated customer bubble for 500ms.
  *    - Green pulse outline (2px solid #22c55e with glow) on envelope button for 400ms.
- * 8. HUMAN SIMULATOR:
+ * 9. HUMAN SIMULATOR:
  *    - Character-by-character typing with natural jitter (35-65ms) and punctuation delays.
  *    - Lexical composer clearing verification.
  *    - Natural human cooldowns (1.5s - 2.5s).
@@ -46,21 +50,60 @@
 (function () {
   'use strict';
 
-  if (window.__MBS_AUTOMATOR_V46_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V47_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V46_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V47_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
-  // 1. STATE CONFIGURATION & PERSISTENCE
+  // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
   // ---------------------------------------------------------------------------
-  const STORAGE_KEY_RULES = 'MBS_AUTO_RULES_V44';
-  const STORAGE_KEY_CONFIG = 'MBS_AUTO_CONFIG_V44';
-  const STORAGE_KEY_GHOST = 'MBS_AUTO_GHOST_MODE_V46';
+  function getActiveTenantId() {
+    try {
+      const url = new URL(window.location.href);
+      // 1. Check Search Parameters
+      const assetId = url.searchParams.get('asset_id');
+      if (assetId && /^[0-9a-zA-Z_-]+$/.test(assetId)) return assetId;
+
+      const mailboxId = url.searchParams.get('mailbox_id');
+      if (mailboxId && /^[0-9a-zA-Z_-]+$/.test(mailboxId)) return mailboxId;
+
+      const pageId = url.searchParams.get('page_id');
+      if (pageId && /^[0-9a-zA-Z_-]+$/.test(pageId)) return pageId;
+
+      const businessId = url.searchParams.get('business_id');
+      if (businessId && /^[0-9a-zA-Z_-]+$/.test(businessId)) return businessId;
+
+      // 2. Check Pathname: /inbox/(all/)?([0-9]{8,})
+      const pathMatch = url.pathname.match(/\/inbox\/(?:all\/|messenger\/|instagram\/)?([0-9]{8,})/);
+      if (pathMatch && pathMatch[1]) return pathMatch[1];
+
+      // 3. Fallback: inspect anchor links in page navigation
+      const pageLink = document.querySelector('a[href*="asset_id="]');
+      if (pageLink) {
+        const match = pageLink.href.match(/asset_id=([0-9a-zA-Z_-]+)/);
+        if (match && match[1]) return match[1];
+      }
+    } catch (_) {}
+    return 'default';
+  }
+
+  function getTenantStorageKeys() {
+    const tenantId = getActiveTenantId();
+    return {
+      tenantId,
+      rulesKey: `MBS_RULES_${tenantId}`,
+      configKey: `MBS_CONFIG_${tenantId}`,
+      ghostKey: `MBS_GHOST_${tenantId}`,
+      legacyRulesKey: 'MBS_AUTO_RULES_V44',
+      legacyConfigKey: 'MBS_AUTO_CONFIG_V44',
+      legacyGhostKey: 'MBS_AUTO_GHOST_MODE_V46'
+    };
+  }
 
   function pruneLRUCache(collection, maxLimit = 350, pruneCount = 100) {
     if (!collection) return;
@@ -114,6 +157,7 @@
     isRunning: false,
     emergencyAbort: false,
     currentIndex: 0,
+    currentTenantId: getActiveTenantId(),
     rules: loadRules(),
     config: loadConfig(),
     processedContacts: new Set(),
@@ -134,7 +178,11 @@
       if (window.__INITIAL_RULES__ && Array.isArray(window.__INITIAL_RULES__) && window.__INITIAL_RULES__.length > 0) {
         return window.__INITIAL_RULES__;
       }
-      const data = localStorage.getItem(STORAGE_KEY_RULES);
+      const { rulesKey, legacyRulesKey } = getTenantStorageKeys();
+      let data = localStorage.getItem(rulesKey);
+      if (!data) {
+        data = localStorage.getItem(legacyRulesKey);
+      }
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -145,7 +193,8 @@
 
   function saveRules() {
     try {
-      localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(state.rules));
+      const { rulesKey } = getTenantStorageKeys();
+      localStorage.setItem(rulesKey, JSON.stringify(state.rules));
       if (window.pySaveConfig) {
         window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
       }
@@ -157,7 +206,11 @@
       if (window.__INITIAL_CONFIG__ && typeof window.__INITIAL_CONFIG__ === 'object') {
         return { ...defaultConfig, ...window.__INITIAL_CONFIG__ };
       }
-      const data = localStorage.getItem(STORAGE_KEY_CONFIG);
+      const { configKey, legacyConfigKey } = getTenantStorageKeys();
+      let data = localStorage.getItem(configKey);
+      if (!data) {
+        data = localStorage.getItem(legacyConfigKey);
+      }
       if (data) return { ...defaultConfig, ...JSON.parse(data) };
     } catch (_) {}
     return { ...defaultConfig };
@@ -165,11 +218,35 @@
 
   function saveConfig() {
     try {
-      localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(state.config));
+      const { configKey } = getTenantStorageKeys();
+      localStorage.setItem(configKey, JSON.stringify(state.config));
       if (window.pySaveConfig) {
         window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
       }
     } catch (_) {}
+  }
+
+  function checkAndRehydrateTenant(hud) {
+    const latestTenantId = getActiveTenantId();
+    if (latestTenantId !== state.currentTenantId) {
+      const prevTenantId = state.currentTenantId;
+      state.currentTenantId = latestTenantId;
+      state.rules = loadRules();
+      state.config = loadConfig();
+      // Clear thread & contact tracking sets for clean transition between pages
+      state.processedContacts.clear();
+      state.processedSnapshots.clear();
+      state.lastRepliedSnippets.clear();
+
+      if (hud) {
+        hud.updateTenantUI(latestTenantId);
+        hud.renderRulesList();
+        hud.updateConfigUI();
+        hud.log('INFO', `[Multi-Tenant] تم تبديل الصفحة/الفرع (Tenant Switch: [${prevTenantId}] ➔ [${latestTenantId}]). تم إعادة تحميل القواعد والإعدادات تلقائياً.`);
+      }
+      return true;
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------------------
@@ -1006,7 +1083,9 @@
       }
 
       try {
-        this.isGhostMode = localStorage.getItem(STORAGE_KEY_GHOST) === 'true';
+        const { ghostKey, legacyGhostKey } = getTenantStorageKeys();
+        const gVal = localStorage.getItem(ghostKey) || localStorage.getItem(legacyGhostKey);
+        this.isGhostMode = gVal === 'true';
       } catch (_) {
         this.isGhostMode = false;
       }
@@ -1025,7 +1104,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.6.0 بنجاح وجاهزة لبدء الأتمتة.');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.7.0 بنجاح وجاهزة لبدء الأتمتة (Multi-Tenant Edition).');
     }
 
     render() {
@@ -1420,7 +1499,8 @@
             </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.6.0</span>
+              <span style="font-size: 10px; color: #64748b;">V4.7.0</span>
+              <span id="hud-tenant-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
               <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
@@ -1521,7 +1601,8 @@
     toggleGhostMode(enable) {
       this.isGhostMode = enable;
       try {
-        localStorage.setItem(STORAGE_KEY_GHOST, enable ? 'true' : 'false');
+        const { ghostKey } = getTenantStorageKeys();
+        localStorage.setItem(ghostKey, enable ? 'true' : 'false');
       } catch (_) {}
 
       const card = this.shadow.querySelector('.hud-card');
@@ -1744,6 +1825,39 @@
           Orchestrator.stop();
         }
       });
+
+      // Multi-Tenant SPA Navigation & URL Watcher
+      window.addEventListener('popstate', () => {
+        checkAndRehydrateTenant(this);
+      });
+
+      setInterval(() => {
+        checkAndRehydrateTenant(this);
+      }, 2500);
+    }
+
+    updateTenantUI(tenantId) {
+      const badge = this.shadow.getElementById('hud-tenant-badge');
+      if (badge) {
+        badge.textContent = tenantId === 'default' ? 'Default Page' : `Tenant: ${tenantId}`;
+      }
+    }
+
+    updateConfigUI() {
+      const minTyping = this.shadow.getElementById('cfg-min-typing');
+      if (minTyping) minTyping.value = state.config.minTypingSpeed;
+      const maxTyping = this.shadow.getElementById('cfg-max-typing');
+      if (maxTyping) maxTyping.value = state.config.maxTypingSpeed;
+      const minCd = this.shadow.getElementById('cfg-min-cooldown');
+      if (minCd) minCd.value = state.config.minCooldown;
+      const maxCd = this.shadow.getElementById('cfg-max-cooldown');
+      if (maxCd) maxCd.value = state.config.maxCooldown;
+      const monInt = this.shadow.getElementById('cfg-monitoring-interval');
+      if (monInt) monInt.value = state.config.monitoringInterval;
+      const hlRows = this.shadow.getElementById('cfg-highlight-rows');
+      if (hlRows) hlRows.checked = state.config.highlightRows;
+      const scrThr = this.shadow.getElementById('cfg-scroll-thread');
+      if (scrThr) scrThr.checked = state.config.scrollThread;
     }
 
     renderRulesList() {
@@ -1893,6 +2007,7 @@
     async start() {
       if (state.isRunning) return;
 
+      checkAndRehydrateTenant(this.hud);
       state.isRunning = true;
       state.emergencyAbort = false;
       state.currentIndex = 0;
@@ -1930,6 +2045,9 @@
 
     async runLoop() {
       while (state.isRunning && !state.emergencyAbort) {
+        // STEP -1: Multi-Tenant Rehydration Check
+        checkAndRehydrateTenant(this.hud);
+
         // STEP 0: Enforce "غير مقروء" (Unread) Filter Lock
         await DOM.ensureUnreadFilterActive(this.hud);
 
@@ -2243,6 +2361,8 @@
 
   window.__MBS_AUTOMATOR_START__ = () => Orchestrator.start();
   window.__MBS_AUTOMATOR_STOP__ = () => Orchestrator.stop();
+  window.__MBS_AUTOMATOR_GET_TENANT__ = () => state.currentTenantId;
+  window.__MBS_AUTOMATOR_REHYDRATE__ = () => checkAndRehydrateTenant(window.__MBS_AUTOMATOR_HUD__);
   window.__MBS_AUTOMATOR_SET_RULES__ = (rulesJson) => {
     try {
       state.rules = JSON.parse(rulesJson);
@@ -2257,5 +2377,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.6.0] Bootstrapped successfully.');
+  console.log('[MBS Automator V4.7.0] Bootstrapped successfully (Enterprise Multi-Tenant Edition).');
 })();

@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.6.0 Python Runner)
+⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.7.0 Enterprise Runner)
 =============================================================================
 Architecture & Features:
 - Connects to active Google Chrome via Chrome DevTools Protocol (CDP port 9222).
+- Enterprise Multi-Tenant Storage Isolation (dynamic asset_id / mailbox_id namespacing).
+- Zero Cross-Talk Guarantee for multi-page simultaneous operation.
 - Injects a complete Frosted Glass RTL Arabic HUD + Ghost Stealth Mode directly into Meta Business Suite.
 - Resolution-Invariant Envelope Discovery & Dropdown Fallback.
 - Anti-False-Drop Ad Guard (Length & Context Gate for inquiries referencing ads).
@@ -132,9 +134,10 @@ def format_log(tag: str, msg: str):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.6.0)
-  ⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (Production)
+  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.7.0)
+  ⚡ Meta Business Suite Inbox Auto-Responder (Enterprise Multi-Tenant)
 ============================================================================={Colors.END}
+  • عزل تخزين الصفحات المتعددة ديناميكياً (Dynamic Multi-Tenant Isolation)
   • محدد ظرف ديناميكي نسبي للحاوية بدون إحداثيات ثابتة
   • حماية من إسقاط رسائل الإعلانات الزائفة وقفل الطول والسياق (< 45 حرف)
   • درع ذاكرة حلقي LRU Ring-Buffer للتشغيل المستمر 24/7 دون تسريب
