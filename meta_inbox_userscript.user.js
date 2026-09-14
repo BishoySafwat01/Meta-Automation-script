@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.2)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.1
-// @description  Apple Liquid Glass Edition: Clean Single-Field Duration Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
+// @version      4.9.2
+// @description  Slate-Blue Apple Glass Edition: Single-Field Typing & Duration Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,13 +13,14 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.1)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.2)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. APPLE LIQUID GLASS INTERFACE & CLEAN CONTROLS:
- *    - Smoked dark glass surface (blur 30px, saturate 210%, luminous edge highlight).
- *    - SF Pro / Apple typography hierarchy with warm ivory and muted champagne accents.
- *    - Single-field decimal seconds timing controls (cooldown & monitoring intervals).
+ * 1. SLATE-BLUE APPLE LIQUID GLASS INTERFACE & CLEAN CONTROLS:
+ *    - Frosted slate-blue glass surface (blur 32px, saturate 190%, subtle inner luminous highlight).
+ *    - Header styled in deep slate translucent glass (rgba(30, 41, 59, 0.55)).
+ *    - SF Pro / Apple typography hierarchy with clean "Meta Automation" branding.
+ *    - Single-field typing speed control (ms/char) & decimal seconds duration controls.
  * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
  *    - Namespaces all localStorage keys: MBS_RULES_${asset_id}, MBS_CONFIG_${asset_id}, MBS_GHOST_${asset_id}.
@@ -43,7 +44,7 @@
  *    - Evaluates customer messages arriving strictly after the last staff/page reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
  * 10. HUMAN SIMULATOR:
- *    - Character-by-character typing with natural jitter (35-65ms) and punctuation delays.
+ *    - Character-by-character typing with natural jitter and punctuation delays.
  *    - Lexical composer clearing verification.
  *    - Natural human cooldowns.
  * ============================================================================
@@ -55,14 +56,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V491_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V492_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V491_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V492_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -149,6 +150,7 @@
   ];
 
   const defaultConfig = {
+    typingSpeed: 45,
     minTypingSpeed: 35,
     maxTypingSpeed: 65,
     minCooldown: 1500,
@@ -210,21 +212,24 @@
   }
 
   function loadConfig() {
+    let cfg = { ...defaultConfig };
     try {
       if (window.__INITIAL_CONFIG__ && typeof window.__INITIAL_CONFIG__ === 'object') {
-        return { ...defaultConfig, ...window.__INITIAL_CONFIG__ };
-      }
-      const { configKey, legacyConfigKey } = getTenantStorageKeys();
-      let data = localStorage.getItem(configKey);
-      if (data === null) {
-        data = localStorage.getItem(legacyConfigKey);
-      }
-      if (data !== null) {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object') return { ...defaultConfig, ...parsed };
+        cfg = { ...defaultConfig, ...window.__INITIAL_CONFIG__ };
+      } else {
+        const { configKey, legacyConfigKey } = getTenantStorageKeys();
+        let data = localStorage.getItem(configKey);
+        if (data === null) {
+          data = localStorage.getItem(legacyConfigKey);
+        }
+        if (data !== null) {
+          const parsed = JSON.parse(data);
+          if (parsed && typeof parsed === 'object') cfg = { ...defaultConfig, ...parsed };
+        }
       }
     } catch (_) {}
-    return { ...defaultConfig };
+    cfg.typingSpeed = cfg.typingSpeed || Math.round(((cfg.minTypingSpeed || 35) + (cfg.maxTypingSpeed || 65)) / 2) || 45;
+    return cfg;
   }
 
   function saveConfig() {
@@ -1152,7 +1157,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.1 بنجاح (Apple Liquid Glass Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.2 بنجاح (Slate-Blue Apple Glass Edition).');
     }
 
     render() {
@@ -1170,12 +1175,12 @@
             max-height: 90vh;
             width: 480px;
             max-height: 620px;
-            background: rgba(28, 28, 30, 0.72);
-            backdrop-filter: blur(30px) saturate(210%);
-            -webkit-backdrop-filter: blur(30px) saturate(210%);
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 22px;
-            box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+            background: rgba(22, 30, 46, 0.76);
+            -webkit-backdrop-filter: blur(32px) saturate(190%);
+            backdrop-filter: blur(32px) saturate(190%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 24px 48px rgba(10, 15, 26, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -1276,8 +1281,8 @@
           .hud-header {
             cursor: grab;
             padding: 13px 18px;
-            background: rgba(255, 255, 255, 0.03);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(30, 41, 59, 0.55);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1290,6 +1295,10 @@
             align-items: center;
             gap: 8px;
             letter-spacing: -0.2px;
+          }
+          .hud-title-text {
+            font-weight: 600;
+            color: #F5F5F7;
           }
           .hud-version-badge {
             font-size: 10px;
@@ -1627,8 +1636,8 @@
               <button class="header-icon-btn" id="btn-maximize" title="تكبير / توسيع النافذة">⛶</button>
             </div>
             <div class="hud-title">
-              <span>إدارة المحادثات</span>
-              <span class="hud-version-badge">4.9.1</span>
+              <span class="hud-title-text">Meta Automation</span>
+              <span class="hud-version-badge">4.9.2</span>
               <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -1689,12 +1698,8 @@
                 <input type="number" id="cfg-monitoring-sec" class="config-input" style="width: 75px;" step="0.5" min="1" value="${monitoringSec}">
               </div>
               <div class="config-row">
-                <span class="config-label">سرعة الكتابة البشرية (ms)</span>
-                <div style="display: flex; gap: 6px; align-items: center;">
-                  <input type="number" id="cfg-min-typing" class="config-input" style="width: 52px;" value="${state.config.minTypingSpeed}">
-                  <span style="font-size: 11px; color: rgba(235, 235, 245, 0.4);">-</span>
-                  <input type="number" id="cfg-max-typing" class="config-input" style="width: 52px;" value="${state.config.maxTypingSpeed}">
-                </div>
+                <span class="config-label">سرعة الكتابة (مللي ثانية/حرف)</span>
+                <input type="number" id="cfg-typing-speed" class="config-input" min="10" max="200" step="5" value="${state.config.typingSpeed || 45}">
               </div>
               <div class="config-row">
                 <span class="config-label">تأطير بصري للمحادثة النشطة</span>
@@ -1914,19 +1919,18 @@
         this.renderRulesList();
       });
 
-      const bindConfigNumber = (id, prop, fallback) => {
-        const el = this.shadow.getElementById(id);
-        if (!el) return;
-        const handler = (e) => {
-          state.config[prop] = parseInt(e.target.value, 10) || fallback;
+      const typingSpeedEl = this.shadow.getElementById('cfg-typing-speed');
+      if (typingSpeedEl) {
+        const handleTypingSpeed = (e) => {
+          const speed = parseInt(e.target.value, 10) || 45;
+          state.config.typingSpeed = speed;
+          state.config.minTypingSpeed = Math.max(10, Math.round(speed * 0.75));
+          state.config.maxTypingSpeed = Math.round(speed * 1.25);
           saveConfig();
         };
-        el.addEventListener('input', handler);
-        el.addEventListener('change', handler);
-      };
-
-      bindConfigNumber('cfg-min-typing', 'minTypingSpeed', 35);
-      bindConfigNumber('cfg-max-typing', 'maxTypingSpeed', 65);
+        typingSpeedEl.addEventListener('input', handleTypingSpeed);
+        typingSpeedEl.addEventListener('change', handleTypingSpeed);
+      }
 
       const cooldownSecEl = this.shadow.getElementById('cfg-cooldown-sec');
       if (cooldownSecEl) {
@@ -1986,10 +1990,10 @@
     }
 
     updateConfigUI() {
-      const minTyping = this.shadow.getElementById('cfg-min-typing');
-      if (minTyping) minTyping.value = state.config.minTypingSpeed;
-      const maxTyping = this.shadow.getElementById('cfg-max-typing');
-      if (maxTyping) maxTyping.value = state.config.maxTypingSpeed;
+      const typingSpeedEl = this.shadow.getElementById('cfg-typing-speed');
+      if (typingSpeedEl) {
+        typingSpeedEl.value = state.config.typingSpeed || Math.round(((state.config.minTypingSpeed || 35) + (state.config.maxTypingSpeed || 65)) / 2) || 45;
+      }
       const cooldownEl = this.shadow.getElementById('cfg-cooldown-sec');
       if (cooldownEl) {
         const sec = state.config.maxCooldown ? ((state.config.minCooldown + state.config.maxCooldown) / 2000).toFixed(1) : '1.5';
@@ -2539,5 +2543,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.1] Initialized successfully (Apple Liquid Glass Edition).');
+  console.log('[MBS Automator V4.9.2] Initialized successfully (Slate-Blue Apple Glass Edition).');
 })();

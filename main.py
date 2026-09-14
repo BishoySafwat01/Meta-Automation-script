@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.9.1 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.9.2 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -82,6 +82,7 @@ ANTI_THROTTLING_ARGS = [
     "--password-store=basic",
     "--start-maximized",
     "--new-window",
+    "--test-type",
 ]
 
 # Track active resources for clean signal exit
@@ -228,7 +229,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.9.1 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.9.2 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -237,7 +238,7 @@ def print_banner():
   • محرك إيقاف طوارئ فوري دون أي تأخير زمني (Instant Hard-Stop <10ms)
   • عزل تخزين الصفحات المتعددة ديناميكياً مع حماية كاملة من تداخل البيانات
   • تنظيف تلقائي لأقفال كروم التالفة (SingletonLocks) لمنع الإغلاق الصامت
-  • واجهة تحكم Apple Liquid Glass المتطورة ووضع الشبح الخفيف (Ghost Stealth Mode)
+  • واجهة تحكم Slate-Blue Apple Glass المتطورة ووضع الشبح الخفيف (Ghost Stealth Mode)
 =============================================================================
 """
     print(banner)
@@ -299,6 +300,7 @@ async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, pre
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V492_LOADED__;
             delete window.__MBS_AUTOMATOR_V491_LOADED__;
             delete window.__MBS_AUTOMATOR_V490_LOADED__;
             delete window.__MBS_AUTOMATOR_V480_LOADED__;
@@ -586,7 +588,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V4.9.1)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V4.9.2)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
