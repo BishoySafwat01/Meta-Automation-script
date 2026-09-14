@@ -30,13 +30,14 @@
     }
   ],
   "config": {
-    "minTypingSpeed": 35,
-    "maxTypingSpeed": 65,
+    "typingSpeed": 35,
+    "minTypingSpeed": 26,
+    "maxTypingSpeed": 44,
     "minCooldown": 1200,
     "maxCooldown": 2200,
     "scrollThread": true,
     "highlightRows": true,
-    "monitoringInterval": 6000
+    "monitoringInterval": 5000
   },
   "auto_start": false
 }
