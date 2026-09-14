@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # META BUSINESS SUITE INBOX AUTOMATOR - LINUX / UBUNTU PRODUCTION LAUNCHER
-# Version: V5.0.0 (Pure Python Zero-Extension Runner Edition)
+# Version: V5.0.1 (Pure Python Zero-Extension Runner Edition)
 # Author: Bishoy Safwat (Senior Automation Engineer)
 # =============================================================================
 # Purpose:
@@ -30,7 +30,7 @@ PYTHON_BIN="python3"
 print_banner() {
     echo -e "${CLR_CYAN}${CLR_BOLD}"
     echo "============================================================================="
-    echo "  META BUSINESS SUITE INBOX AUTOMATOR - UBUNTU 24.04 LAUNCHER (V5.0.0)"
+    echo "  META BUSINESS SUITE INBOX AUTOMATOR - UBUNTU 24.04 LAUNCHER (V5.0.1)"
     echo "============================================================================="
     echo -e "${CLR_RESET}"
     echo -e "  ${CLR_BLUE}•${CLR_RESET} Pure Python Zero-Extension Playwright Runner"
@@ -204,7 +204,13 @@ ACTION="${1:-}"
 
 case "$ACTION" in
     --test|--dry-run|-t)
-        run_smoke_test
+        if [ -x "$SCRIPT_DIR/audit_system.py" ]; then
+            exec "$SCRIPT_DIR/audit_system.py"
+        elif [ -f "$SCRIPT_DIR/audit_system.py" ]; then
+            exec "$PYTHON_BIN" "$SCRIPT_DIR/audit_system.py"
+        else
+            run_smoke_test
+        fi
         ;;
     --attach|-a)
         shift || true
