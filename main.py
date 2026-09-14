@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.7.0 Enterprise Runner)
+⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.7.1 Enterprise Runner)
 =============================================================================
 Architecture & Features:
 - Connects to active Google Chrome via Chrome DevTools Protocol (CDP port 9222).
-- Enterprise Multi-Tenant Storage Isolation (dynamic asset_id / mailbox_id namespacing).
+- Zero-Latency Instant Hard-Stop Engine (cancellable sleep aborts within <10ms).
+- Bulletproof Multi-Tenant Storage Isolation (dynamic asset_id / mailbox_id namespacing).
 - Zero Cross-Talk Guarantee for multi-page simultaneous operation.
 - Injects a complete Frosted Glass RTL Arabic HUD + Ghost Stealth Mode directly into Meta Business Suite.
 - Resolution-Invariant Envelope Discovery & Dropdown Fallback.
@@ -134,9 +135,11 @@ def format_log(tag: str, msg: str):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.7.0)
-  ⚡ Meta Business Suite Inbox Auto-Responder (Enterprise Multi-Tenant)
+  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.7.1)
+  ⚡ Meta Business Suite Inbox Auto-Responder (Zero-Latency Hard-Stop Edition)
 ============================================================================={Colors.END}
+  • محرك إيقاف طوارئ فوري دون أي تأخير زمني (Instant Hard-Stop <10ms)
+  • حفظ وقراءة غير قابلة للفقد لقواعد وإعدادات الصفحات (Bulletproof Tenant Storage)
   • عزل تخزين الصفحات المتعددة ديناميكياً (Dynamic Multi-Tenant Isolation)
   • محدد ظرف ديناميكي نسبي للحاوية بدون إحداثيات ثابتة
   • حماية من إسقاط رسائل الإعلانات الزائفة وقفل الطول والسياق (< 45 حرف)

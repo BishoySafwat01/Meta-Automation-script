@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.7.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.7.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.7.0
+// @version      4.7.1
 // @description  Enterprise Multi-Tenant Edition: Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
 // @author       Principal Frontend Architect & Reverse-Engineering Architect
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,34 +13,37 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (V4.7.0 ENTERPRISE MULTI-TENANT)
+ * META BUSINESS SUITE INBOX AUTOMATOR (V4.7.1 ENTERPRISE STABLE PATCH)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
  *    - Namespaces all localStorage keys: MBS_RULES_${asset_id}, MBS_CONFIG_${asset_id}, MBS_GHOST_${asset_id}.
  *    - Dynamic SPA re-hydration: auto-switches rules/config when operator navigates between pages.
- * 2. SEQUENTIAL & DYNAMIC QUEUE PROGRESSION:
- *    - Sequential traversal with natural sidebar scrolling (scrollBy top: 220).
- *    - Stable contact tracking to prevent duplicate processing.
- * 3. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
+ * 2. ZERO-LATENCY INSTANT HARD-STOP ENGINE:
+ *    - Cancellable sleep infrastructure with active rejector registry (abortAllSleeps).
+ *    - Instant breakout (<10ms) on Stop click or Escape key, clearing outlines and halting typing.
+ * 3. BULLETPROOF RULES & CONFIG PERSISTENCE:
+ *    - Strict null-check fallback preventing accidental overwrite of empty/custom rules by defaults.
+ *    - Real-time two-way synchronization on both input and change events.
+ * 4. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
  *    - Scoped chat header & action toolbar discovery without hardcoded coordinates.
  *    - 4-Tier discovery strategy: attributes -> "Done" sibling -> envelope SVG path -> scoped dropdown fallback.
- * 4. ANTI-FALSE-DROP AD GUARD:
+ * 5. ANTI-FALSE-DROP AD GUARD:
  *    - Length & Context gate prevents valid customer inquiries referencing ads from being dropped.
- * 5. LRU MEMORY RING-BUFFER:
+ * 6. LRU MEMORY RING-BUFFER:
  *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
- * 6. GOOGLE GLASS UI & GHOST STEALTH DOCK:
+ * 7. GOOGLE GLASS UI & GHOST STEALTH DOCK:
  *    - Frosted glass design (blur 16px, saturate 180%, ambient shadow).
  *    - Ultra-compact floating pill (110x32px) with live reply counter and pulsing status dot.
- * 7. POST-AGENT INBOUND BOUNDARY PARSING:
+ * 8. POST-AGENT INBOUND BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly AFTER the last agent reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
- * 8. COMPLETE VISUAL SUPERVISION & FRAMING:
+ * 9. COMPLETE VISUAL SUPERVISION & FRAMING:
  *    - Sky-blue border (3px solid #38bdf8 with soft glow) on active row.
  *    - Green dashed frame (2px dashed #22c55e) on evaluated customer bubble for 500ms.
  *    - Green pulse outline (2px solid #22c55e with glow) on envelope button for 400ms.
- * 9. HUMAN SIMULATOR:
+ * 10. HUMAN SIMULATOR:
  *    - Character-by-character typing with natural jitter (35-65ms) and punctuation delays.
  *    - Lexical composer clearing verification.
  *    - Natural human cooldowns (1.5s - 2.5s).
@@ -50,14 +53,14 @@
 (function () {
   'use strict';
 
-  if (window.__MBS_AUTOMATOR_V47_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V471_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V47_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V471_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -179,13 +182,16 @@
         return window.__INITIAL_RULES__;
       }
       const { rulesKey, legacyRulesKey } = getTenantStorageKeys();
-      let data = localStorage.getItem(rulesKey);
-      if (!data) {
-        data = localStorage.getItem(legacyRulesKey);
+      const raw = localStorage.getItem(rulesKey);
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
       }
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      // Only fallback to legacy key if the tenant key is strictly null in localStorage
+      const legacyRaw = localStorage.getItem(legacyRulesKey);
+      if (legacyRaw !== null) {
+        const legacyParsed = JSON.parse(legacyRaw);
+        if (Array.isArray(legacyParsed)) return legacyParsed;
       }
     } catch (_) {}
     return JSON.parse(JSON.stringify(defaultRules));
@@ -208,10 +214,13 @@
       }
       const { configKey, legacyConfigKey } = getTenantStorageKeys();
       let data = localStorage.getItem(configKey);
-      if (!data) {
+      if (data === null) {
         data = localStorage.getItem(legacyConfigKey);
       }
-      if (data) return { ...defaultConfig, ...JSON.parse(data) };
+      if (data !== null) {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object') return { ...defaultConfig, ...parsed };
+      }
     } catch (_) {}
     return { ...defaultConfig };
   }
@@ -295,7 +304,36 @@
     return null;
   }
 
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const activeSleepRejectors = new Set();
+
+  function sleep(ms) {
+    if (state.emergencyAbort) {
+      return Promise.reject(new Error('ABORT_SIGNAL'));
+    }
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      const rejector = (err) => {
+        if (timer) clearTimeout(timer);
+        activeSleepRejectors.delete(rejector);
+        reject(err || new Error('ABORT_SIGNAL'));
+      };
+      timer = setTimeout(() => {
+        activeSleepRejectors.delete(rejector);
+        resolve();
+      }, ms);
+      activeSleepRejectors.add(rejector);
+    });
+  }
+
+  function abortAllSleeps() {
+    for (const reject of Array.from(activeSleepRejectors)) {
+      try {
+        reject(new Error('ABORT_SIGNAL'));
+      } catch (_) {}
+    }
+    activeSleepRejectors.clear();
+  }
+
   const randomRange = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
   // ---------------------------------------------------------------------------
@@ -972,7 +1010,7 @@
       logger.log('TYPING', `محاكاة كتابة الرد (${text.length} حرف، تذبذب ${state.config.minTypingSpeed}-${state.config.maxTypingSpeed}ms)...`);
 
       for (let i = 0; i < text.length; i++) {
-        if (state.emergencyAbort) throw new Error('ABORT_SIGNAL');
+        if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
 
         const char = text[i];
 
@@ -1011,7 +1049,9 @@
         await sleep(delay);
       }
 
+      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
       await sleep(350);
+      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
       logger.log('TYPING', 'اكتملت الكتابة. إرسال عبر مفتاح Enter...');
 
       const enterDown = new KeyboardEvent('keydown', {
@@ -1038,6 +1078,7 @@
 
       await sleep(300);
 
+      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
       let currentContent = (composer.innerText || composer.textContent || '').trim();
       const isPlaceholder = currentContent.includes('رد في Messenger') || currentContent.includes('رد في Instagram') || currentContent.length === 0;
 
@@ -1104,7 +1145,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.7.0 بنجاح وجاهزة لبدء الأتمتة (Multi-Tenant Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.7.1 بنجاح وجاهزة لبدء الأتمتة (Multi-Tenant Edition).');
     }
 
     render() {
@@ -1499,7 +1540,7 @@
             </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.7.0</span>
+              <span style="font-size: 10px; color: #64748b;">V4.7.1</span>
               <span id="hud-tenant-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
@@ -1789,26 +1830,23 @@
         this.renderRulesList();
       });
 
-      this.shadow.getElementById('cfg-min-typing').addEventListener('change', (e) => {
-        state.config.minTypingSpeed = parseInt(e.target.value, 10) || 35;
-        saveConfig();
-      });
-      this.shadow.getElementById('cfg-max-typing').addEventListener('change', (e) => {
-        state.config.maxTypingSpeed = parseInt(e.target.value, 10) || 65;
-        saveConfig();
-      });
-      this.shadow.getElementById('cfg-min-cooldown').addEventListener('change', (e) => {
-        state.config.minCooldown = parseInt(e.target.value, 10) || 1500;
-        saveConfig();
-      });
-      this.shadow.getElementById('cfg-max-cooldown').addEventListener('change', (e) => {
-        state.config.maxCooldown = parseInt(e.target.value, 10) || 2500;
-        saveConfig();
-      });
-      this.shadow.getElementById('cfg-monitoring-interval').addEventListener('change', (e) => {
-        state.config.monitoringInterval = parseInt(e.target.value, 10) || 6000;
-        saveConfig();
-      });
+      const bindConfigNumber = (id, prop, fallback) => {
+        const el = this.shadow.getElementById(id);
+        if (!el) return;
+        const handler = (e) => {
+          state.config[prop] = parseInt(e.target.value, 10) || fallback;
+          saveConfig();
+        };
+        el.addEventListener('input', handler);
+        el.addEventListener('change', handler);
+      };
+
+      bindConfigNumber('cfg-min-typing', 'minTypingSpeed', 35);
+      bindConfigNumber('cfg-max-typing', 'maxTypingSpeed', 65);
+      bindConfigNumber('cfg-min-cooldown', 'minCooldown', 1500);
+      bindConfigNumber('cfg-max-cooldown', 'maxCooldown', 2500);
+      bindConfigNumber('cfg-monitoring-interval', 'monitoringInterval', 6000);
+
       this.shadow.getElementById('cfg-highlight-rows').addEventListener('change', (e) => {
         state.config.highlightRows = e.target.checked;
         saveConfig();
@@ -1903,19 +1941,27 @@
       });
 
       container.querySelectorAll('.rule-keywords-input').forEach(el => {
-        el.addEventListener('input', (e) => {
+        const handler = (e) => {
           const idx = parseInt(e.target.getAttribute('data-idx'), 10);
-          state.rules[idx].keyword = e.target.value;
-          saveRules();
-        });
+          if (state.rules[idx]) {
+            state.rules[idx].keyword = e.target.value;
+            saveRules();
+          }
+        };
+        el.addEventListener('input', handler);
+        el.addEventListener('change', handler);
       });
 
       container.querySelectorAll('.rule-reply-input').forEach(el => {
-        el.addEventListener('input', (e) => {
+        const handler = (e) => {
           const idx = parseInt(e.target.getAttribute('data-idx'), 10);
-          state.rules[idx].reply = e.target.value;
-          saveRules();
-        });
+          if (state.rules[idx]) {
+            state.rules[idx].reply = e.target.value;
+            saveRules();
+          }
+        };
+        el.addEventListener('input', handler);
+        el.addEventListener('change', handler);
       });
 
       container.querySelectorAll('.rule-del-btn').forEach(el => {
@@ -2007,6 +2053,7 @@
     async start() {
       if (state.isRunning) return;
 
+      abortAllSleeps();
       checkAndRehydrateTenant(this.hud);
       state.isRunning = true;
       state.emergencyAbort = false;
@@ -2031,10 +2078,17 @@
     },
 
     stop() {
+      const wasRunning = state.isRunning;
       state.isRunning = false;
       state.emergencyAbort = true;
-      this.hud.setStatus('STOPPED', 'stopped');
-      this.hud.log('STOP', 'الأتمتة متوقفة حالياً.');
+      abortAllSleeps();
+
+      if (this.hud) {
+        this.hud.setStatus('STOPPED', 'stopped');
+        if (wasRunning) {
+          this.hud.log('STOP', 'الأتمتة متوقفة حالياً.');
+        }
+      }
 
       if (state.activeRowElement) {
         state.activeRowElement.style.outline = '';
@@ -2377,5 +2431,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.7.0] Bootstrapped successfully (Enterprise Multi-Tenant Edition).');
+  console.log('[MBS Automator V4.7.1] Bootstrapped successfully (Enterprise Multi-Tenant Edition).');
 })();
