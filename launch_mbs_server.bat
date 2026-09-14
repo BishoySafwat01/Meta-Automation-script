@@ -4,26 +4,27 @@ setlocal enabledelayedexpansion
 
 :: =============================================================================
 ::  META BUSINESS SUITE INBOX AUTOMATOR - ENTERPRISE MULTI-TENANT SERVER LAUNCHER
-::  Version: V4.7.0 (Production Windows 11 Server Edition)
+::  Version: V4.8.0 (Production Windows Server Edition)
+::  Author: Bishoy Safwat (Senior Automation Engineer)
 :: =============================================================================
 ::  Purpose:
 ::  - Launches isolated, dedicated Google Chrome instances for multiple Facebook
 ::    Pages / Brands simultaneously on Windows 11 / Windows Server.
-::  - Applies critical OS-level anti-throttling flags to prevent Windows 11 from
+::  - Applies critical OS-level anti-throttling flags to prevent Windows from
 ::    putting background or occluded tabs to sleep.
 ::  - Guarantees 100% Zero Cross-Talk between different Facebook accounts and pages.
 :: =============================================================================
 
-title Meta Business Suite Multi-Tenant Runner - V4.7.0
+title Meta Business Suite Multi-Tenant Runner - V4.8.0
 
 color 0B
 echo.
 echo  =============================================================================
-echo   ⚡ META BUSINESS SUITE INBOX AUTOMATOR - 24/7 WINDOWS SERVER LAUNCHER (V4.7.0)
+echo   META BUSINESS SUITE INBOX AUTOMATOR - 24/7 WINDOWS SERVER LAUNCHER (V4.8.0)
 echo  =============================================================================
-echo   • Multi-Tenant Storage Isolation ^& Profile Sandboxing
-echo   • Windows 11 Anti-Throttling Engine Enabled
-echo   • Dual-Layer Zero Cross-Talk Protection
+echo   - Multi-Tenant Storage Isolation ^& Profile Sandboxing
+echo   - Windows Background Anti-Throttling Enabled
+echo   - Dual-Layer Zero Cross-Talk Protection
 echo  =============================================================================
 echo.
 

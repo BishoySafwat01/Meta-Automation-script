@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.7.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.8.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.7.1
+// @version      4.8.0
 // @description  Enterprise Multi-Tenant Edition: Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
-// @author       Principal Frontend Architect & Reverse-Engineering Architect
+// @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
 // @icon         https://www.facebook.com/favicon.ico
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (V4.7.1 ENTERPRISE STABLE PATCH)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.8.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
@@ -36,8 +36,8 @@
  * 7. GOOGLE GLASS UI & GHOST STEALTH DOCK:
  *    - Frosted glass design (blur 16px, saturate 180%, ambient shadow).
  *    - Ultra-compact floating pill (110x32px) with live reply counter and pulsing status dot.
- * 8. POST-AGENT INBOUND BOUNDARY PARSING:
- *    - Evaluates customer messages arriving strictly AFTER the last agent reply.
+ * 8. INBOUND MESSAGE BOUNDARY PARSING:
+ *    - Evaluates customer messages arriving strictly after the last staff/page reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
  * 9. COMPLETE VISUAL SUPERVISION & FRAMING:
  *    - Sky-blue border (3px solid #38bdf8 with soft glow) on active row.
@@ -53,14 +53,14 @@
 (function () {
   'use strict';
 
-  if (window.__MBS_AUTOMATOR_V471_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V480_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V471_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V480_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -337,7 +337,7 @@
   const randomRange = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
   // ---------------------------------------------------------------------------
-  // 3. DOM REVERSE-ENGINEERING & SELECTORS
+  // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
     getConversationRows() {
@@ -1145,7 +1145,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.7.1 بنجاح وجاهزة لبدء الأتمتة (Multi-Tenant Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.8.0 بنجاح وجاهزة لبدء الأتمتة (Enterprise Edition).');
     }
 
     render() {
@@ -1540,7 +1540,7 @@
             </div>
             <div class="hud-title">
               <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.7.1</span>
+              <span style="font-size: 10px; color: #64748b;">V4.8.0</span>
               <span id="hud-tenant-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
@@ -2271,7 +2271,7 @@
           await sleep(randomRange(150, 250));
         }
 
-        // STEP 3: Message Boundary Parsing (Post-Agent Messages Only)
+        // STEP 3: Inbound Boundary Evaluation (Post-Representative Messages Only)
         this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
         const { lastIsOutbound, customerBubbles } = DOM.parseInboundBoundary();
 
@@ -2431,5 +2431,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.7.1] Bootstrapped successfully (Enterprise Multi-Tenant Edition).');
+  console.log('[MBS Automator V4.8.0] Initialized successfully (Enterprise Multi-Tenant Edition).');
 })();

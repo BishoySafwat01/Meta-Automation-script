@@ -2,18 +2,19 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-⚡ Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.7.1 Enterprise Runner)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V4.8.0 Enterprise Release)
+Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
-Architecture & Features:
-- Connects to active Google Chrome via Chrome DevTools Protocol (CDP port 9222).
+Architecture & Core Features:
+- Connects to Google Chrome via Chrome DevTools Protocol (CDP port 9222).
 - Zero-Latency Instant Hard-Stop Engine (cancellable sleep aborts within <10ms).
 - Bulletproof Multi-Tenant Storage Isolation (dynamic asset_id / mailbox_id namespacing).
-- Zero Cross-Talk Guarantee for multi-page simultaneous operation.
+- Zero Cross-Talk Guarantee for simultaneous multi-page operation.
 - Injects a complete Frosted Glass RTL Arabic HUD + Ghost Stealth Mode directly into Meta Business Suite.
 - Resolution-Invariant Envelope Discovery & Dropdown Fallback.
 - Anti-False-Drop Ad Guard (Length & Context Gate for inquiries referencing ads).
 - LRU Memory Ring-Buffer to prevent memory leaks during 24/7 continuous operation.
-- Inbound Boundary Parsing (strictly evaluates incoming customer messages after last agent reply).
+- Inbound Boundary Evaluation (strictly evaluates incoming customer messages after last page reply).
 - Visual Inspection & Framing (Sky-blue active row, green dashed customer bubble, flashing envelope).
 - Complete Arabic Text Normalization & Keyword Matching (exact, word, contains).
 - Full Two-Way Synchronization between the browser HUD and config.json.
@@ -135,16 +136,16 @@ def format_log(tag: str, msg: str):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  ⚡ أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V4.7.1)
-  ⚡ Meta Business Suite Inbox Auto-Responder (Zero-Latency Hard-Stop Edition)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V4.8.0)
+  Meta Business Suite Inbox Automation Suite - Enterprise Production Edition
 ============================================================================={Colors.END}
   • محرك إيقاف طوارئ فوري دون أي تأخير زمني (Instant Hard-Stop <10ms)
-  • حفظ وقراءة غير قابلة للفقد لقواعد وإعدادات الصفحات (Bulletproof Tenant Storage)
+  • حفظ وقراءة موثوقة لقواعد وإعدادات الصفحات دون فقد (Bulletproof Storage)
   • عزل تخزين الصفحات المتعددة ديناميكياً (Dynamic Multi-Tenant Isolation)
   • محدد ظرف ديناميكي نسبي للحاوية بدون إحداثيات ثابتة
-  • حماية من إسقاط رسائل الإعلانات الزائفة وقفل الطول والسياق (< 45 حرف)
+  • حماية من إسقاط رسائل الإعلانات الصالحة وقفل الطول والسياق (< 45 حرف)
   • درع ذاكرة حلقي LRU Ring-Buffer للتشغيل المستمر 24/7 دون تسريب
-  • واجهة Frosted Glass بتصميم Google Sans ووضع الشبح الفائق (Ghost Mode 👻)
+  • واجهة تحكم متطورة بتصميم Google Sans ووضع الشبح الخفيف (Ghost Mode)
 =============================================================================
 """
     print(banner)
