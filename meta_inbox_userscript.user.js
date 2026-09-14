@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.0.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.1.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      5.0.0
+// @version      5.1.0
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.0.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.1.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V500_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V510_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V500_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V510_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -687,6 +687,67 @@
       return '';
     },
 
+    async waitForConversationLoad(targetRow, contactName, clickTarget, logger) {
+      const isGenericName = !contactName || 
+                            contactName.startsWith('*row_') || 
+                            contactName.startsWith('row_') || 
+                            contactName.startsWith('contact_row_');
+      const normTarget = isGenericName ? '' : normalizeArabicText(contactName);
+      const startWait = Date.now();
+      const maxTimeoutMs = 3500; // Hard timeout of 3.5 seconds max
+
+      while (Date.now() - startWait < maxTimeoutMs) {
+        if (state.emergencyAbort) throw new Error('ABORT_SIGNAL');
+
+        const composer = this.getComposer();
+        const chatCanvas = this.getChatCanvas();
+        const isRowSelected = Boolean(targetRow && (
+          targetRow.getAttribute('aria-selected') === 'true' ||
+          (typeof targetRow.className === 'string' && (targetRow.className.includes('selected') || targetRow.className.includes('active'))) ||
+          targetRow.querySelector('[aria-selected="true"]')
+        ));
+
+        // If expectedName is generic or missing, verify row selection or canvas/composer presence
+        if (isGenericName) {
+          if (isRowSelected || (composer && chatCanvas)) {
+            return true;
+          }
+        } else {
+          // Named contact check
+          const headerName = this.getActiveChatContactName();
+          const normHeader = normalizeArabicText(headerName);
+
+          if (composer && normHeader && (normHeader.includes(normTarget) || normTarget.includes(normHeader))) {
+            return true;
+          }
+
+          // If past 1.8s and row is selected or composer is present, accept if canvas rendered
+          if (Date.now() - startWait > 1800 && (isRowSelected || composer) && chatCanvas) {
+            return true;
+          }
+        }
+
+        // Single gentle retry click after 1.2s if switch hasn't completed
+        if (Date.now() - startWait > 1200 && Date.now() - startWait < 1400) {
+          try {
+            await HumanSimulator.naturalClick(clickTarget || targetRow);
+          } catch (_) {}
+        }
+
+        await sleep(150);
+      }
+
+      // Hard timeout reached (3.5s): if composer or canvas is present, proceed rather than hang
+      const finalComposer = this.getComposer();
+      const finalCanvas = this.getChatCanvas();
+      if (finalComposer || finalCanvas) {
+        return true;
+      }
+
+      if (logger) logger.log('WARN', `مهلة انتظار تحميل المحادثة (${(maxTimeoutMs / 1000).toFixed(1)} ث) انتهت دون استجابة تامة. المتابعة بحذر...`);
+      return false;
+    },
+
     getSidebarScrollContainer() {
       const rows = this.getConversationRows();
       if (rows.length > 0) {
@@ -930,6 +991,8 @@
         return null;
       };
 
+      let isAlreadyUnreadDetected = false;
+
       const tryClickDropdown = async () => {
         if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
         const allHeaderButtons = getHeaderButtons();
@@ -941,16 +1004,27 @@
                  title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة');
         });
 
-        if (dropdownBtn) {
+        if (!dropdownBtn) return false;
+
+        let result = false;
+        try {
           await HumanSimulator.flashEnvelopeButton(dropdownBtn);
           releaseChatFocus();
           dispatchFullClick(dropdownBtn);
           await sleep(500);
 
           // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
-          const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]'));
+          const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]')).filter(el => !el.closest('#mbs-inbox-automator-root'));
+
+          // 1. Detect "Already Unread" State:
+          // If menu contains "تمييز كمقروءة" (Mark as READ) and does NOT contain "غير مقروء" (Mark as UNREAD)
+          const hasMarkAsRead = menuItems.some(el => {
+            const allTxt = `${el.innerText || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+            return (allTxt.includes('كمقروءة') || allTxt.includes('كمقروء') || allTxt.includes('mark as read')) &&
+                   !allTxt.includes('غير') && !allTxt.includes('unread');
+          });
+
           const unreadMenuItem = menuItems.find(el => {
-            if (el.closest('#mbs-inbox-automator-root')) return false;
             const txt = (el.innerText || '').trim();
             const aria = (el.getAttribute('aria-label') || '').trim();
             const allTxt = `${txt} ${aria}`.toLowerCase();
@@ -960,17 +1034,28 @@
                    r.height > 15 && r.height < 70 && r.width > 0;
           });
 
+          if (hasMarkAsRead && !unreadMenuItem) {
+            isAlreadyUnreadDetected = true;
+            if (logger) logger.log('UNREAD', '[UNREAD] المحادثة غير مقروءة بالفعل في نظام Meta. تجاوز بأمان.');
+            result = true;
+            return true;
+          }
+
           if (unreadMenuItem) {
             dispatchFullClick(unreadMenuItem);
             releaseChatFocus();
             await sleep(350);
+            result = true;
             return true;
-          } else {
-            // Close menu gently with Escape if unread item wasn't found
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
           }
+        } finally {
+          // Guaranteed Menu Dismissal: Always dispatch Escape so no popup or backdrop remains blocking the viewport
+          try {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            releaseChatFocus();
+          } catch (_) {}
         }
-        return false;
+        return result;
       };
 
       const checkVerifiedUnread = () => {
@@ -1010,6 +1095,10 @@
         clicked = await tryClickDropdown();
       }
 
+      if (isAlreadyUnreadDetected) {
+        return true;
+      }
+
       if (clicked) {
         const verified = await pollVerification(1500);
         if (verified) return true;
@@ -1033,6 +1122,10 @@
         } else {
           clicked = await tryClickDropdown();
         }
+      }
+
+      if (isAlreadyUnreadDetected) {
+        return true;
       }
 
       if (clicked) {
@@ -1440,7 +1533,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.0.0).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.1.0).');
     }
 
     render() {
@@ -2717,156 +2810,141 @@
           state.activeRowElement = targetRow;
         }
 
-        // STEP 2: Safe Thread Activation & Viewport Sync
-        const clickTarget = DOM.getRowClickTarget(targetRow);
-        await HumanSimulator.naturalClick(clickTarget);
+        try {
+          // STEP 2: Safe Thread Activation & Viewport Sync
+          const clickTarget = DOM.getRowClickTarget(targetRow);
+          await HumanSimulator.naturalClick(clickTarget);
 
-        this.hud.log('SCAN', 'انتظار تطابق نافذة المحادثة مع العميل...');
-        let chatLoaded = false;
-        const normTarget = normalizeArabicText(contactName);
-        const startHydrate = Date.now();
+          this.hud.log('SCAN', 'انتظار تطابق نافذة المحادثة مع العميل...');
+          const chatLoaded = await DOM.waitForConversationLoad(targetRow, contactName, clickTarget, this.hud);
 
-        while (Date.now() - startHydrate < 2800) {
-          if (state.emergencyAbort) throw new Error('ABORT_SIGNAL');
+          if (!chatLoaded) {
+            const currHeader = DOM.getActiveChatContactName();
+            this.hud.log('WARN', `تعذر تبديل المحادثة للعميل "${contactName || contactKey}" (المحادثة المعروضة حالياً: "${currHeader || 'غير محددة'}"). تخطي لحماية المحادثة الحالية.`);
+            state.processedContacts.add(contactKey);
+            if (rowFingerprint) {
+              state.processedSnapshots.add(rowFingerprint);
+              pruneLRUCache(state.processedSnapshots, 350, 100);
+            }
+            continue;
+          }
+
           const headerName = DOM.getActiveChatContactName();
-          const normHeader = normalizeArabicText(headerName);
-          const composer = DOM.getComposer();
-
-          if (composer && normTarget && normHeader && (normHeader.includes(normTarget) || normTarget.includes(normHeader))) {
-            chatLoaded = true;
-            break;
+          if (headerName) {
+            contactKey = `contact_${normalizeArabicText(headerName)}`;
           }
 
-          // Retry click if switch hasn't happened after 1.2s
-          if (Date.now() - startHydrate > 1200 && !chatLoaded) {
-            await HumanSimulator.naturalClick(clickTarget);
-          }
-          await sleep(150);
-        }
-
-        // Looser check if composer exists and contact matches
-        if (!chatLoaded) {
-          const headerName = DOM.getActiveChatContactName();
-          const normHeader = normalizeArabicText(headerName);
-          if (DOM.getComposer() && (!normTarget || (normHeader && (normHeader.includes(normTarget) || normTarget.includes(normHeader))))) {
-            chatLoaded = true;
-          }
-        }
-
-        if (!chatLoaded) {
-          const currHeader = DOM.getActiveChatContactName();
-          this.hud.log('WARN', `تعذر تبديل المحادثة للعميل "${contactName}" (المحادثة المعروضة حالياً: "${currHeader || 'غير محددة'}"). تخطي لحماية المحادثة الحالية.`);
-          state.processedContacts.add(contactKey);
-          if (rowFingerprint) {
-            state.processedSnapshots.add(rowFingerprint);
-            pruneLRUCache(state.processedSnapshots, 350, 100);
-          }
-          this.clearActiveRowHighlight(targetRow);
-          continue;
-        }
-
-        const headerName = DOM.getActiveChatContactName();
-        if (headerName) {
-          contactKey = `contact_${normalizeArabicText(headerName)}`;
-        }
-
-        if (state.config.scrollThread) {
-          await HumanSimulator.simulateThreadScroll(this.hud);
-        } else {
-          await sleep(randomRange(150, 250));
-        }
-
-        // STEP 3: Inbound Boundary Evaluation (Post-Representative Messages Only)
-        this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
-        const { lastIsOutbound, customerBubbles } = DOM.parseInboundBoundary();
-
-        if (lastIsOutbound) {
-          state.stats.skippedOutbound++;
-          this.hud.updateStats();
-          this.hud.log('INFO', '[حماية] آخر رسالة مرسلة من الصفحة مسبقاً (بانتظار رد العميل). الانتقال للمحادثة التالية دون إعادة التمييز كغير مقروءة...');
-
-          // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
-          // This prevents the thread from being trapped in an infinite loop in the unread queue.
-          if (contactKey) state.processedContacts.add(contactKey);
-          if (rowFingerprint) {
-            state.processedSnapshots.add(rowFingerprint);
-            pruneLRUCache(state.processedSnapshots, 350, 100);
-          }
-
-          this.clearActiveRowHighlight(targetRow);
-
-          const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-          this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
-          await sleep(cooldown);
-          this.hud.setStatus('RUNNING', 'running');
-          continue;
-        }
-
-        if (customerBubbles.length === 0) {
-          this.hud.log('INFO', 'لا توجد رسائل نصية واردة جديدة (وسائط/صورة فقط). استعادة كغير مقروء...');
-          await this.executeBranchB(contactKey, rowFingerprint, targetRow);
-          this.clearActiveRowHighlight(targetRow);
-
-          const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-          this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
-          await sleep(cooldown);
-          this.hud.setStatus('RUNNING', 'running');
-          continue;
-        }
-
-        // STEP 4: Visual Search & Keyword Evaluation
-        const latestBubble = customerBubbles[customerBubbles.length - 1];
-        await HumanSimulator.highlightCustomerBubble(latestBubble);
-
-        const customerTexts = customerBubbles.map(b => (b.innerText || '').trim()).filter(Boolean);
-        const combinedText = customerTexts.join(' ');
-        const snippet = combinedText.length > 40 ? combinedText.slice(0, 40) + '...' : combinedText;
-        this.hud.log('SCAN', `فحص نصوص العميل الواردة (${customerTexts.length} فقاعات): "${snippet}"`);
-
-        let matchResult = null;
-        for (let i = customerTexts.length - 1; i >= 0; i--) {
-          matchResult = evaluateActiveRules(customerTexts[i], state.rules);
-          if (matchResult) break;
-        }
-        if (!matchResult && combinedText) {
-          matchResult = evaluateActiveRules(combinedText, state.rules);
-        }
-
-        // STEP 5: Execution Branches
-        if (matchResult) {
-          // Branch A: Match Found
-          const { rule, matchedKeyword } = matchResult;
-
-          const activeSnippet = DOM.getRowSnippet(targetRow);
-          if (contactKey && activeSnippet) {
-            state.lastRepliedSnippets.set(contactKey, activeSnippet);
-            pruneLRUCache(state.lastRepliedSnippets, 350, 100);
-          }
-          if (contactKey) state.processedContacts.add(contactKey);
-          if (rowFingerprint) {
-            state.processedSnapshots.add(rowFingerprint);
-            pruneLRUCache(state.processedSnapshots, 350, 100);
-          }
-
-          state.stats.matched++;
-          this.hud.updateStats();
-          this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
-
-          const composer = DOM.getComposer();
-          if (!composer) {
-            this.hud.log('ERROR', 'محرر الرسائل غير متاح. تعذر إرسال الرد.');
+          if (state.config.scrollThread) {
+            await HumanSimulator.simulateThreadScroll(this.hud);
           } else {
-            await HumanSimulator.typeIntoComposer(composer, rule.reply, this.hud);
-            this.hud.log('INFO', `تم إرسال الرد بنجاح للعميل ${contactName || contactKey}.`);
+            await sleep(randomRange(150, 250));
           }
-        } else {
-          // Branch B: No Match / Media Message / Skip
-          this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
-          await this.executeBranchB(contactKey, rowFingerprint, targetRow);
-        }
 
-        // STEP 6: Viewport Scrolling & Next-Row Progression
-        this.clearActiveRowHighlight(targetRow);
+          // STEP 3: Inbound Boundary Evaluation (Post-Representative Messages Only)
+          this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
+          const { lastIsOutbound, customerBubbles } = DOM.parseInboundBoundary();
+
+          if (lastIsOutbound) {
+            state.stats.skippedOutbound++;
+            this.hud.updateStats();
+            this.hud.log('INFO', '[حماية] آخر رسالة مرسلة من الصفحة مسبقاً (بانتظار رد العميل). الانتقال للمحادثة التالية دون إعادة التمييز كغير مقروءة...');
+
+            // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
+            // This prevents the thread from being trapped in an infinite loop in the unread queue.
+            if (contactKey) state.processedContacts.add(contactKey);
+            if (rowFingerprint) {
+              state.processedSnapshots.add(rowFingerprint);
+              pruneLRUCache(state.processedSnapshots, 350, 100);
+            }
+
+            const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+            this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
+            await sleep(cooldown);
+            this.hud.setStatus('RUNNING', 'running');
+            continue;
+          }
+
+          const customerTexts = (customerBubbles || []).map(b => (b ? (b.innerText || b.textContent || '') : '').trim()).filter(Boolean);
+
+          if (customerBubbles.length === 0 || customerTexts.length === 0) {
+            this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
+            await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+
+            const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+            this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
+            await sleep(cooldown);
+            this.hud.setStatus('RUNNING', 'running');
+            continue;
+          }
+
+          // STEP 4: Visual Search & Keyword Evaluation
+          const latestBubble = customerBubbles[customerBubbles.length - 1];
+          await HumanSimulator.highlightCustomerBubble(latestBubble);
+
+          const combinedText = customerTexts.join(' ');
+          const snippet = combinedText.length > 40 ? combinedText.slice(0, 40) + '...' : combinedText;
+          this.hud.log('SCAN', `فحص نصوص العميل الواردة (${customerTexts.length} فقاعات): "${snippet}"`);
+
+          let matchResult = null;
+          for (let i = customerTexts.length - 1; i >= 0; i--) {
+            matchResult = evaluateActiveRules(customerTexts[i], state.rules);
+            if (matchResult) break;
+          }
+          if (!matchResult && combinedText) {
+            matchResult = evaluateActiveRules(combinedText, state.rules);
+          }
+
+          // STEP 5: Execution Branches
+          if (matchResult) {
+            // Branch A: Match Found
+            const { rule, matchedKeyword } = matchResult;
+
+            const activeSnippet = DOM.getRowSnippet(targetRow);
+            if (contactKey && activeSnippet) {
+              state.lastRepliedSnippets.set(contactKey, activeSnippet);
+              pruneLRUCache(state.lastRepliedSnippets, 350, 100);
+            }
+            if (contactKey) state.processedContacts.add(contactKey);
+            if (rowFingerprint) {
+              state.processedSnapshots.add(rowFingerprint);
+              pruneLRUCache(state.processedSnapshots, 350, 100);
+            }
+
+            state.stats.matched++;
+            this.hud.updateStats();
+            this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
+
+            const composer = DOM.getComposer();
+            if (!composer) {
+              this.hud.log('ERROR', 'محرر الرسائل غير متاح. تعذر إرسال الرد.');
+            } else {
+              await HumanSimulator.typeIntoComposer(composer, rule.reply, this.hud);
+              this.hud.log('INFO', `تم إرسال الرد بنجاح للعميل ${contactName || contactKey}.`);
+            }
+          } else {
+            // Branch B: No Match / Media Message / Skip
+            this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
+            await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+          }
+        } catch (err) {
+          if (err && err.message === 'ABORT_SIGNAL') throw err;
+          this.hud.log('WARN', `تخطي استثنائي للمحادثة الحالية لتفادي التجمد: ${err?.message || err}`);
+          try {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            releaseChatFocus();
+          } catch (_) {}
+          if (contactKey) state.processedContacts.add(contactKey);
+          if (rowFingerprint) {
+            state.processedSnapshots.add(rowFingerprint);
+            pruneLRUCache(state.processedSnapshots, 350, 100);
+          }
+        } finally {
+          // STEP 6: Guaranteed Cleanup & Focus Blur
+          this.clearActiveRowHighlight(targetRow);
+          try {
+            releaseChatFocus();
+          } catch (_) {}
+        }
 
         // Auto-scroll sidebar if nearing the bottom
         if (selectedIndex >= rows.length - 2) {
@@ -2932,5 +3010,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V5.0.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V5.1.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
