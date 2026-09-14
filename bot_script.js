@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.3.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.4.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      5.3.0
+// @version      5.4.0
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.3.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.4.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V530_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V540_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V530_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V540_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -188,21 +188,35 @@
 
   function loadRules() {
     try {
-      if (window.__INITIAL_RULES__ && Array.isArray(window.__INITIAL_RULES__) && window.__INITIAL_RULES__.length > 0) {
-        return window.__INITIAL_RULES__;
-      }
-      const { rulesKey, legacyRulesKey } = getTenantStorageKeys();
+      const { rulesKey } = getTenantStorageKeys();
+      // 1. Prioritize localStorage for this specific tenant
       const raw = localStorage.getItem(rulesKey);
       if (raw !== null) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (window.__INITIAL_RULES__) {
+            try { delete window.__INITIAL_RULES__; } catch (_) {}
+          }
+          return parsed;
+        }
       }
-      // Only fallback to legacy key if the tenant key is strictly null in localStorage
-      const legacyRaw = localStorage.getItem(legacyRulesKey);
-      if (legacyRaw !== null) {
-        const legacyParsed = JSON.parse(legacyRaw);
-        if (Array.isArray(legacyParsed)) return legacyParsed;
+
+      // 2. If no rules exist in localStorage, check injected seed from Python
+      if (window.__INITIAL_RULES__ && Array.isArray(window.__INITIAL_RULES__) && window.__INITIAL_RULES__.length > 0) {
+        const initialRules = JSON.parse(JSON.stringify(window.__INITIAL_RULES__));
+        try { delete window.__INITIAL_RULES__; } catch (_) {}
+        try {
+          localStorage.setItem(rulesKey, JSON.stringify(initialRules));
+        } catch (_) {}
+        return initialRules;
       }
+
+      // 3. Clean fallback to default rules
+      const clonedDefaults = JSON.parse(JSON.stringify(defaultRules));
+      try {
+        localStorage.setItem(rulesKey, JSON.stringify(clonedDefaults));
+      } catch (_) {}
+      return clonedDefaults;
     } catch (_) {}
     return JSON.parse(JSON.stringify(defaultRules));
   }
@@ -225,18 +239,30 @@
   function loadConfig() {
     let cfg = { ...defaultConfig };
     try {
+      const { configKey } = getTenantStorageKeys();
+      // 1. Prioritize localStorage for this specific tenant
+      const data = localStorage.getItem(configKey);
+      if (data !== null) {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object') {
+          if (window.__INITIAL_CONFIG__) {
+            try { delete window.__INITIAL_CONFIG__; } catch (_) {}
+          }
+          cfg = { ...defaultConfig, ...parsed };
+          cfg.typingSpeed = cfg.typingSpeed || Math.round(((cfg.minTypingSpeed || 35) + (cfg.maxTypingSpeed || 65)) / 2) || 45;
+          return cfg;
+        }
+      }
+
+      // 2. If no config exists in localStorage, check injected seed from Python
       if (window.__INITIAL_CONFIG__ && typeof window.__INITIAL_CONFIG__ === 'object') {
-        cfg = { ...defaultConfig, ...window.__INITIAL_CONFIG__ };
-      } else {
-        const { configKey, legacyConfigKey } = getTenantStorageKeys();
-        let data = localStorage.getItem(configKey);
-        if (data === null) {
-          data = localStorage.getItem(legacyConfigKey);
-        }
-        if (data !== null) {
-          const parsed = JSON.parse(data);
-          if (parsed && typeof parsed === 'object') cfg = { ...defaultConfig, ...parsed };
-        }
+        const initialCfg = { ...defaultConfig, ...window.__INITIAL_CONFIG__ };
+        try { delete window.__INITIAL_CONFIG__; } catch (_) {}
+        try {
+          localStorage.setItem(configKey, JSON.stringify(initialCfg));
+        } catch (_) {}
+        initialCfg.typingSpeed = initialCfg.typingSpeed || Math.round(((initialCfg.minTypingSpeed || 35) + (initialCfg.maxTypingSpeed || 65)) / 2) || 45;
+        return initialCfg;
       }
     } catch (_) {}
     cfg.typingSpeed = cfg.typingSpeed || Math.round(((cfg.minTypingSpeed || 35) + (cfg.maxTypingSpeed || 65)) / 2) || 45;
@@ -263,18 +289,30 @@
     if (latestTenantId !== state.currentTenantId) {
       const prevTenantId = state.currentTenantId;
       state.currentTenantId = latestTenantId;
-      state.rules = loadRules();
-      state.config = loadConfig();
-      // Clear thread & contact tracking sets for clean transition between pages
+      // Clear thread & contact tracking sets and flush skipped rows for clean transition between pages
       state.processedContacts.clear();
       state.processedSnapshots.clear();
       state.lastRepliedSnippets.clear();
+      if (state.skippedRows) state.skippedRows.clear();
+
+      // Reset statistics counters for the new page context
+      state.stats = {
+        evaluated: 0,
+        matched: 0,
+        unreadRestored: 0,
+        skippedOutbound: 0,
+        errors: 0
+      };
+
+      state.rules = loadRules();
+      state.config = loadConfig();
 
       if (hud) {
         hud.updateTenantUI(latestTenantId);
         hud.renderRulesList();
         hud.updateConfigUI();
-        hud.log('INFO', `[Page] تم تبديل الصفحة النشطة (Page Switch: [${prevTenantId}] ➔ [${latestTenantId}]). تم إعادة تحميل القواعد والإعدادات تلقائياً.`);
+        hud.updateStats();
+        hud.log('INFO', `[Page] تم تبديل الصفحة النشطة (Page Switch: [${prevTenantId}] ➔ [${latestTenantId}]). تم تصفير الكاش وإعادة تحميل القواعد والإعدادات تلقائياً.`);
       }
       return true;
     }
@@ -1590,7 +1628,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.3.0).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.4.0).');
     }
 
     render() {
@@ -3168,5 +3206,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V5.3.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V5.4.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.3.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.4.0 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -106,6 +106,10 @@ def get_tenant_profile_dir(profile_name: str) -> Path:
     profile_dir = base_dir / profile_name
     profile_dir.mkdir(parents=True, exist_ok=True)
     return profile_dir
+
+def get_profile_config_path(profile_name: str) -> Path:
+    profile_dir = get_tenant_profile_dir(profile_name)
+    return profile_dir / "config.json"
 
 def clean_stale_locks(profile_dir: Path):
     """Safely remove leftover SingletonLock/SingletonCookie/SingletonSocket files."""
@@ -229,7 +233,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.3.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.4.0 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -300,6 +304,7 @@ async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, pre
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V540_LOADED__;
             delete window.__MBS_AUTOMATOR_V530_LOADED__;
             delete window.__MBS_AUTOMATOR_V520_LOADED__;
             delete window.__MBS_AUTOMATOR_V510_LOADED__;
@@ -596,7 +601,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.3.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.4.0)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -616,7 +621,7 @@ async def main():
     )
 
     parser.add_argument("--port", type=int, default=9222, help="Chrome Remote Debugging Port for --attach (default: 9222)")
-    parser.add_argument("--config", type=str, default=str(DEFAULT_CONFIG_PATH), help="Path to config.json file")
+    parser.add_argument("--config", type=str, default=None, help="Explicit path to config.json file (overrides profile-scoped default)")
     parser.add_argument("--auto-start", action="store_true", help="Start automator immediately without waiting for HUD button")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode (for background servers)")
 
@@ -624,9 +629,7 @@ async def main():
 
     print_banner()
 
-    config_path = Path(args.config)
-    settings = load_config(config_path)
-    auto_start = args.auto_start or settings.get("auto_start", False)
+    explicit_config = Path(args.config) if args.config else None
 
     if not BOT_SCRIPT_PATH.exists():
         print(f"{Colors.RED}❌ ملف المحرك البرمجي {BOT_SCRIPT_PATH} غير موجود!{Colors.END}")
@@ -645,6 +648,9 @@ async def main():
         try:
             if args.attach:
                 # Mode 1: Active Browser Attach
+                config_path = explicit_config or DEFAULT_CONFIG_PATH
+                settings = load_config(config_path)
+                auto_start = args.auto_start or settings.get("auto_start", False)
                 await run_attach_mode(
                     p=p,
                     port=args.port,
@@ -654,6 +660,9 @@ async def main():
                 )
             elif args.profile:
                 # Mode 2: Single Isolated Profile Sandbox
+                config_path = explicit_config or get_profile_config_path(args.profile)
+                settings = load_config(config_path)
+                auto_start = args.auto_start or settings.get("auto_start", False)
                 await run_tenant_worker(
                     p=p,
                     profile_name=args.profile,
@@ -668,17 +677,21 @@ async def main():
                 print(f"{Colors.GRAY}مسار البروفايلات: {get_profiles_base_dir()}{Colors.END}\n")
 
                 tenants = ["Profile_PageA", "Profile_PageB"]
-                tasks = [
-                    run_tenant_worker(
-                        p=p,
-                        profile_name=t,
-                        settings=settings,
-                        config_path=config_path,
-                        auto_start=auto_start,
-                        headless=args.headless
+                tasks = []
+                for t in tenants:
+                    t_config_path = explicit_config or get_profile_config_path(t)
+                    t_settings = load_config(t_config_path)
+                    t_auto_start = args.auto_start or t_settings.get("auto_start", False)
+                    tasks.append(
+                        run_tenant_worker(
+                            p=p,
+                            profile_name=t,
+                            settings=t_settings,
+                            config_path=t_config_path,
+                            auto_start=t_auto_start,
+                            headless=args.headless
+                        )
                     )
-                    for t in tenants
-                ]
                 await asyncio.gather(*tasks, return_exceptions=True)
 
         except (asyncio.CancelledError, KeyboardInterrupt):
