@@ -17,24 +17,24 @@
     {
       "id": "rule_phone",
       "keyword": "فون,تليفون,رقم,واتس,واتساب,موبايل",
-      "reply": "أهلاً بك! \nرقم خدمة العملاء والواتساب متاح لمساعدتك على مدار \n01119648815\nالساعة، تفضل بالاستفسار في أي وقت.",
+      "reply": "أهلاً بك! \nرقم خدمة العملاء والواتساب متاح لمساعدتك \n01119648815\nتفضل بالاستفسار في أي وقت.",
       "matchType": "contains",
       "active": true
     },
     {
       "id": "rule_1789360636812",
       "keyword": "روج",
-      "reply": "تعرفي ان عندنا روج لوكسيرا افضل احمر شفاه ممكن تستعمليه وحاليا نازل بعرض مايتفوتش ب350 ج بس متخيله ! الحقي العرض بسرعه ",
+      "reply": "اهلا بيكي \nتعرفي ان عندنا روج لوكسيرا افضل احمر شفاه ممكن تستعمليه\n وحاليا نازل بعرض مايتفوتش ب350 ج بس متخيله !\n الحقي العرض بسرعه ",
       "matchType": "contains",
       "active": true
     }
   ],
   "config": {
-    "typingSpeed": 35,
-    "minTypingSpeed": 26,
-    "maxTypingSpeed": 44,
-    "minCooldown": 1200,
-    "maxCooldown": 2200,
+    "typingSpeed": 15,
+    "minTypingSpeed": 11,
+    "maxTypingSpeed": 19,
+    "minCooldown": 850,
+    "maxCooldown": 1150,
     "scrollThread": true,
     "highlightRows": true,
     "monitoringInterval": 5000
