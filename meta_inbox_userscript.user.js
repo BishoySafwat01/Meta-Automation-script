@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.4)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.5)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.4
-// @description  Apple Frosted Light Ice-Blue Glass Edition: Translucent Ice-Blue Glass UI, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
+// @version      4.9.5
+// @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,14 +13,14 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.4)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.5)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. APPLE FROSTED LIGHT ICE-BLUE GLASS INTERFACE:
- *    - Translucent light ice-blue glass surface (blur 34px, saturate 180%).
- *    - Specular crystal top edge & delicate sky-blue rim.
+ * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
+ *    - High-translucency liquid glass surface (blur 28px, saturate 200%, lavender/aqua refractive glow).
+ *    - Apple liquid glass pill styling for active conversation row & customer message aura.
+ *    - Subdued native Apple buttons (soft red glass stop, system blue start pill).
  *    - Pure white active tabs, crisp slate typography (#0f172a, #334155, #475569).
- *    - Glass pills for actions & minimal ice-blue stealth capsule.
  *    - Clean "Meta Automation" branding with zero version chips.
  *    - Single-field typing speed control (ms/char) & decimal seconds duration controls.
  * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V494_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V495_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V494_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V495_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -175,6 +175,7 @@
     lastRepliedSnippets: new Map(),
     processedSnapshots: new Set(),
     activeRowElement: null,
+    activeRowOriginalStyles: null,
     stats: {
       evaluated: 0,
       matched: 0,
@@ -968,11 +969,24 @@
 
     async highlightCustomerBubble(bubble) {
       if (!bubble) return;
-      const origOutline = bubble.style.outline;
-      bubble.style.outline = '2px dashed #22c55e';
-      bubble.style.transition = 'outline 0.2s ease';
-      await sleep(500);
-      bubble.style.outline = origOutline || '';
+      const origBorderRadius = bubble.style.borderRadius;
+      const origShadow = bubble.style.boxShadow;
+      const origTransition = bubble.style.transition;
+
+      bubble.style.setProperty('border-radius', '16px', 'important');
+      bubble.style.setProperty('box-shadow', '0 0 0 1.5px rgba(56, 189, 248, 0.45), 0 6px 20px rgba(14, 165, 233, 0.14)', 'important');
+      bubble.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
+
+      await sleep(600);
+
+      if (origBorderRadius) bubble.style.borderRadius = origBorderRadius;
+      else bubble.style.removeProperty('border-radius');
+
+      if (origShadow) bubble.style.boxShadow = origShadow;
+      else bubble.style.removeProperty('box-shadow');
+
+      if (origTransition) bubble.style.transition = origTransition;
+      else bubble.style.removeProperty('transition');
     },
 
     async flashEnvelopeButton(btn) {
@@ -1161,7 +1175,7 @@
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Frosted Light Ice-Blue Glass Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition).');
     }
 
     render() {
@@ -1180,17 +1194,20 @@
             width: 480px;
             max-height: 620px;
             background: linear-gradient(135deg, 
-              rgba(240, 249, 255, 0.85) 0%, 
-              rgba(224, 242, 254, 0.80) 50%, 
-              rgba(207, 250, 254, 0.78) 100%
+              rgba(255, 255, 255, 0.62) 0%, 
+              rgba(235, 248, 255, 0.52) 35%, 
+              rgba(245, 240, 255, 0.48) 70%, 
+              rgba(224, 250, 254, 0.55) 100%
             );
-            -webkit-backdrop-filter: blur(34px) saturate(180%);
-            backdrop-filter: blur(34px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(200%);
+            backdrop-filter: blur(28px) saturate(200%);
+            /* Prismatic crystal border */
             border: 1px solid rgba(255, 255, 255, 0.85);
             box-shadow: 
-              0 24px 50px rgba(15, 23, 42, 0.12),
-              inset 0 1.5px 1px rgba(255, 255, 255, 0.95),        /* Specular crystal top edge */
-              inset 0 -1.5px 2px rgba(56, 189, 248, 0.20);        /* Delicate sky-blue rim */
+              0 20px 45px rgba(15, 23, 42, 0.10),
+              inset 0 1.5px 1px rgba(255, 255, 255, 0.95),        /* Specular top light */
+              inset 0 -1px 2px rgba(167, 139, 250, 0.15),        /* Subtle prismatic lavender glow */
+              inset 1px 0 2px rgba(56, 189, 248, 0.20);          /* Aqua refractive side glow */
             border-radius: 22px;
             color: #0f172a;
             display: flex;
@@ -1294,8 +1311,8 @@
           .hud-header {
             cursor: grab;
             padding: 13px 18px;
-            background: rgba(255, 255, 255, 0.45);
-            border-bottom: 1px solid rgba(186, 230, 253, 0.45);
+            background: rgba(255, 255, 255, 0.35);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.5);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1347,8 +1364,8 @@
             text-align: center;
           }
           .stat-item {
-            background: rgba(255, 255, 255, 0.35);
-            border: 1px solid rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.30);
+            border: 1px solid rgba(255, 255, 255, 0.65);
             border-radius: 14px;
             padding: 7px 4px;
             display: flex;
@@ -1596,13 +1613,13 @@
           .btn-primary, #btn-start {
             flex: 2;
             padding: 10px 16px;
-            background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
+            background: linear-gradient(135deg, #0071E3 0%, #0091FF 100%);
             color: #ffffff;
             border: 1px solid rgba(255, 255, 255, 0.4);
-            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4);
-            border-radius: 15px;
+            box-shadow: 0 4px 14px rgba(0, 113, 227, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+            border-radius: 14px;
             font-size: 12.5px;
-            font-weight: 600;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: inherit;
@@ -1610,7 +1627,7 @@
           .btn-primary:hover, #btn-start:hover {
             opacity: 0.95;
             transform: translateY(-1px);
-            box-shadow: 0 8px 24px rgba(2, 132, 199, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+            box-shadow: 0 6px 18px rgba(0, 113, 227, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.6);
           }
           .btn-primary:active, #btn-start:active {
             transform: translateY(0);
@@ -1618,18 +1635,19 @@
           .btn-danger, #btn-stop {
             flex: 1;
             padding: 10px 16px;
-            background: rgba(254, 226, 226, 0.75);
-            color: #dc2626;
-            border: 1px solid rgba(252, 165, 165, 0.7);
-            border-radius: 15px;
+            background: rgba(255, 59, 48, 0.08);
+            color: #c53030;
+            border: 1px solid rgba(255, 59, 48, 0.20);
+            box-shadow: 0 2px 8px rgba(255, 59, 48, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            border-radius: 14px;
             font-size: 12.5px;
-            font-weight: 600;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: inherit;
           }
           .btn-danger:hover, #btn-stop:hover {
-            background: rgba(254, 226, 226, 0.95);
+            background: rgba(255, 59, 48, 0.14);
             transform: translateY(-1px);
           }
           .btn-danger:active, #btn-stop:active {
@@ -2209,6 +2227,30 @@
       }
     },
 
+    clearActiveRowHighlight() {
+      if (state.activeRowElement && state.activeRowOriginalStyles) {
+        const row = state.activeRowElement;
+        const orig = state.activeRowOriginalStyles;
+        if (orig.borderRadius) row.style.borderRadius = orig.borderRadius; else row.style.removeProperty('border-radius');
+        if (orig.background) row.style.background = orig.background; else row.style.removeProperty('background');
+        if (orig.webkitBackdropFilter) row.style.webkitBackdropFilter = orig.webkitBackdropFilter; else row.style.removeProperty('-webkit-backdrop-filter');
+        if (orig.backdropFilter) row.style.backdropFilter = orig.backdropFilter; else row.style.removeProperty('backdrop-filter');
+        if (orig.border) row.style.border = orig.border; else row.style.removeProperty('border');
+        if (orig.boxShadow) row.style.boxShadow = orig.boxShadow; else row.style.removeProperty('box-shadow');
+        if (orig.transition) row.style.transition = orig.transition; else row.style.removeProperty('transition');
+      } else if (state.activeRowElement) {
+        state.activeRowElement.style.removeProperty('border-radius');
+        state.activeRowElement.style.removeProperty('background');
+        state.activeRowElement.style.removeProperty('-webkit-backdrop-filter');
+        state.activeRowElement.style.removeProperty('backdrop-filter');
+        state.activeRowElement.style.removeProperty('border');
+        state.activeRowElement.style.removeProperty('box-shadow');
+        state.activeRowElement.style.removeProperty('transition');
+      }
+      state.activeRowElement = null;
+      state.activeRowOriginalStyles = null;
+    },
+
     stop() {
       const wasRunning = state.isRunning;
       state.isRunning = false;
@@ -2222,11 +2264,7 @@
         }
       }
 
-      if (state.activeRowElement) {
-        state.activeRowElement.style.outline = '';
-        state.activeRowElement.style.boxShadow = '';
-        state.activeRowElement = null;
-      }
+      this.clearActiveRowHighlight();
     },
 
     async runLoop() {
@@ -2334,13 +2372,26 @@
         this.hud.updateStats();
         this.hud.log('SCAN', `--- [محادثة #${selectedIndex + 1}/${rows.length}] تفعيل العميل: "${contactName || contactKey}" ---`);
 
-        // Visual Framing: Sky-blue border with soft glow on active row
-        const originalOutline = targetRow.style.outline;
-        const originalShadow = targetRow.style.boxShadow;
+        // Apple Liquid Glass Pill Framing on active conversation row
+        const originalRowStyles = {
+          borderRadius: targetRow.style.borderRadius,
+          background: targetRow.style.background,
+          webkitBackdropFilter: targetRow.style.webkitBackdropFilter,
+          backdropFilter: targetRow.style.backdropFilter,
+          border: targetRow.style.border,
+          boxShadow: targetRow.style.boxShadow,
+          transition: targetRow.style.transition,
+        };
         if (state.config.highlightRows) {
-          targetRow.style.outline = '3px solid #38bdf8';
-          targetRow.style.boxShadow = '0 0 12px rgba(56, 189, 248, 0.4)';
+          targetRow.style.setProperty('border-radius', '18px', 'important');
+          targetRow.style.setProperty('background', 'linear-gradient(135deg, rgba(224, 242, 254, 0.45), rgba(243, 232, 255, 0.35))', 'important');
+          targetRow.style.setProperty('-webkit-backdrop-filter', 'blur(8px)', 'important');
+          targetRow.style.setProperty('backdrop-filter', 'blur(8px)', 'important');
+          targetRow.style.setProperty('border', '1px solid rgba(56, 189, 248, 0.45)', 'important');
+          targetRow.style.setProperty('box-shadow', '0 4px 18px rgba(14, 165, 233, 0.12), inset 0 1px 0.5px rgba(255, 255, 255, 0.8)', 'important');
+          targetRow.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
           state.activeRowElement = targetRow;
+          state.activeRowOriginalStyles = originalRowStyles;
         }
 
         // STEP 2: Safe Thread Activation & Viewport Sync
@@ -2495,9 +2546,7 @@
         }
 
         // STEP 6: Viewport Scrolling & Next-Row Progression
-        targetRow.style.outline = originalOutline || '';
-        targetRow.style.boxShadow = originalShadow || '';
-        state.activeRowElement = null;
+        this.clearActiveRowHighlight();
 
         // Auto-scroll sidebar if nearing the bottom
         if (selectedIndex >= rows.length - 2) {
@@ -2563,5 +2612,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.4] Initialized successfully (Apple Frosted Light Ice-Blue Glass Edition).');
+  console.log('[MBS Automator V4.9.5] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

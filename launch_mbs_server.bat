@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 :: =============================================================================
 ::  META BUSINESS SUITE INBOX AUTOMATOR - ENTERPRISE SERVER LAUNCHER
-::  Version: V4.9.4 (Pure Python Zero-Extension Edition)
+::  Version: V4.9.5 (Pure Python Zero-Extension Edition)
 ::  Author: Bishoy Safwat (Senior Automation Engineer)
 :: =============================================================================
 ::  Purpose:
@@ -14,12 +14,12 @@ setlocal enabledelayedexpansion
 ::  - Automatically cleans stale Chrome SingletonLocks before launch.
 :: =============================================================================
 
-title Meta Business Suite Multi-Tenant Runner - V4.9.4
+title Meta Business Suite Multi-Tenant Runner - V4.9.5
 
 color 0B
 echo.
 echo  =============================================================================
-echo   META BUSINESS SUITE INBOX AUTOMATOR - WINDOWS SERVER LAUNCHER (V4.9.4)
+echo   META BUSINESS SUITE INBOX AUTOMATOR - WINDOWS SERVER LAUNCHER (V4.9.5)
 echo  =============================================================================
 echo   - Pure Python Zero-Extension Playwright Engine
 echo   - Multi-Tenant Storage Isolation ^& Sandbox Persistence

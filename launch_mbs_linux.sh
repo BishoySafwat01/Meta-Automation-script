@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # META BUSINESS SUITE INBOX AUTOMATOR - LINUX / UBUNTU PRODUCTION LAUNCHER
-# Version: V4.9.4 (Pure Python Zero-Extension Runner Edition)
+# Version: V4.9.5 (Pure Python Zero-Extension Runner Edition)
 # Author: Bishoy Safwat (Senior Automation Engineer)
 # =============================================================================
 # Purpose:
@@ -30,7 +30,7 @@ PYTHON_BIN="python3"
 print_banner() {
     echo -e "${CLR_CYAN}${CLR_BOLD}"
     echo "============================================================================="
-    echo "  META BUSINESS SUITE INBOX AUTOMATOR - UBUNTU 24.04 LAUNCHER (V4.9.4)"
+    echo "  META BUSINESS SUITE INBOX AUTOMATOR - UBUNTU 24.04 LAUNCHER (V4.9.5)"
     echo "============================================================================="
     echo -e "${CLR_RESET}"
     echo -e "  ${CLR_BLUE}•${CLR_RESET} Pure Python Zero-Extension Playwright Runner"
