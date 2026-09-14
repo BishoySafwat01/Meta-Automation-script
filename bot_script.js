@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V4.9.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      4.9.0
-// @description  Enterprise Multi-Tenant Edition: Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer, Google Glass UI & Ghost Stealth Mode.
+// @version      4.9.1
+// @description  Apple Liquid Glass Edition: Clean Single-Field Duration Controls, Dynamic Tenant Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Mode.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,40 +13,39 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V4.9.1)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
- * 1. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
+ * 1. APPLE LIQUID GLASS INTERFACE & CLEAN CONTROLS:
+ *    - Smoked dark glass surface (blur 30px, saturate 210%, luminous edge highlight).
+ *    - SF Pro / Apple typography hierarchy with warm ivory and muted champagne accents.
+ *    - Single-field decimal seconds timing controls (cooldown & monitoring intervals).
+ * 2. DYNAMIC TENANT STORAGE ISOLATION (ZERO CROSS-TALK):
  *    - Automatically detects active asset_id / mailbox_id from URL query/path.
  *    - Namespaces all localStorage keys: MBS_RULES_${asset_id}, MBS_CONFIG_${asset_id}, MBS_GHOST_${asset_id}.
  *    - Dynamic SPA re-hydration: auto-switches rules/config when operator navigates between pages.
- * 2. ZERO-LATENCY INSTANT HARD-STOP ENGINE:
+ * 3. ZERO-LATENCY INSTANT HARD-STOP ENGINE:
  *    - Cancellable sleep infrastructure with active rejector registry (abortAllSleeps).
  *    - Instant breakout (<10ms) on Stop click or Escape key, clearing outlines and halting typing.
- * 3. BULLETPROOF RULES & CONFIG PERSISTENCE:
+ * 4. BULLETPROOF RULES & CONFIG PERSISTENCE:
  *    - Strict null-check fallback preventing accidental overwrite of empty/custom rules by defaults.
  *    - Real-time two-way synchronization on both input and change events.
- * 4. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
+ * 5. RESOLUTION-INVARIANT ENVELOPE LOCATOR & DROPDOWN FALLBACK:
  *    - Scoped chat header & action toolbar discovery without hardcoded coordinates.
  *    - 4-Tier discovery strategy: attributes -> "Done" sibling -> envelope SVG path -> scoped dropdown fallback.
- * 5. ANTI-FALSE-DROP AD GUARD:
+ * 6. ANTI-FALSE-DROP AD GUARD:
  *    - Length & Context gate prevents valid customer inquiries referencing ads from being dropped.
- * 6. LRU MEMORY RING-BUFFER:
+ * 7. LRU MEMORY RING-BUFFER:
  *    - Bounded cache eviction (max 350, prune 100) for 24/7 continuous operation without memory leaks.
- * 7. GOOGLE GLASS UI & GHOST STEALTH DOCK:
- *    - Frosted glass design (blur 16px, saturate 180%, ambient shadow).
- *    - Ultra-compact floating pill (110x32px) with live reply counter and pulsing status dot.
- * 8. INBOUND MESSAGE BOUNDARY PARSING:
+ * 8. GHOST STEALTH DOCK:
+ *    - Minimal translucent capsule (100x32px) with monochrome counter and clean pulsing dot.
+ * 9. INBOUND MESSAGE BOUNDARY PARSING:
  *    - Evaluates customer messages arriving strictly after the last staff/page reply.
  *    - Immediately skips and preserves unread status if the latest thread message is outbound.
- * 9. COMPLETE VISUAL SUPERVISION & FRAMING:
- *    - Sky-blue border (3px solid #38bdf8 with soft glow) on active row.
- *    - Green dashed frame (2px dashed #22c55e) on evaluated customer bubble for 500ms.
- *    - Green pulse outline (2px solid #22c55e with glow) on envelope button for 400ms.
  * 10. HUMAN SIMULATOR:
  *    - Character-by-character typing with natural jitter (35-65ms) and punctuation delays.
  *    - Lexical composer clearing verification.
- *    - Natural human cooldowns (1.5s - 2.5s).
+ *    - Natural human cooldowns.
  * ============================================================================
  */
 
@@ -56,14 +55,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V490_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V491_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V490_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V491_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1146,17 +1145,20 @@
       this.container.style.left = '20px';
       this.container.style.zIndex = '9999999';
       this.container.style.direction = 'rtl';
-      this.container.style.fontFamily = "'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif";
+      this.container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif';
 
       this.shadow = this.container.attachShadow({ mode: 'open' });
       this.render();
       document.body.appendChild(this.container);
 
       this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.0 بنجاح وجاهزة لبدء الأتمتة (Enterprise Edition).');
+      this.log('INIT', 'تم تحميل واجهة التحكم V4.9.1 بنجاح (Apple Liquid Glass Edition).');
     }
 
     render() {
+      const cooldownSec = state.config.maxCooldown ? Number(((state.config.minCooldown + state.config.maxCooldown) / 2000).toFixed(1)) : 1.5;
+      const monitoringSec = state.config.monitoringInterval ? Number((state.config.monitoringInterval / 1000).toFixed(1)) : 6;
+
       this.shadow.innerHTML = `
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1166,38 +1168,39 @@
             min-height: 52px;
             max-width: 95vw;
             max-height: 90vh;
-            width: 470px;
-            max-height: 610px;
-            background: rgba(15, 23, 42, 0.78);
-            backdrop-filter: blur(16px) saturate(180%);
-            -webkit-backdrop-filter: blur(16px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 14px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            width: 480px;
+            max-height: 620px;
+            background: rgba(28, 28, 30, 0.72);
+            backdrop-filter: blur(30px) saturate(210%);
+            -webkit-backdrop-filter: blur(30px) saturate(210%);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 22px;
+            box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            color: #f8fafc;
+            color: #F5F5F7;
             user-select: none;
-            transition: width 0.25s ease, height 0.25s ease, opacity 0.25s ease, border-radius 0.25s ease;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, border-radius 0.25s ease;
           }
 
           /* Ghost Stealth Mode Pill */
           .hud-card.ghost-mode {
-            width: 110px !important;
-            min-width: 110px !important;
-            max-width: 110px !important;
+            width: 100px !important;
+            min-width: 100px !important;
+            max-width: 100px !important;
             height: 32px !important;
             min-height: 32px !important;
             max-height: 32px !important;
             border-radius: 999px !important;
-            padding: 0 10px !important;
-            background: rgba(15, 23, 42, 0.85) !important;
-            backdrop-filter: blur(16px) saturate(180%) !important;
-            -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
-            border: 1px solid rgba(255, 255, 255, 0.12) !important;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
-            opacity: 0.35;
+            padding: 0 12px !important;
+            background: rgba(28, 28, 30, 0.68) !important;
+            backdrop-filter: blur(24px) saturate(210%) !important;
+            -webkit-backdrop-filter: blur(24px) saturate(210%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
+            opacity: 0.8;
             cursor: pointer;
             resize: none !important;
             flex-direction: row !important;
@@ -1206,8 +1209,8 @@
           }
           .hud-card.ghost-mode:hover {
             opacity: 1.0 !important;
-            box-shadow: 0 12px 35px rgba(56, 189, 248, 0.25) !important;
-            border-color: rgba(56, 189, 248, 0.3) !important;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45) !important;
+            border-color: rgba(255, 255, 255, 0.25) !important;
           }
 
           @keyframes pulse-dot {
@@ -1219,14 +1222,14 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #94a3b8;
+            background: #8E8E93;
             display: inline-block;
             animation: pulse-dot 2s infinite ease-in-out;
           }
-          .ghost-dot.running { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
-          .ghost-dot.cooldown { background: #facc15; box-shadow: 0 0 8px #facc15; }
-          .ghost-dot.monitoring { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
-          .ghost-dot.stopped { background: #f87171; box-shadow: 0 0 8px #f87171; }
+          .ghost-dot.running { background: #34C759; box-shadow: 0 0 8px rgba(52, 199, 89, 0.6); }
+          .ghost-dot.cooldown { background: #FF9F0A; box-shadow: 0 0 8px rgba(255, 159, 10, 0.6); }
+          .ghost-dot.monitoring { background: #0A84FF; box-shadow: 0 0 8px rgba(10, 132, 255, 0.6); }
+          .ghost-dot.stopped { background: #FF453A; box-shadow: 0 0 8px rgba(255, 69, 58, 0.6); }
 
           .ghost-dock-content {
             display: none;
@@ -1235,8 +1238,8 @@
             align-items: center;
             justify-content: space-between;
             font-size: 11px;
-            font-weight: 700;
-            color: #f8fafc;
+            font-weight: 600;
+            color: #F5F5F7;
             user-select: none;
           }
           .hud-card.ghost-mode .ghost-dock-content {
@@ -1252,28 +1255,28 @@
 
           .header-icon-btn {
             background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: #cbd5e1;
-            border-radius: 6px;
-            width: 24px;
-            height: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #F5F5F7;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             font-size: 12px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
             user-select: none;
           }
           .header-icon-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            color: #ffffff;
+            background: rgba(255, 255, 255, 0.18);
+            color: #FFFFFF;
             transform: scale(1.05);
           }
           .hud-header {
             cursor: grab;
-            padding: 12px 16px;
-            background: rgba(30, 41, 59, 0.85);
+            padding: 13px 18px;
+            background: rgba(255, 255, 255, 0.03);
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             display: flex;
             align-items: center;
@@ -1281,32 +1284,53 @@
           }
           .hud-title {
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 600;
+            color: #F5F5F7;
             display: flex;
             align-items: center;
             gap: 8px;
+            letter-spacing: -0.2px;
+          }
+          .hud-version-badge {
+            font-size: 10px;
+            font-weight: 500;
+            padding: 2px 6px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(235, 235, 245, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: -apple-system, BlinkMacSystemFont, monospace;
+          }
+          .hud-tenant-badge {
+            font-size: 9.5px;
+            font-weight: 500;
+            padding: 2px 7px;
+            border-radius: 6px;
+            background: rgba(10, 132, 255, 0.12);
+            color: #0A84FF;
+            border: 1px solid rgba(10, 132, 255, 0.25);
           }
           .status-badge {
-            font-size: 10px;
-            font-weight: 700;
-            padding: 2px 8px;
+            font-size: 9.5px;
+            font-weight: 600;
+            padding: 3px 9px;
             border-radius: 999px;
+            letter-spacing: 0.3px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
           }
-          .status-ready { background: #334155; color: #94a3b8; }
-          .status-running { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-          .status-cooldown { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; }
-          .status-monitoring { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
-          .status-stopped { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+          .status-ready { background: rgba(142, 142, 147, 0.18); color: #8E8E93; border: 1px solid rgba(142, 142, 147, 0.25); }
+          .status-running { background: rgba(52, 199, 89, 0.18); color: #34C759; border: 1px solid rgba(52, 199, 89, 0.3); }
+          .status-cooldown { background: rgba(255, 159, 10, 0.18); color: #FF9F0A; border: 1px solid rgba(255, 159, 10, 0.3); }
+          .status-monitoring { background: rgba(10, 132, 255, 0.18); color: #0A84FF; border: 1px solid rgba(10, 132, 255, 0.3); }
+          .status-stopped { background: rgba(255, 69, 58, 0.18); color: #FF453A; border: 1px solid rgba(255, 69, 58, 0.3); }
 
           .hud-stats-bar {
-            padding: 8px 16px;
-            background: rgba(15, 23, 42, 0.65);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 10px 18px;
+            background: rgba(0, 0, 0, 0.14);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
+            gap: 8px;
             text-align: center;
           }
           .stat-item {
@@ -1315,43 +1339,53 @@
             gap: 2px;
           }
           .stat-value {
-            font-size: 14px;
-            font-weight: 700;
-            color: #38bdf8;
-            font-family: monospace;
+            font-size: 15px;
+            font-weight: 600;
+            color: #F5F5F7;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
           }
           .stat-label {
-            font-size: 9px;
-            color: #94a3b8;
+            font-size: 9.5px;
+            font-weight: 500;
+            color: rgba(235, 235, 245, 0.6);
           }
 
           .hud-tabs {
             display: flex;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(15, 23, 42, 0.45);
+            background: rgba(0, 0, 0, 0.22);
+            padding: 3px;
+            border-radius: 12px;
+            margin: 10px 18px 6px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            gap: 3px;
           }
           .tab-btn {
             flex: 1;
-            padding: 9px;
-            background: none;
+            padding: 7px 12px;
+            background: transparent;
             border: none;
-            color: #94a3b8;
-            font-size: 11px;
-            font-weight: 600;
+            color: rgba(235, 235, 245, 0.65);
+            font-size: 11.5px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
-            border-bottom: 2px solid transparent;
+            border-radius: 9px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            font-family: inherit;
+          }
+          .tab-btn:hover {
+            color: #F5F5F7;
           }
           .tab-btn.active {
-            color: #38bdf8;
-            border-bottom: 2px solid #38bdf8;
-            background: rgba(56, 189, 248, 0.06);
+            color: #FFFFFF;
+            background: rgba(255, 255, 255, 0.16);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            font-weight: 600;
           }
 
           .hud-content {
-            padding: 12px 16px;
+            padding: 10px 18px 14px;
             overflow-y: auto;
-            max-height: 290px;
+            max-height: 300px;
             min-height: 220px;
           }
           .tab-pane { display: none; }
@@ -1359,173 +1393,218 @@
 
           /* Terminal Tab */
           .terminal-box {
-            background: rgba(0, 0, 0, 0.65);
+            background: rgba(0, 0, 0, 0.28);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 8px;
-            padding: 10px;
-            font-family: monospace;
+            border-radius: 14px;
+            padding: 12px;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
             font-size: 10.5px;
             height: 220px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 5px;
+            color: #A1A1A6;
           }
-          .log-line { line-height: 1.4; word-break: break-word; }
-          .log-time { color: #64748b; margin-left: 6px; }
-          .log-tag-INIT { color: #94a3b8; }
-          .log-tag-SCAN { color: #38bdf8; }
-          .log-tag-MATCH { color: #4ade80; font-weight: bold; }
-          .log-tag-UNREAD { color: #facc15; }
-          .log-tag-TYPING { color: #c084fc; }
-          .log-tag-SCROLL { color: #38bdf8; }
-          .log-tag-INFO { color: #60a5fa; }
-          .log-tag-WARN { color: #fb923c; }
-          .log-tag-ERROR { color: #f87171; font-weight: bold; }
-          .log-tag-STOP { color: #ef4444; }
+          .log-line { line-height: 1.45; word-break: break-word; }
+          .log-time { color: rgba(235, 235, 245, 0.4); margin-left: 6px; font-size: 9.5px; }
+          .log-tag-INIT { color: #8E8E93; }
+          .log-tag-SCAN { color: #A1A1A6; }
+          .log-tag-MATCH { color: #34C759; font-weight: 600; }
+          .log-tag-UNREAD { color: #FF9F0A; }
+          .log-tag-TYPING { color: #BF5AF2; }
+          .log-tag-SCROLL { color: #8E8E93; }
+          .log-tag-INFO { color: #0A84FF; }
+          .log-tag-WARN { color: #FF9F0A; }
+          .log-tag-ERROR { color: #FF453A; font-weight: 600; }
+          .log-tag-STOP { color: #FF453A; }
 
           /* Rules Tab */
           .rule-card {
-            background: rgba(30, 41, 59, 0.55);
+            background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            padding: 10px;
+            border-radius: 14px;
+            padding: 12px;
             margin-bottom: 8px;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
+            transition: background 0.2s ease;
+          }
+          .rule-card:hover {
+            background: rgba(255, 255, 255, 0.06);
           }
           .rule-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
           }
-          .rule-match-type {
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 4px;
-            padding: 2px 6px;
-            color: #93c5fd;
-            font-size: 10px;
-          }
-          .rule-keywords-input {
-            width: 100%;
-            background: rgba(15, 23, 42, 0.75);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            padding: 6px 8px;
-            color: #f8fafc;
+          .rule-title {
             font-size: 11px;
+            font-weight: 600;
+            color: #0A84FF;
+          }
+          .rule-match-type {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 3px 8px;
+            color: #F5F5F7;
+            font-size: 10.5px;
+            font-family: inherit;
+            outline: none;
+          }
+          .rule-keywords-input, .rule-reply-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 7px 10px;
+            color: #F5F5F7;
+            font-size: 11px;
+            font-family: inherit;
             direction: rtl;
+            box-sizing: border-box;
+            transition: border-color 0.2s ease;
+          }
+          .rule-keywords-input:focus, .rule-reply-input:focus {
+            border-color: rgba(10, 132, 255, 0.6);
+            outline: none;
           }
           .rule-reply-input {
-            width: 100%;
-            background: rgba(15, 23, 42, 0.75);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            padding: 6px 8px;
-            color: #f8fafc;
-            font-size: 11px;
-            min-height: 48px;
-            direction: rtl;
+            min-height: 50px;
             resize: vertical;
           }
           .add-rule-btn {
             width: 100%;
-            padding: 8px;
-            background: rgba(56, 189, 248, 0.15);
-            border: 1px dashed rgba(56, 189, 248, 0.4);
-            border-radius: 8px;
-            color: #38bdf8;
-            font-size: 11px;
-            font-weight: 600;
+            padding: 9px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            border-radius: 12px;
+            color: #0A84FF;
+            font-size: 11.5px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            font-family: inherit;
+            transition: all 0.2s ease;
           }
-          .add-rule-btn:hover { background: rgba(56, 189, 248, 0.25); }
+          .add-rule-btn:hover {
+            background: rgba(10, 132, 255, 0.08);
+            border-color: rgba(10, 132, 255, 0.4);
+          }
 
-          /* Switch */
+          /* Apple iOS Style Switch */
           .switch {
             position: relative;
             display: inline-block;
-            width: 34px;
-            height: 18px;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
           }
           .switch input { opacity: 0; width: 0; height: 0; }
           .slider {
             position: absolute;
             cursor: pointer;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #334155;
-            transition: .3s;
-            border-radius: 34px;
+            background-color: rgba(120, 120, 128, 0.32);
+            transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border-radius: 999px;
           }
           .slider:before {
             position: absolute;
             content: "";
-            height: 14px; width: 14px;
-            left: 2px; bottom: 2px;
-            background-color: white;
-            transition: .3s;
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #FFFFFF;
             border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
           }
-          input:checked + .slider { background-color: #22c55e; }
-          input:checked + .slider:before { transform: translateX(16px); }
+          input:checked + .slider { background-color: #34C759; }
+          input:checked + .slider:before { transform: translateX(18px); }
 
           /* Config Tab */
           .config-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 0;
+            padding: 10px 0;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
           }
-          .config-label { font-size: 11px; color: #cbd5e1; }
+          .config-label {
+            font-size: 11.5px;
+            color: rgba(235, 235, 245, 0.8);
+            font-weight: 400;
+          }
           .config-input {
-            width: 65px;
-            background: rgba(15, 23, 42, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            padding: 4px 6px;
-            color: #f8fafc;
-            font-size: 11px;
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 6px 10px;
+            color: #FFFFFF;
+            font-size: 12px;
             text-align: center;
+            font-family: inherit;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            outline: none;
+          }
+          .config-input:focus {
+            border-color: rgba(10, 132, 255, 0.6);
+            box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.15);
           }
 
+          /* Footer */
           .hud-footer {
-            padding: 12px 16px;
-            background: rgba(30, 41, 59, 0.85);
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 13px 18px;
+            background: rgba(0, 0, 0, 0.12);
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
             display: flex;
-            gap: 8px;
+            gap: 10px;
           }
           .btn-primary {
             flex: 2;
-            padding: 9px 12px;
-            background: linear-gradient(135deg, #0284c7, #0369a1);
-            color: white;
+            padding: 10px 16px;
+            background: #0071E3;
+            color: #FFFFFF;
             border: none;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 700;
+            border-radius: 14px;
+            font-size: 12.5px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
-            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25);
+            font-family: inherit;
           }
-          .btn-primary:hover { opacity: 0.95; transform: translateY(-1px); }
+          .btn-primary:hover {
+            background: #0077ED;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 113, 227, 0.35);
+          }
+          .btn-primary:active {
+            transform: translateY(0);
+          }
           .btn-danger {
             flex: 1;
-            padding: 9px 12px;
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 700;
+            padding: 10px 16px;
+            background: rgba(255, 69, 58, 0.15);
+            color: #FF453A;
+            border: 1px solid rgba(255, 69, 58, 0.25);
+            border-radius: 14px;
+            font-size: 12.5px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
+            font-family: inherit;
           }
-          .btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
+          .btn-danger:hover {
+            background: rgba(255, 69, 58, 0.22);
+            transform: translateY(-1px);
+          }
+          .btn-danger:active {
+            transform: translateY(0);
+          }
         </style>
 
         <div class="hud-card${this.isGhostMode ? ' ghost-mode' : ''}">
@@ -1533,29 +1612,30 @@
           <div class="ghost-dock-content" id="ghost-dock" title="وضع الشبح النشط (انقر للتوسيع)">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="ghost-dot ${state.isRunning ? 'running' : 'stopped'}" id="ghost-dot"></span>
-              <span style="display: flex; align-items: center; gap: 2px; color: #38bdf8; font-size: 10.5px;">
-                ⚡<span id="ghost-reply-counter" style="color: #4ade80; font-family: monospace;">${state.stats.matched}</span>
+              <span style="display: flex; align-items: center; gap: 4px; color: #F5F5F7; font-size: 11px; font-weight: 600;">
+                <span id="ghost-reply-counter" style="color: #F5F5F7; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">${state.stats.matched}</span>
+                <span style="font-size: 9.5px; color: rgba(235, 235, 245, 0.6); font-weight: 500;">رد</span>
               </span>
             </div>
-            <span style="font-size: 12px; color: #94a3b8; cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
+            <span style="font-size: 11px; color: rgba(235, 235, 245, 0.5); cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
           </div>
 
           <div class="hud-header" id="hud-header">
-            <div style="display: flex; gap: 6px; align-items: center;">
+            <div style="display: flex; gap: 8px; align-items: center;">
               <button class="header-icon-btn" id="btn-ghost" title="وضع الشبح (Ghost Mode)">👻</button>
               <button class="header-icon-btn" id="btn-minimize" title="تصغير إلى شريط مصغر">—</button>
               <button class="header-icon-btn" id="btn-maximize" title="تكبير / توسيع النافذة">⛶</button>
             </div>
             <div class="hud-title">
-              <span>⚡ أتمتة Meta Business Suite</span>
-              <span style="font-size: 10px; color: #64748b;">V4.9.0</span>
-              <span id="hud-tenant-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
+              <span>إدارة المحادثات</span>
+              <span class="hud-version-badge">4.9.1</span>
+              <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Active Tenant ID)">${state.currentTenantId === 'default' ? 'Default Page' : `Tenant: ${state.currentTenantId}`}</span>
             </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
+            <div style="display: flex; gap: 8px; align-items: center;">
               <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
-                <span style="font-size: 11px; color: #38bdf8;">فحص: <b id="min-stat-eval">0</b></span>
-                <span style="font-size: 11px; color: #4ade80;">رد: <b id="min-stat-match">0</b></span>
-                <span style="font-size: 11px; color: #facc15;">استعادة: <b id="min-stat-unread">0</b></span>
+                <span style="font-size: 11px; color: #F5F5F7;">فحص: <b id="min-stat-eval">0</b></span>
+                <span style="font-size: 11px; color: #34C759;">رد: <b id="min-stat-match">0</b></span>
+                <span style="font-size: 11px; color: #FF9F0A;">استعادة: <b id="min-stat-unread">0</b></span>
               </div>
               <div id="hud-status" class="status-badge status-ready">READY</div>
             </div>
@@ -1567,15 +1647,15 @@
               <span class="stat-label">المفحوص</span>
             </div>
             <div class="stat-item">
-              <span id="stat-matched" class="stat-value" style="color: #4ade80;">0</span>
+              <span id="stat-matched" class="stat-value" style="color: #34C759;">0</span>
               <span class="stat-label">تم الرد</span>
             </div>
             <div class="stat-item">
-              <span id="stat-unread" class="stat-value" style="color: #facc15;">0</span>
+              <span id="stat-unread" class="stat-value" style="color: #FF9F0A;">0</span>
               <span class="stat-label">غير مقروء</span>
             </div>
             <div class="stat-item">
-              <span id="stat-skipped" class="stat-value" style="color: #fb923c;">0</span>
+              <span id="stat-skipped" class="stat-value" style="color: #8E8E93;">0</span>
               <span class="stat-label">مستبعد (حماية)</span>
             </div>
           </div>
@@ -1601,24 +1681,20 @@
             <!-- Config Tab -->
             <div id="tab-config" class="tab-pane">
               <div class="config-row">
-                <span class="config-label">تذبذب سرعة الكتابة البشرية (ms)</span>
-                <div style="display: flex; gap: 4px; align-items: center;">
-                  <input type="number" id="cfg-min-typing" class="config-input" value="${state.config.minTypingSpeed}">
-                  <span style="font-size: 10px; color: #64748b;">-</span>
-                  <input type="number" id="cfg-max-typing" class="config-input" value="${state.config.maxTypingSpeed}">
-                </div>
+                <span class="config-label">فترة التهدئة بين المحادثات (بالثواني)</span>
+                <input type="number" id="cfg-cooldown-sec" class="config-input" style="width: 75px;" step="0.1" min="0.1" value="${cooldownSec}">
               </div>
               <div class="config-row">
-                <span class="config-label">فترة التهدئة بين المحادثات (ms)</span>
-                <div style="display: flex; gap: 4px; align-items: center;">
-                  <input type="number" id="cfg-min-cooldown" class="config-input" value="${state.config.minCooldown}">
-                  <span style="font-size: 10px; color: #64748b;">-</span>
-                  <input type="number" id="cfg-max-cooldown" class="config-input" value="${state.config.maxCooldown}">
-                </div>
+                <span class="config-label">فترة فحص الرسائل الجديدة (بالثواني)</span>
+                <input type="number" id="cfg-monitoring-sec" class="config-input" style="width: 75px;" step="0.5" min="1" value="${monitoringSec}">
               </div>
               <div class="config-row">
-                <span class="config-label">فترة انتظار وضع المراقبة (ms)</span>
-                <input type="number" id="cfg-monitoring-interval" class="config-input" style="width: 80px;" value="${state.config.monitoringInterval}">
+                <span class="config-label">سرعة الكتابة البشرية (ms)</span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="number" id="cfg-min-typing" class="config-input" style="width: 52px;" value="${state.config.minTypingSpeed}">
+                  <span style="font-size: 11px; color: rgba(235, 235, 245, 0.4);">-</span>
+                  <input type="number" id="cfg-max-typing" class="config-input" style="width: 52px;" value="${state.config.maxTypingSpeed}">
+                </div>
               </div>
               <div class="config-row">
                 <span class="config-label">تأطير بصري للمحادثة النشطة</span>
@@ -1776,8 +1852,8 @@
           content.style.display = 'block';
           footer.style.display = 'flex';
           minSummary.style.display = 'none';
-          card.style.width = isMaximized ? '680px' : '470px';
-          card.style.maxHeight = isMaximized ? '750px' : '610px';
+          card.style.width = isMaximized ? '680px' : '480px';
+          card.style.maxHeight = isMaximized ? '750px' : '620px';
           card.style.resize = 'both';
           btnMin.textContent = '—';
           btnMin.title = 'تصغير إلى شريط مصغر';
@@ -1804,9 +1880,9 @@
           btnMax.textContent = '🗗';
           btnMax.title = 'الحجم الافتراضي';
         } else {
-          card.style.width = '470px';
-          card.style.maxHeight = '610px';
-          content.style.maxHeight = '290px';
+          card.style.width = '480px';
+          card.style.maxHeight = '620px';
+          content.style.maxHeight = '300px';
           if (terminal) terminal.style.height = '220px';
           btnMax.textContent = '⛶';
           btnMax.title = 'تكبير / توسيع النافذة';
@@ -1851,9 +1927,29 @@
 
       bindConfigNumber('cfg-min-typing', 'minTypingSpeed', 35);
       bindConfigNumber('cfg-max-typing', 'maxTypingSpeed', 65);
-      bindConfigNumber('cfg-min-cooldown', 'minCooldown', 1500);
-      bindConfigNumber('cfg-max-cooldown', 'maxCooldown', 2500);
-      bindConfigNumber('cfg-monitoring-interval', 'monitoringInterval', 6000);
+
+      const cooldownSecEl = this.shadow.getElementById('cfg-cooldown-sec');
+      if (cooldownSecEl) {
+        const handleCooldown = (e) => {
+          const sec = parseFloat(e.target.value) || 1.5;
+          state.config.minCooldown = Math.max(100, Math.round(sec * 850));
+          state.config.maxCooldown = Math.max(200, Math.round(sec * 1150));
+          saveConfig();
+        };
+        cooldownSecEl.addEventListener('input', handleCooldown);
+        cooldownSecEl.addEventListener('change', handleCooldown);
+      }
+
+      const monitoringSecEl = this.shadow.getElementById('cfg-monitoring-sec');
+      if (monitoringSecEl) {
+        const handleMonitoring = (e) => {
+          const sec = parseFloat(e.target.value) || 6.0;
+          state.config.monitoringInterval = Math.max(500, Math.round(sec * 1000));
+          saveConfig();
+        };
+        monitoringSecEl.addEventListener('input', handleMonitoring);
+        monitoringSecEl.addEventListener('change', handleMonitoring);
+      }
 
       this.shadow.getElementById('cfg-highlight-rows').addEventListener('change', (e) => {
         state.config.highlightRows = e.target.checked;
@@ -1894,12 +1990,16 @@
       if (minTyping) minTyping.value = state.config.minTypingSpeed;
       const maxTyping = this.shadow.getElementById('cfg-max-typing');
       if (maxTyping) maxTyping.value = state.config.maxTypingSpeed;
-      const minCd = this.shadow.getElementById('cfg-min-cooldown');
-      if (minCd) minCd.value = state.config.minCooldown;
-      const maxCd = this.shadow.getElementById('cfg-max-cooldown');
-      if (maxCd) maxCd.value = state.config.maxCooldown;
-      const monInt = this.shadow.getElementById('cfg-monitoring-interval');
-      if (monInt) monInt.value = state.config.monitoringInterval;
+      const cooldownEl = this.shadow.getElementById('cfg-cooldown-sec');
+      if (cooldownEl) {
+        const sec = state.config.maxCooldown ? ((state.config.minCooldown + state.config.maxCooldown) / 2000).toFixed(1) : '1.5';
+        cooldownEl.value = Number(sec);
+      }
+      const monitoringEl = this.shadow.getElementById('cfg-monitoring-sec');
+      if (monitoringEl) {
+        const sec = state.config.monitoringInterval ? (state.config.monitoringInterval / 1000).toFixed(1) : '6.0';
+        monitoringEl.value = Number(sec);
+      }
       const hlRows = this.shadow.getElementById('cfg-highlight-rows');
       if (hlRows) hlRows.checked = state.config.highlightRows;
       const scrThr = this.shadow.getElementById('cfg-scroll-thread');
@@ -1913,7 +2013,7 @@
       container.innerHTML = state.rules.map((rule, idx) => `
         <div class="rule-card" data-idx="${idx}">
           <div class="rule-header">
-            <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">قاعدة #${idx + 1}</span>
+            <span class="rule-title">قاعدة #${idx + 1}</span>
             <div style="display: flex; gap: 6px; align-items: center;">
               <select class="rule-match-type" data-idx="${idx}">
                 <option value="contains" ${rule.matchType === 'contains' ? 'selected' : ''}>يحتوي</option>
@@ -1924,7 +2024,7 @@
                 <input type="checkbox" class="rule-toggle" data-idx="${idx}" ${rule.active ? 'checked' : ''}>
                 <span class="slider"></span>
               </label>
-              <button class="rule-del-btn" data-idx="${idx}" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px;">✕</button>
+              <button class="rule-del-btn" data-idx="${idx}" style="background:none; border:none; color:#FF453A; cursor:pointer; font-size:12px;">✕</button>
             </div>
           </div>
           <input type="text" class="rule-keywords-input" data-idx="${idx}" placeholder="الكلمات المفتاحية مفصولة بفاصلة" value="${rule.keyword || ''}">
@@ -2439,5 +2539,5 @@
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V4.9.0] Initialized successfully (Enterprise Multi-Tenant Edition).');
+  console.log('[MBS Automator V4.9.1] Initialized successfully (Apple Liquid Glass Edition).');
 })();
