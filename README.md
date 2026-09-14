@@ -97,7 +97,32 @@ pip install -r requirements.txt --break-system-packages
 
 ---
 
-##  دليل التشغيل السريع
+## 🚀 مشغلات الخوادم والتشغيل المؤسسي المتعدد (24/7 Multi-Tenant Launchers)
+
+### 1. بيئة ويندوز (Windows 11 / Server):
+- **الإعداد الآلي الشامل بنقرة واحدة (Zero-Touch Setup):**
+  شغّل ملف [`setup_windows_prerequisites.bat`](./setup_windows_prerequisites.bat) كمسؤول (Run as Administrator):
+  - يضبط خطة الطاقة لتعطيل السكون والإسبات نهائياً.
+  - ينزل ويثبت Google Chrome صامتاً في حال غيابه.
+  - يفعل سياسة Chrome Enterprise لفرض تثبيت إضافة Tampermonkey تلقائياً في كافة البروفايلات.
+  - يطلق تلقائياً مشغل البروفايلات المتعددة.
+- **التشغيل المباشر للبروفايلات المعزولة:**
+  انقر نقراً مزدوجاً على [`launch_mbs_server.bat`](./launch_mbs_server.bat) لفتح بروفايلات الصفحات المعزولة فوراً مع معاملات مكافحة التجميد.
+
+### 2. بيئة لينكس (Ubuntu 24.04 LTS / Debian):
+- **فحص الجاهزية والبيئة (Pre-Flight Smoke Test):**
+  ```bash
+  ./launch_mbs_linux.sh --test
+  ```
+- **التشغيل المباشر للبروفايلات المعزولة:**
+  ```bash
+  ./launch_mbs_linux.sh
+  ```
+  ينشئ مجلدات العزل تلقائياً في `~/.config/meta_inbox_bot/profiles/` ويفتح نوافذ كروم بمعاملات الأداء العالي ومكافحة خفض الأولوية بالخلفية.
+
+---
+
+## 📋 دليل التشغيل اليدوي السريع
 
 ### الخطوة 1: تشغيل Google Chrome مع تفعيل منفذ التحكم (Port 9222)
 أغلق جميع نوافذ Chrome تماماً، ثم شغّله من الطرفية (Terminal):

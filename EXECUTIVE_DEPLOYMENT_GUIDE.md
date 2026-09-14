@@ -53,6 +53,48 @@
 
 ## 3. إجراءات التثبيت والإعداد على الخادم (Installation & Server SOP)
 
+### أ. الإعداد المؤتمت بالكامل على Windows 11 / Server (Zero-Touch Auto-Installer)
+تم تضمين سكربت إعداد مؤتمت بالكامل يقوم بتهيئة الخادم وتثبيت المتطلبات دون أي تدخل يدوي:
+`setup_windows_prerequisites.bat`
+
+#### المهام التي ينفذها السكربت آلياً:
+1. **التحقق من صلاحيات الإدارة (Admin Elevation):** يطلب صلاحيات Administrator تلقائياً عند تشغيله.
+2. **ضبط خطة الطاقة المستمرة 24/7:** تعطيل أوضاع السكون (Sleep)، والاستعداد (Standby)، والإسبات (Hibernate) لضمان عدم توقف الخادم نهائياً.
+3. **التثبيت الصامت لمتصفح Chrome:** فحص وجود المتصفح، وفي حال غيابه يقوم بتنزيل حزمة التثبيت المستقلة وتثبيتها بالخلفية دون نوافذ منبثقة.
+4. **فرض تثبيت إضافة Tampermonkey عبر سياسات Enterprise Policy:**
+   - حقن المفتاح المؤسسي في سجل النظام (Windows Registry):
+     `HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist`
+   - يضمن ذلك تثبيت إضافة Tampermonkey تلقائياً في جميع ملفات التعريف (Profiles) الحالية والمستقبلية.
+5. **الإطلاق المباشر:** استدعاء ملف `launch_mbs_server.bat` تلقائياً لبدء تشغيل نوافذ الصفحات المعزولة.
+
+---
+
+### ب. النشر والتشغيل على خوادم Linux (Ubuntu 24.04 LTS Launcher)
+تم توفير مشغل تنفيذي متقدم مخصص لبيئات Ubuntu 24.04 و Debian:
+`launch_mbs_linux.sh`
+
+#### 1. إجراء الفحص التشغيلي المسبق (Smoke Test):
+قبل بدء العمل، يمكن التحقق من جاهزية النظام والشبكة والصلاحيات عبر الأمر:
+```bash
+./launch_mbs_linux.sh --test
+```
+يقوم الاختبار بفحص:
+- وجود وتوافق متصفح Google Chrome (`google-chrome` أو `google-chrome-stable`).
+- إنشاء وصلاحيات مجلدات العزل تحت: `~/.config/meta_inbox_bot/profiles/`.
+- اختبار أذونات القراءة والكتابة لنظام الملفات.
+- التحقق من بيئة العرض الرسومي (`DISPLAY` / `WAYLAND_DISPLAY`).
+- اختبار الاتصال الشبكي السريع بخوادم Meta (`business.facebook.com`).
+
+#### 2. تشغيل صفحات العمل (Multi-Tenant Dispatch):
+```bash
+./launch_mbs_linux.sh
+```
+يطبق المشغل معاملات الأداء المؤسسية المضادة للتجميد وخفض أولوية المعالجة بالخلفية (`--disable-background-timer-throttling`, `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`).
+
+---
+
+### ج. التثبيت اليدوي التقليدي على Windows (Manual SOP)
+
 ### الخطوة 1: ضبط بيئة التشغيل ونظام الطاقة
 1. التحقق من تثبيت أحدث إصدار مستقر من متصفح **Google Chrome**.
 2. ضبط خطة الطاقة في نظام Windows:
