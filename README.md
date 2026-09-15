@@ -1,7 +1,7 @@
-# أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V5.0.0)
-### Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.0.0)
+# أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V6.2.2)
+### Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.2)
 > نظام أتمتة مؤسسي متكامل لإدارة وتدقيق صندوق رسائل **Meta Business Suite** (صفحات فيسبوك وإنستغرام) عبر لغة **Python** ومحرك **Playwright** بالحقن الأصلي المباشر (Zero-Extension) بدون الحاجة لتثبيت أي إضافات متصفح، مع واجهة تحكم فاخرة بتصميم **Apple Prismatic Liquid Glass** عالي الشفافية، وآلية استعادة غير مقروء فائقة الموثوقية بفك تركيز المحادثة والتحقق التفاعلي، واستخراج أسماء العملاء المشدد، وتسمية موحدة للصفحات (Page ID).  
-> **المسؤول التقني:** Bishoy Safwat (Senior Automation Engineer)
+> **المسؤول التقني والمطور:** Bishoy Safwat (Senior Automation & Systems Engineer)
 
 ---
 
@@ -173,3 +173,10 @@ python3 audit_system.py
 - **وضع الشبح (Ghost Mode 👻)**: يتحول إلى كبسولة مراقبة مصغرة (`100x32px`) خفيفة تعرض نبض الحالة وعدد الردود المنفذة بدقة وأناقة.
 - **التصغير والتكبير (`—` و `⛶`)**: لتوسيع نافذة كتابة القواعد وتصفح السجلات.
 - **إيقاف الطوارئ الفوري (<10ms)**: اضغط زر **[Escape]** في أي لحظة أو زر **⏹ إيقاف** في الواجهة أو **[Ctrl + C]** في الطرفية.
+
+---
+
+## 👨‍💻 المطور والمهندس المسؤول (Author & Engineering)
+- **الاسم والمسؤول التقني:** بيشوي صفوت (Bishoy Safwat)
+- **الدور:** Senior Automation & Desktop Systems Architect
+- **حقوق الملكية والابتكار:** Designed & Engineered by Bishoy Safwat © 2026

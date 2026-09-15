@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.2)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.2.1
+// @version      6.2.2
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
-// @author       Bishoy Safwat (Senior Automation Engineer)
+// @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
 // @icon         https://www.facebook.com/favicon.ico
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.2.1)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.2.2)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V621_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V622_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V621_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V622_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1665,7 +1665,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.2.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.2.2)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3296,5 +3296,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.2.1] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.2.2] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

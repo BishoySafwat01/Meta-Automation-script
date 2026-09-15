@@ -213,7 +213,31 @@ def main():
         log("FAIL", "Browser Executable", "No suitable Chrome binary found in PATH")
         failures += 1
 
-    # 8. Git Status
+    # 8. Author Metadata & Discreet Attribution Integrity (V6.2.2)
+    author_ok = True
+    for f in ["main.py", "desktop_app.py", "profile_manager.py"]:
+        content = (root / f).read_text(encoding="utf-8", errors="ignore")
+        if '__author__ = "Bishoy Safwat"' not in content:
+            log("FAIL", f"Author Metadata ({f})", "Missing __author__ = 'Bishoy Safwat'")
+            failures += 1
+            author_ok = False
+
+    js_author_ok = ("@author       Bishoy Safwat" in (root / "bot_script.js").read_text(encoding="utf-8", errors="ignore"))
+    if not js_author_ok:
+        log("FAIL", "UserScript Author", "Missing @author Bishoy Safwat")
+        failures += 1
+        author_ok = False
+
+    gui_author_ok = ("Designed &amp; Engineered by Bishoy Safwat" in (root / "gui/index.html").read_text(encoding="utf-8", errors="ignore"))
+    if not gui_author_ok:
+        log("FAIL", "Desktop GUI Attribution", "Missing discreet attribution footer in index.html")
+        failures += 1
+        author_ok = False
+
+    if author_ok:
+        log("PASS", "Author & Engineering Attribution", "Verified across Python, JS, and Desktop GUI")
+
+    # 9. Git Status
     g_code, g_out = run(["git", "-C", str(root), "status", "--porcelain"])
     if g_code == 0:
         if not g_out:

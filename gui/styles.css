@@ -727,9 +727,13 @@ body.desktop-body {
 
 .sidebar-footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   border-top: 1px solid rgba(186, 230, 253, 0.4);
   padding-top: 12px;
+}
+.sidebar-footer > div {
+  width: 100%;
 }
 .btn-all-start {
   flex: 1;
