@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.0.0)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="desktop-body">
+  <div class="desktop-app-container">
+    <!-- Left Glass Sidebar (290px) -->
+    <aside class="desktop-sidebar">
+      <div class="sidebar-brand">
+        <div class="sidebar-title">
+          <span>⚡</span>
+          <span>Meta Automation Hub</span>
+        </div>
+        <span class="version-pill">V6.0.0</span>
+      </div>
+
+      <button id="btn-new-profile" class="btn-new-profile">
+        <span>+</span>
+        <span>إضافة بروفايل جديد</span>
+      </button>
+
+      <!-- Profile Cards List -->
+      <div id="profiles-list" class="profiles-scroll-area">
+        <!-- Dynamically rendered by app.js -->
+      </div>
+
+      <!-- Sidebar Footer Controls -->
+      <div class="sidebar-footer">
+        <button id="btn-start-all" class="btn-all-start" title="تشغيل كافة الصفحات بالتزامن">تشغيل الكل 🚀</button>
+        <button id="btn-stop-all" class="btn-all-stop" title="إيقاف كافة العمليات النشطة">إيقاف الكل 🛑</button>
+      </div>
+    </aside>
+
+    <!-- Main Glass Stage (Right Content Area) -->
+    <main class="desktop-stage">
+      <div class="stage-header-bar">
+        <div class="stage-title-group">
+          <span class="stage-active-name" id="active-profile-name">اختر بروفايل</span>
+          <span class="stage-status-badge status-ready" id="active-profile-status">جاهز</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-active-start" class="btn-card-toggle start" style="padding: 6px 16px; font-size: 12px;">تشغيل الصفحة 🚀</button>
+          <button id="btn-active-stop" class="btn-card-toggle stop" style="padding: 6px 16px; font-size: 12px; display: none;">إيقاف 🛑</button>
+        </div>
+      </div>
+
+      <div class="stage-main-card">
+        <!-- 4 Metrics Counter Pills -->
+        <div class="hud-stats-bar">
+          <div class="stat-item">
+            <span id="stat-evaluated" class="stat-value">0</span>
+            <span class="stat-label">المفحوص</span>
+          </div>
+          <div class="stat-item">
+            <span id="stat-matched" class="stat-value" style="color: #16a34a;">0</span>
+            <span class="stat-label">تم الرد</span>
+          </div>
+          <div class="stat-item">
+            <span id="stat-unread" class="stat-value" style="color: #d97706;">0</span>
+            <span class="stat-label">غير مقروء</span>
+          </div>
+          <div class="stat-item">
+            <span id="stat-skipped" class="stat-value" style="color: #64748b;">0</span>
+            <span class="stat-label">مستبعد (حماية)</span>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="hud-tabs">
+          <button class="tab-btn active" data-tab="console">سجل العمليات</button>
+          <button class="tab-btn" data-tab="rules">إدارة القواعد</button>
+          <button class="tab-btn" data-tab="config">الإعدادات البشرية</button>
+        </div>
+
+        <!-- Content Area -->
+        <div class="hud-content">
+          <!-- Tab 1: Terminal Console -->
+          <div id="tab-console" class="tab-pane active" style="height: 100%; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 6px;">
+              <button id="btn-clear-logs" class="icon-action-btn" style="font-size: 11px; opacity: 0.8;" title="مسح السجل">🗑️ مسح السجل</button>
+            </div>
+            <div id="terminal" class="terminal-box" style="flex: 1; min-height: 250px;"></div>
+          </div>
+
+          <!-- Tab 2: Rules Management -->
+          <div id="tab-rules" class="tab-pane">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <span style="font-size: 13px; font-weight: 600; color: #334155;">قواعد الرد الآلي للصفحة</span>
+              <button id="btn-save-rules" class="btn-primary" style="padding: 6px 14px; font-size: 11.5px; border-radius: 8px;">حفظ القواعد 💾</button>
+            </div>
+            <div id="rules-container"></div>
+            <button id="add-rule-btn" class="add-rule-btn" style="margin-top: 10px;">+ إضافة قاعدة رد جديدة</button>
+          </div>
+
+          <!-- Tab 3: Config Settings -->
+          <div id="tab-config" class="tab-pane">
+            <div class="config-row">
+              <span class="config-label">فترة التهدئة بين المحادثات (بالثواني)</span>
+              <input type="number" id="cfg-cooldown-sec" class="config-input" style="width: 80px;" step="0.1" min="0.1" value="1.5">
+            </div>
+            <div class="config-row">
+              <span class="config-label">فترة فحص الرسائل الجديدة (بالثواني)</span>
+              <input type="number" id="cfg-monitoring-sec" class="config-input" style="width: 80px;" step="0.5" min="1" value="5.0">
+            </div>
+            <div class="config-row">
+              <span class="config-label">سرعة الكتابة البشرية (مللي ثانية/حرف)</span>
+              <input type="number" id="cfg-typing-speed" class="config-input" style="width: 80px;" min="10" max="200" step="5" value="15">
+            </div>
+            <div class="config-row">
+              <span class="config-label">تأطير بصري للمحادثة النشطة</span>
+              <label class="switch">
+                <input type="checkbox" id="cfg-highlight-row" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="config-row">
+              <span class="config-label">بدء الرد التلقائي فور تشغيل البروفايل</span>
+              <label class="switch">
+                <input type="checkbox" id="cfg-auto-start">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div style="margin-top: 18px; display: flex; justify-content: flex-end;">
+              <button id="btn-save-config" class="btn-primary" style="padding: 8px 18px; font-size: 12px; border-radius: 10px;">حفظ وتطبيق الإعدادات 💾</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Profile Prompt Modal -->
+  <div id="modal-profile" class="desktop-modal-overlay">
+    <div class="desktop-modal-card">
+      <div class="modal-title" id="modal-profile-title">إضافة بروفايل صفحة جديد</div>
+      <input type="text" id="modal-profile-input" class="modal-input" placeholder="اسم الصفحة (عربي أو إنجليزي)...">
+      <div class="modal-actions">
+        <button id="btn-modal-cancel" class="btn-modal-cancel">إلغاء</button>
+        <button id="btn-modal-confirm" class="btn-modal-confirm">تأكيد</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

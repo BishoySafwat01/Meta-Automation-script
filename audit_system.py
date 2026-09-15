@@ -30,6 +30,8 @@ def main():
     # 1. File Presence & Parity
     files = [
         "bot_script.js", "meta_inbox_userscript.user.js", "main.py", "profile_manager.py",
+        "desktop_app.py", "gui/index.html", "gui/app.js", "gui/styles.css", "gui/template.html",
+        "launch_desktop.sh", "launch_desktop.bat",
         "launch_mbs_linux.sh", "launch_mbs_server.bat", "README.md", "EXECUTIVE_DEPLOYMENT_GUIDE.md"
     ]
     for f in files:
@@ -63,20 +65,42 @@ def main():
         log("FAIL", "Python Compilation (profile_manager.py)", err[:80])
         failures += 1
 
+    code, err = run([sys.executable, "-m", "py_compile", str(root / "desktop_app.py")])
+    if code == 0:
+        log("PASS", "Python Compilation (desktop_app.py)", "Valid bytecode")
+    else:
+        log("FAIL", "Python Compilation (desktop_app.py)", err[:80])
+        failures += 1
+
     if shutil.which("node"):
         code, err = run(["node", "-c", str(root / "bot_script.js")])
         if code == 0:
-            log("PASS", "Node.js Syntax Check", "Clean AST")
+            log("PASS", "Node.js Syntax (bot_script.js)", "Clean AST")
         else:
-            log("FAIL", "Node.js Syntax Check", err[:80])
+            log("FAIL", "Node.js Syntax (bot_script.js)", err[:80])
+            failures += 1
+
+        code, err = run(["node", "-c", str(root / "gui" / "app.js")])
+        if code == 0:
+            log("PASS", "Node.js Syntax (gui/app.js)", "Clean AST")
+        else:
+            log("FAIL", "Node.js Syntax (gui/app.js)", err[:80])
             failures += 1
 
     if shutil.which("bash") and (root / "launch_mbs_linux.sh").is_file():
         code, err = run(["bash", "-n", str(root / "launch_mbs_linux.sh")])
         if code == 0:
-            log("PASS", "Shell Script Syntax", "Bash syntax valid")
+            log("PASS", "Shell Syntax (launch_mbs_linux.sh)", "Bash syntax valid")
         else:
-            log("FAIL", "Shell Script Syntax", err[:80])
+            log("FAIL", "Shell Syntax (launch_mbs_linux.sh)", err[:80])
+            failures += 1
+
+    if shutil.which("bash") and (root / "launch_desktop.sh").is_file():
+        code, err = run(["bash", "-n", str(root / "launch_desktop.sh")])
+        if code == 0:
+            log("PASS", "Shell Syntax (launch_desktop.sh)", "Bash syntax valid")
+        else:
+            log("FAIL", "Shell Syntax (launch_desktop.sh)", err[:80])
             failures += 1
 
     # 3. Engine Regressions & Logic Rules
@@ -155,7 +179,33 @@ def main():
         log("FAIL", "ProfileManager Operations", str(e)[:80])
         failures += 1
 
-    # 6. Environment & Chromium Executables
+    # 6. Desktop Control Center & pywebview Integration
+    try:
+        import webview
+        log("PASS", "Desktop Framework (pywebview)", "Installed & importable")
+    except ImportError:
+        log("FAIL", "Desktop Framework (pywebview)", "Module not found")
+        failures += 1
+
+    try:
+        from desktop_app import DesktopBridgeApi
+        bridge = DesktopBridgeApi()
+        required_methods = [
+            "get_profiles", "create_profile", "rename_profile", "delete_profile",
+            "get_profile_config", "save_profile_config", "start_profile", "stop_profile",
+            "start_all_profiles", "stop_all_profiles", "get_worker_statuses"
+        ]
+        missing = [m for m in required_methods if not hasattr(bridge, m)]
+        if not missing:
+            log("PASS", "DesktopBridgeApi Endpoints", "All 11 bridge methods implemented")
+        else:
+            log("FAIL", "DesktopBridgeApi Endpoints", f"Missing: {missing}")
+            failures += 1
+    except Exception as e:
+        log("FAIL", "DesktopBridgeApi Endpoints", str(e)[:80])
+        failures += 1
+
+    # 7. Environment & Chromium Executables
     chrome_bin = any(shutil.which(b) for b in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"])
     if chrome_bin:
         log("PASS", "Browser Executable", "Chrome/Chromium runtime located")
@@ -163,7 +213,7 @@ def main():
         log("FAIL", "Browser Executable", "No suitable Chrome binary found in PATH")
         failures += 1
 
-    # 7. Git Status
+    # 8. Git Status
     g_code, g_out = run(["git", "-C", str(root), "status", "--porcelain"])
     if g_code == 0:
         if not g_out:
