@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.5.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.6.0 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -14,7 +14,8 @@ Pure Python Zero-Extension Runner & Native Playwright Injector:
     3. Concurrent Multi-Tenant Dispatch (--all): Runs multiple isolated page profiles concurrently.
 - Instant Zero-Latency Hard-Stop Engine (<10ms breakout).
 - Dynamic Tenant Storage Isolation & Zero Cross-Talk.
-- Continuous Runtime Anti-Throttling Architecture.
+- Continuous Runtime Anti-Throttling & V8 256MB Lean Memory Capping Architecture.
+- Dedicated Standalone ProfileManager with Atomic JSON Persistence.
 - Automatic Stale Chrome Lock Cleaning (SingletonLock/Cookie/Socket).
 =============================================================================
 """
@@ -29,6 +30,8 @@ import asyncio
 import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+from profile_manager import ProfileManager
 
 telemetry_queue: Optional[asyncio.Queue] = None
 
@@ -87,6 +90,24 @@ ANTI_THROTTLING_ARGS = [
     "--test-type",
 ]
 
+LEAN_CHROMIUM_ARGS = [
+    "--js-flags=--max-old-space-size=256",
+    "--disable-background-networking",
+    "--disable-renderer-backgrounding",
+    "--disable-component-update",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-sync",
+    "--disable-features=Translate,OptimizationHints,MediaRouter",
+    "--renderer-process-limit=2",
+]
+
+# Combined hardened anti-throttling and V8 memory-capping flags
+DEFAULT_CHROME_ARGS = list(dict.fromkeys(ANTI_THROTTLING_ARGS + LEAN_CHROMIUM_ARGS))
+
+# Dedicated Profile Manager Instance
+PROFILE_MGR = ProfileManager()
+
 # Track active resources for clean signal exit
 ACTIVE_CONTEXTS: List[BrowserContext] = []
 ACTIVE_PAGES: List[Page] = []
@@ -94,24 +115,16 @@ ACTIVE_PROFILE_DIRS: List[Path] = []
 SHUTDOWN_EVENT: asyncio.Event = asyncio.Event()
 
 # ---------------------------------------------------------------------------
-# Platform-Dependent Profile Resolution
+# Platform-Dependent Profile Resolution (Backed by ProfileManager)
 # ---------------------------------------------------------------------------
 def get_profiles_base_dir() -> Path:
-    if sys.platform.startswith("win"):
-        userprofile = os.environ.get("USERPROFILE", str(Path.home()))
-        return Path(userprofile) / "MetaInboxBot_Profiles"
-    else:
-        return Path.home() / ".config" / "meta_inbox_bot" / "profiles"
+    return PROFILE_MGR.base_dir
 
 def get_tenant_profile_dir(profile_name: str) -> Path:
-    base_dir = get_profiles_base_dir()
-    profile_dir = base_dir / profile_name
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
+    return PROFILE_MGR.get_profile_dir(profile_name)
 
 def get_profile_config_path(profile_name: str) -> Path:
-    profile_dir = get_tenant_profile_dir(profile_name)
-    return profile_dir / "config.json"
+    return PROFILE_MGR.get_profile_config_path(profile_name)
 
 def clean_stale_locks(profile_dir: Path):
     """Safely remove leftover SingletonLock/SingletonCookie/SingletonSocket files."""
@@ -235,7 +248,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.5.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.6.0 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -243,6 +256,7 @@ def print_banner():
   • دعم كامل لـ 3 أنماط تشغيل: الربط الحي (--attach)، بروفايل معزول (--profile)، أو متعدد (--all)
   • محرك إيقاف طوارئ فوري دون أي تأخير زمني (Instant Hard-Stop <10ms)
   • عزل تخزين الصفحات المتعددة ديناميكياً مع حماية كاملة من تداخل البيانات
+  • بنية كبح الذاكرة الفائقة V8 256MB مع تقييد العمليات لتشغيل 5-10 بروفايلات متزامنة
   • تنظيف تلقائي لأقفال كروم التالفة (SingletonLocks) لمنع الإغلاق الصامت
   • واجهة تحكم Apple Prismatic Liquid Glass المتطورة مع إبراز كبسولي زجاجي سائل للمحادثات
 =============================================================================
@@ -252,7 +266,13 @@ def print_banner():
 # ---------------------------------------------------------------------------
 # Automation Engine Injection & IPC Bridge Setup
 # ---------------------------------------------------------------------------
-async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tenant_name: str = ""):
+async def setup_page_bridges(
+    page: Page,
+    settings: dict,
+    config_path: Path,
+    tenant_name: str = "",
+    event_queue: Optional[asyncio.Queue] = None
+):
     """Expose Python bridge functions to the browser page."""
     prefix = f"[{tenant_name}]" if tenant_name else ""
 
@@ -293,8 +313,11 @@ async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tena
             t_type = payload.get("type", "UNKNOWN")
             t_data = payload.get("data")
             t_tenant = payload.get("tenantId", tenant_name or "default")
+            payload["profile_name"] = tenant_name or t_tenant
 
-            if "telemetry_queue" in globals() and globals()["telemetry_queue"] is not None:
+            if event_queue is not None:
+                await event_queue.put(payload)
+            elif "telemetry_queue" in globals() and globals()["telemetry_queue"] is not None:
                 await globals()["telemetry_queue"].put(payload)
 
             if t_type == "STATE":
@@ -321,13 +344,20 @@ async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tena
         # Binding already exposed on this page session
         pass
 
-async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, prefix: str = ""):
+async def inject_hud_and_rules(
+    page: Page,
+    bot_js_code: str,
+    settings: dict,
+    prefix: str = "",
+    headless_agent: bool = False
+):
     """Inject the HUD and rules into an active page."""
     try:
         await page.evaluate("""() => {
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V560_LOADED__;
             delete window.__MBS_AUTOMATOR_V550_LOADED__;
             delete window.__MBS_AUTOMATOR_V540_LOADED__;
             delete window.__MBS_AUTOMATOR_V530_LOADED__;
@@ -345,16 +375,22 @@ async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, pre
         }""")
 
         await page.evaluate("""
-            ({ rules, config }) => {
+            ({ rules, config, isHeadless }) => {
                 window.__INITIAL_RULES__ = rules;
                 window.__INITIAL_CONFIG__ = config;
+                if (isHeadless) {
+                    window.__MBS_HEADLESS_MODE__ = true;
+                }
             }
-        """, {"rules": settings.get("rules", []), "config": settings.get("config", {})})
+        """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent})
 
         await page.evaluate(bot_js_code)
-        format_log("INIT", "✨ تم تثبيت واجهة التحكم التفاعلية (HUD) بنجاح في المتصفح!", prefix=prefix)
+        if headless_agent:
+            format_log("INIT", "✨ تم تشغيل محرك الأتمتة بنمط الوكيل الرأسي (Headless Agent Mode) بنجاح!", prefix=prefix)
+        else:
+            format_log("INIT", "✨ تم تثبيت واجهة التحكم التفاعلية (HUD) بنجاح في المتصفح!", prefix=prefix)
     except Exception as e:
-        format_log("ERROR", f"❌ خطأ أثناء حقن واجهة التحكم: {e}", prefix=prefix)
+        format_log("ERROR", f"❌ خطأ أثناء حقن محرك الأتمتة: {e}", prefix=prefix)
 
 # ---------------------------------------------------------------------------
 # Mode 1: Active Browser Attach (--attach / -a)
@@ -454,7 +490,7 @@ async def launch_persistent_context_safe(
     headless: bool = False,
     tenant_name: str = ""
 ) -> BrowserContext:
-    """Launch persistent Chrome context with anti-throttling flags and fallback."""
+    """Launch persistent Chrome context with anti-throttling & lean memory flags."""
     clean_stale_locks(profile_dir)
     ACTIVE_PROFILE_DIRS.append(profile_dir)
 
@@ -467,7 +503,7 @@ async def launch_persistent_context_safe(
             user_data_dir=str(profile_dir),
             channel="chrome",
             headless=headless,
-            args=ANTI_THROTTLING_ARGS,
+            args=DEFAULT_CHROME_ARGS,
             viewport=None,
             no_viewport=True,
         )
@@ -484,7 +520,7 @@ async def launch_persistent_context_safe(
                 user_data_dir=str(profile_dir),
                 executable_path=chrome_bin,
                 headless=headless,
-                args=ANTI_THROTTLING_ARGS,
+                args=DEFAULT_CHROME_ARGS,
                 viewport=None,
                 no_viewport=True,
             )
@@ -498,7 +534,7 @@ async def launch_persistent_context_safe(
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
             headless=headless,
-            args=ANTI_THROTTLING_ARGS,
+            args=DEFAULT_CHROME_ARGS,
             viewport=None,
             no_viewport=True,
         )
@@ -514,9 +550,13 @@ async def run_tenant_worker(
     settings: dict,
     config_path: Path,
     auto_start: bool = False,
-    headless: bool = False
+    headless: bool = False,
+    headless_agent: bool = False,
+    stop_event: Optional[asyncio.Event] = None,
+    event_queue: Optional[asyncio.Queue] = None,
+    controller: Optional["ProfileProcessController"] = None,
 ):
-    """Run a single tenant inside an isolated persistent Playwright context."""
+    """Run a single tenant inside an isolated persistent Playwright context with memory limits."""
     profile_dir = get_tenant_profile_dir(profile_name)
     prefix = f"[{profile_name}]"
 
@@ -532,17 +572,33 @@ async def run_tenant_worker(
             headless=headless,
             tenant_name=profile_name
         )
+        if controller:
+            controller.contexts[profile_name] = context
+            pid = controller.get_pid_for_profile(profile_name)
+            controller.pids[profile_name] = pid
     except Exception as e:
         format_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}", prefix=prefix)
         return
+
+    # If headless agent mode is enabled, set flag before scripts load
+    if headless_agent:
+        await context.add_init_script("window.__MBS_HEADLESS_MODE__ = true;")
 
     # Add native init script for permanent zero-extension execution
     await context.add_init_script(path=str(BOT_SCRIPT_PATH))
 
     page = context.pages[0] if context.pages else await context.new_page()
     ACTIVE_PAGES.append(page)
+    if controller:
+        controller.pages[profile_name] = page
 
-    await setup_page_bridges(page, settings, config_path, tenant_name=profile_name)
+    await setup_page_bridges(
+        page,
+        settings,
+        config_path,
+        tenant_name=profile_name,
+        event_queue=event_queue
+    )
 
     format_log("INIT", f"فتح صفحة الصندوق: {META_INBOX_URL}", prefix=prefix)
     try:
@@ -551,20 +607,32 @@ async def run_tenant_worker(
         if not SHUTDOWN_EVENT.is_set():
             format_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}", prefix=prefix)
 
-    if SHUTDOWN_EVENT.is_set() or page.is_closed():
+    if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
         return
 
     await asyncio.sleep(2)
-    if SHUTDOWN_EVENT.is_set() or page.is_closed():
+    if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
         return
 
-    await inject_hud_and_rules(page, bot_js_code, settings, prefix=prefix)
+    await inject_hud_and_rules(
+        page,
+        bot_js_code,
+        settings,
+        prefix=prefix,
+        headless_agent=headless_agent
+    )
 
     # Re-inject on navigation
     async def on_reloaded():
         try:
             await asyncio.sleep(1)
-            await inject_hud_and_rules(page, bot_js_code, settings, prefix=prefix)
+            await inject_hud_and_rules(
+                page,
+                bot_js_code,
+                settings,
+                prefix=prefix,
+                headless_agent=headless_agent
+            )
             if auto_start:
                 await asyncio.sleep(0.5)
                 await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
@@ -580,7 +648,7 @@ async def run_tenant_worker(
 
     format_log("INFO", "✅ جلسة المتصفح نشطة وتعمل بالخلفية 24/7.", prefix=prefix)
 
-    while not SHUTDOWN_EVENT.is_set():
+    while not SHUTDOWN_EVENT.is_set() and not (stop_event and stop_event.is_set()):
         if page.is_closed():
             format_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.", prefix=prefix)
             break
@@ -594,6 +662,117 @@ async def run_tenant_worker(
         pass
     finally:
         clean_stale_locks(profile_dir)
+
+# ---------------------------------------------------------------------------
+# Asynchronous Multi-Worker Process & Telemetry Controller
+# ---------------------------------------------------------------------------
+class ProfileProcessController:
+    """Controls multi-tenant profile workers, individual cancellation, and telemetry dispatch."""
+
+    def __init__(self, playwright_instance: Optional[Playwright] = None):
+        self.p = playwright_instance
+        self.workers: Dict[str, asyncio.Task] = {}
+        self.stop_events: Dict[str, asyncio.Event] = {}
+        self.contexts: Dict[str, BrowserContext] = {}
+        self.pages: Dict[str, Page] = {}
+        self.pids: Dict[str, Optional[int]] = {}
+        self.telemetry_queue: asyncio.Queue = asyncio.Queue()
+
+    def set_playwright(self, p: Playwright):
+        self.p = p
+
+    def get_pid_for_profile(self, profile_name: str) -> Optional[int]:
+        """Discover Chromium PID for profile via SingletonLock symlink or process check."""
+        profile_dir = get_tenant_profile_dir(profile_name)
+        lock_file = profile_dir / "SingletonLock"
+        if lock_file.is_symlink():
+            try:
+                target = os.readlink(lock_file)
+                if "-" in target:
+                    pid_str = target.split("-")[-1]
+                    if pid_str.isdigit():
+                        return int(pid_str)
+            except Exception:
+                pass
+        return None
+
+    async def start_worker(
+        self,
+        profile_name: str,
+        settings: dict,
+        config_path: Path,
+        auto_start: bool = False,
+        headless: bool = False,
+        headless_agent: bool = False,
+    ) -> asyncio.Task:
+        """Start an individual profile worker with its own cancellation event."""
+        if profile_name in self.workers and not self.workers[profile_name].done():
+            format_log("WARN", f"جلسة البروفايل {profile_name} تعمل بالفعل.")
+            return self.workers[profile_name]
+
+        stop_event = asyncio.Event()
+        self.stop_events[profile_name] = stop_event
+
+        async def worker_wrapper():
+            try:
+                await run_tenant_worker(
+                    p=self.p,
+                    profile_name=profile_name,
+                    settings=settings,
+                    config_path=config_path,
+                    auto_start=auto_start,
+                    headless=headless,
+                    headless_agent=headless_agent,
+                    stop_event=stop_event,
+                    event_queue=self.telemetry_queue,
+                    controller=self,
+                )
+            finally:
+                self.workers.pop(profile_name, None)
+                self.stop_events.pop(profile_name, None)
+                self.contexts.pop(profile_name, None)
+                self.pages.pop(profile_name, None)
+                self.pids.pop(profile_name, None)
+
+        task = asyncio.create_task(worker_wrapper(), name=f"worker_{profile_name}")
+        self.workers[profile_name] = task
+        return task
+
+    async def stop_worker(self, profile_name: str) -> bool:
+        """Signal an individual profile worker to stop gracefully without affecting other workers."""
+        stop_event = self.stop_events.get(profile_name)
+        if stop_event:
+            format_log("STOP", f"إرسال إشارة التوقف للبروفايل: {profile_name}")
+            stop_event.set()
+            task = self.workers.get(profile_name)
+            if task:
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    task.cancel()
+            return True
+        return False
+
+    async def stop_all(self):
+        """Stop all active profile workers gracefully."""
+        names = list(self.stop_events.keys())
+        for name in names:
+            await self.stop_worker(name)
+
+    def list_active(self) -> List[Dict[str, Any]]:
+        """Return list of active profile sessions and their process telemetry."""
+        result = []
+        for name, task in self.workers.items():
+            pid = self.pids.get(name) or self.get_pid_for_profile(name)
+            result.append({
+                "profile_name": name,
+                "pid": pid,
+                "is_running": not task.done(),
+                "has_page": name in self.pages and not self.pages[name].is_closed()
+            })
+        return result
+
+PROCESS_CONTROLLER = ProfileProcessController()
 
 # ---------------------------------------------------------------------------
 # Graceful Shutdown Handler
@@ -626,7 +805,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.5.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.6.0)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -649,6 +828,7 @@ async def main():
     parser.add_argument("--config", type=str, default=None, help="Explicit path to config.json file (overrides profile-scoped default)")
     parser.add_argument("--auto-start", action="store_true", help="Start automator immediately without waiting for HUD button")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode (for background servers)")
+    parser.add_argument("--headless-agent", action="store_true", help="Run in headless agent mode (remote HUD via telemetry)")
 
     args = parser.parse_args()
 
@@ -670,6 +850,7 @@ async def main():
             pass
 
     async with async_playwright() as p:
+        PROCESS_CONTROLLER.set_playwright(p)
         try:
             if args.attach:
                 # Mode 1: Active Browser Attach
@@ -694,7 +875,9 @@ async def main():
                     settings=settings,
                     config_path=config_path,
                     auto_start=auto_start,
-                    headless=args.headless
+                    headless=args.headless,
+                    headless_agent=args.headless_agent,
+                    controller=PROCESS_CONTROLLER
                 )
             else:
                 # Mode 3 (Default or --all): Concurrent Multi-Tenant Dispatch
@@ -714,7 +897,9 @@ async def main():
                             settings=t_settings,
                             config_path=t_config_path,
                             auto_start=t_auto_start,
-                            headless=args.headless
+                            headless=args.headless,
+                            headless_agent=args.headless_agent,
+                            controller=PROCESS_CONTROLLER
                         )
                     )
                 await asyncio.gather(*tasks, return_exceptions=True)

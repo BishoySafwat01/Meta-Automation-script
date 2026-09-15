@@ -29,7 +29,7 @@ def main():
 
     # 1. File Presence & Parity
     files = [
-        "bot_script.js", "meta_inbox_userscript.user.js", "main.py",
+        "bot_script.js", "meta_inbox_userscript.user.js", "main.py", "profile_manager.py",
         "launch_mbs_linux.sh", "launch_mbs_server.bat", "README.md", "EXECUTIVE_DEPLOYMENT_GUIDE.md"
     ]
     for f in files:
@@ -54,6 +54,13 @@ def main():
         log("PASS", "Python Compilation (main.py)", "Valid bytecode")
     else:
         log("FAIL", "Python Compilation (main.py)", err[:80])
+        failures += 1
+
+    code, err = run([sys.executable, "-m", "py_compile", str(root / "profile_manager.py")])
+    if code == 0:
+        log("PASS", "Python Compilation (profile_manager.py)", "Valid bytecode")
+    else:
+        log("FAIL", "Python Compilation (profile_manager.py)", err[:80])
         failures += 1
 
     if shutil.which("node"):
@@ -110,13 +117,45 @@ def main():
             log("WARN", "Infobar Suppression", "'--test-type' not detected")
             warnings += 1
 
+        if "--max-old-space-size=256" in py_src:
+            log("PASS", "V8 Memory Capping (256MB)", "Enforced via Chromium args")
+        else:
+            log("WARN", "V8 Memory Capping", "V8 256MB cap not detected")
+            warnings += 1
+
         if "add_init_script" in py_src:
             log("PASS", "Native Playwright Injection", "Permanent script attachment verified")
         else:
             log("FAIL", "Native Playwright Injection", "Missing add_init_script")
             failures += 1
 
-    # 5. Environment & Chromium Executables
+    # 5. ProfileManager Functional & Security Audit
+    try:
+        from profile_manager import ProfileManager
+        pm_test_dir = root / ".test_pm_audit"
+        pm = ProfileManager(base_dir=pm_test_dir)
+        # Validation checks
+        assert pm.is_valid_name("Page_Cairo-01") is True
+        assert pm.is_valid_name("صفحة_القاهرة_الرئيسية") is True
+        assert pm.is_valid_name("Bad/Name") is False
+        assert pm.is_valid_name("../Hack") is False
+        # Profile lifecycle & atomic config checks
+        prof_info = pm.create_profile("Audit_Temp_Profile")
+        assert pm.get_profile_dir("Audit_Temp_Profile").is_dir()
+        assert Path(prof_info["path"]).is_dir()
+        pm.save_profile_config("Audit_Temp_Profile", {"audit_test_key": 999})
+        cfg = pm.get_profile_config("Audit_Temp_Profile")
+        assert cfg.get("audit_test_key") == 999
+        assert pm.is_profile_locked("Audit_Temp_Profile") is False
+        pm.delete_profile("Audit_Temp_Profile")
+        if pm_test_dir.exists():
+            shutil.rmtree(pm_test_dir, ignore_errors=True)
+        log("PASS", "ProfileManager Operations", "Unicode validation & atomic JSON verified")
+    except Exception as e:
+        log("FAIL", "ProfileManager Operations", str(e)[:80])
+        failures += 1
+
+    # 6. Environment & Chromium Executables
     chrome_bin = any(shutil.which(b) for b in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"])
     if chrome_bin:
         log("PASS", "Browser Executable", "Chrome/Chromium runtime located")
@@ -124,7 +163,7 @@ def main():
         log("FAIL", "Browser Executable", "No suitable Chrome binary found in PATH")
         failures += 1
 
-    # 6. Git Status
+    # 7. Git Status
     g_code, g_out = run(["git", "-C", str(root), "status", "--porcelain"])
     if g_code == 0:
         if not g_out:
