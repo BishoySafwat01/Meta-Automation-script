@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.2.0
+// @version      6.2.1
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.2.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.2.1)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V620_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V621_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V620_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V621_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -189,26 +189,25 @@
   function loadRules() {
     try {
       const { rulesKey } = getTenantStorageKeys();
-      // 1. Prioritize localStorage for this specific tenant
-      const raw = localStorage.getItem(rulesKey);
-      if (raw !== null) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          if (window.__INITIAL_RULES__) {
-            try { delete window.__INITIAL_RULES__; } catch (_) {}
-          }
-          return parsed;
-        }
-      }
 
-      // 2. If no rules exist in localStorage, check injected seed from Python
-      if (window.__INITIAL_RULES__ && Array.isArray(window.__INITIAL_RULES__) && window.__INITIAL_RULES__.length > 0) {
+      // 1. Python / Supervisor seed MUST take absolute precedence over localStorage
+      if (typeof window !== 'undefined' && window.__INITIAL_RULES__ !== undefined && Array.isArray(window.__INITIAL_RULES__)) {
         const initialRules = JSON.parse(JSON.stringify(window.__INITIAL_RULES__));
-        try { delete window.__INITIAL_RULES__; } catch (_) {}
         try {
           localStorage.setItem(rulesKey, JSON.stringify(initialRules));
         } catch (_) {}
         return initialRules;
+      }
+
+      // 2. Fallback to localStorage (e.g. standalone UserScript mode without Python host)
+      const raw = localStorage.getItem(rulesKey);
+      if (raw !== null) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+        } catch (_) {}
       }
 
       // 3. Clean fallback to default rules
@@ -1666,7 +1665,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.2.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.2.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3264,8 +3263,13 @@
         if (payload) {
           try {
             state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            if (!Array.isArray(state.rules)) state.rules = [];
+            window.__INITIAL_RULES__ = state.rules;
             saveRules();
-            if (window.__MBS_AUTOMATOR_HUD__) window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+            if (window.__MBS_AUTOMATOR_HUD__) {
+              window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+              window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم تحديث القواعد فورياً (${state.rules.length} قاعدة نشطة).`);
+            }
           } catch (e) {
             console.warn('[MBS Automator] Failed to reload rules from payload:', e);
           }
@@ -3292,5 +3296,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.2.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.2.1] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

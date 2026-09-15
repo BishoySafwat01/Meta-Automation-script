@@ -15,36 +15,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 DEFAULT_TEMPLATE_CONFIG: Dict[str, Any] = {
-    "rules": [
-        {
-            "id": "rule_price",
-            "keyword": "سعر,كام,بكام,اسعار,تكلفة,تفاصيل,التفاصيل",
-            "reply": "أهلاً بك!  \nممكن تعرفنا مكان حضرتك بالظبط عشان نقولك السعر شامل الشحن ",
-            "matchType": "contains",
-            "active": True
-        },
-        {
-            "id": "rule_location",
-            "keyword": "مكان,عنوان,الفرع,لوكيشن,موقع,فين,عناوين",
-            "reply": " فرعنا الرئيسي : https://www.google.com/maps/place/Khlfawy's+metro+station/@30.0972335,31.248073,17z/data=!3m1!4b1!4m6!3m5!1s0x145840140800dc0d:0x208945e92503b0db!8m2!3d30.0972289!4d31.2454981!16s%2Fg%2F11d_1pmqhw?entry=ttu&g_ep=EgoyMDI2MDkwOS4wIKXMDSoASAFQAw%3D%3D\n متاح لخدمتك دائماً. يمكنك معرفة أقرب موقع والتواصل عبر الرابط أو الرسائل هنا.",
-            "matchType": "contains",
-            "active": True
-        },
-        {
-            "id": "rule_phone",
-            "keyword": "فون,تليفون,رقم,واتس,واتساب,موبايل",
-            "reply": "أهلاً بك! \nرقم خدمة العملاء والواتساب متاح لمساعدتك \n01119648815\nتفضل بالاستفسار في أي وقت.",
-            "matchType": "contains",
-            "active": True
-        },
-        {
-            "id": "rule_1789360636812",
-            "keyword": "روج",
-            "reply": "اهلا بيكي \nتعرفي ان عندنا روج لوكسيرا افضل احمر شفاه ممكن تستعمليه\n وحاليا نازل بعرض مايتفوتش ب350 ج بس متخيله !\n الحقي العرض بسرعه ",
-            "matchType": "contains",
-            "active": True
-        }
-    ],
+    "rules": [],
     "config": {
         "typingSpeed": 15,
         "minTypingSpeed": 11,
@@ -191,14 +162,7 @@ class ProfileManager:
 
         cfg_path = pdir / "config.json"
         if not cfg_path.is_file():
-            seed = DEFAULT_TEMPLATE_CONFIG
-            script_cfg = Path(__file__).resolve().parent / "config.json"
-            if script_cfg.is_file():
-                try:
-                    with open(script_cfg, "r", encoding="utf-8") as f:
-                        seed = json.load(f)
-                except Exception:
-                    pass
+            seed = json.loads(json.dumps(DEFAULT_TEMPLATE_CONFIG))
             self.save_profile_config(sanitized, seed)
 
         stat_res = pdir.stat()
@@ -249,10 +213,15 @@ class ProfileManager:
         """Read isolated config.json for a profile."""
         cfg_path = self.get_profile_config_path(name)
         if not cfg_path.is_file():
-            return {}
+            return json.loads(json.dumps(DEFAULT_TEMPLATE_CONFIG))
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+            if "rules" not in data or not isinstance(data["rules"], list):
+                data["rules"] = []
+            return data
         except Exception as e:
             raise RuntimeError(f"Failed to read config for profile '{name}': {e}")
 

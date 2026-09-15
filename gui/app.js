@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.2.0)
+ * Meta Automation Desktop Control Center (V6.2.1)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -508,6 +508,13 @@
     elements.btnSaveRules.addEventListener('click', async () => {
       if (!state.selectedProfile || !state.currentConfig) return;
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
+
+      const current = state.profiles.find(p => p.name === state.selectedProfile);
+      const isRunning = current && current.status === 'RUNNING';
+      if (isRunning) {
+        await callApi('send_page_command', state.selectedProfile, 'RELOAD_RULES', state.currentConfig.rules);
+      }
+
       alert('تم حفظ وتحديث القواعد بنجاح');
       await refreshProfiles();
     });
