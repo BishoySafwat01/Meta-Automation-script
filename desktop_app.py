@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.0.0)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.1.0)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -136,8 +136,8 @@ class DesktopBridgeApi:
             statuses[name] = "RUNNING" if self.is_worker_running(name) else "STOPPED"
         return statuses
 
-    def start_profile(self, profile_name: str, headless: bool = True) -> Dict[str, Any]:
-        """Launch Chromium worker for profile in Agent Headless mode."""
+    def start_profile(self, profile_name: str, headless: bool = False) -> Dict[str, Any]:
+        """Launch Chromium worker for profile in visible agent mode."""
         if self.is_worker_running(profile_name):
             return {"status": "ALREADY_RUNNING", "profile_name": profile_name}
 
@@ -321,7 +321,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.0.0)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.1.0)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -340,7 +340,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.0.0)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.1.0)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

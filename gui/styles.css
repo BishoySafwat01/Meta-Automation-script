@@ -469,7 +469,7 @@ input:checked + .slider:before { transform: translateX(18px); }
 }
 
 /* ==========================================================================
-   DESKTOP CONTROL HUB (V6.0.0) DUAL-PANE PRISMATIC GLASS LAYOUT
+   DESKTOP CONTROL HUB (V6.1.0) DUAL-PANE PRISMATIC LIQUID GLASS LAYOUT
    ========================================================================== */
 body.desktop-body {
   margin: 0;
@@ -477,9 +477,12 @@ body.desktop-body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: radial-gradient(circle at 15% 15%, rgba(224, 242, 254, 0.85), transparent 55%),
-              radial-gradient(circle at 85% 85%, rgba(243, 232, 255, 0.85), transparent 55%),
-              linear-gradient(135deg, #f0f9ff 0%, #f8fafc 45%, #f5f3ff 100%);
+  background:
+    radial-gradient(circle at 12% 16%, rgba(37, 99, 235, 0.18), transparent 45%),
+    radial-gradient(circle at 88% 18%, rgba(124, 58, 237, 0.16), transparent 48%),
+    radial-gradient(circle at 50% 82%, rgba(14, 165, 233, 0.15), transparent 50%),
+    radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.12), transparent 45%),
+    linear-gradient(135deg, #f0f7ff 0%, #f8fafc 40%, #f5f3ff 100%);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
   color: #0f172a;
 }
@@ -491,17 +494,29 @@ body.desktop-body {
   overflow: hidden;
 }
 
+/* SF Symbols / Cupertino Vector Icon Styling */
+.sf-icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.brand-icon {
+  color: #0284c7;
+  filter: drop-shadow(0 2px 8px rgba(2, 132, 199, 0.35));
+}
+
 /* Sidebar */
 .desktop-sidebar {
   width: 290px;
   min-width: 290px;
   max-width: 290px;
   height: 100vh;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, rgba(241, 245, 249, 0.55) 100%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
-  backdrop-filter: blur(30px) saturate(200%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(241, 245, 249, 0.35) 100%);
+  -webkit-backdrop-filter: blur(32px) saturate(210%);
+  backdrop-filter: blur(32px) saturate(210%);
   border-left: 1px solid rgba(255, 255, 255, 0.85);
-  box-shadow: -4px 0 25px rgba(15, 23, 42, 0.04);
+  box-shadow: -4px 0 25px rgba(15, 23, 42, 0.04), inset 1px 0 1px rgba(255, 255, 255, 0.9);
   display: flex;
   flex-direction: column;
   padding: 18px 16px;
@@ -548,7 +563,7 @@ body.desktop-body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   transition: all 0.2s ease;
   margin-bottom: 14px;
   font-family: inherit;
@@ -580,9 +595,9 @@ body.desktop-body {
 .profile-card {
   padding: 10px 12px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  background: rgba(255, 255, 255, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -590,13 +605,13 @@ body.desktop-body {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .profile-card:hover {
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.65);
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-  border-color: rgba(186, 230, 253, 0.8);
+  border-color: rgba(186, 230, 253, 0.85);
 }
 .profile-card.active {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(240, 249, 255, 0.95));
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85), rgba(240, 249, 255, 0.90));
   border: 1.5px solid #0284c7;
   box-shadow: 0 6px 18px rgba(2, 132, 199, 0.15), inset 0 1px 0 #ffffff;
 }
@@ -631,15 +646,19 @@ body.desktop-body {
   border: none;
   font-size: 12px;
   cursor: pointer;
-  padding: 3px 5px;
+  padding: 4px 6px;
   border-radius: 6px;
-  opacity: 0.65;
+  opacity: 0.70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s ease;
+  color: inherit;
 }
 .icon-action-btn:hover {
   opacity: 1;
   background: rgba(15, 23, 42, 0.06);
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 
 .profile-card-bottom {
@@ -653,12 +672,15 @@ body.desktop-body {
   font-weight: 500;
 }
 .btn-card-toggle {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 10.5px;
   font-weight: 600;
   cursor: pointer;
   border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   transition: all 0.2s ease;
   font-family: inherit;
 }
@@ -697,6 +719,10 @@ body.desktop-body {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   transition: all 0.2s ease;
   font-family: inherit;
 }
@@ -714,6 +740,10 @@ body.desktop-body {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   transition: all 0.2s ease;
   font-family: inherit;
 }
@@ -729,7 +759,7 @@ body.desktop-body {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 20px 24px;
+  padding: 18px 24px;
   overflow: hidden;
   background: transparent;
 }
@@ -738,7 +768,7 @@ body.desktop-body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .stage-title-group {
   display: flex;
@@ -755,23 +785,29 @@ body.desktop-body {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
 }
 
 .stage-main-card {
   flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.70) 0%, 
-    rgba(240, 249, 255, 0.60) 50%, 
-    rgba(245, 243, 255, 0.65) 100%
+    rgba(255, 255, 255, 0.38) 0%, 
+    rgba(240, 249, 255, 0.28) 50%, 
+    rgba(245, 243, 255, 0.34) 100%
   );
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  backdrop-filter: blur(28px) saturate(200%);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(32px) saturate(210%);
+  backdrop-filter: blur(32px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 20px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06), inset 0 1.5px 1px rgba(255, 255, 255, 0.95);
+  box-shadow: 
+    0 20px 45px rgba(15, 23, 42, 0.08),
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.95),
+    inset 0 -1px 2px rgba(167, 139, 250, 0.20),
+    inset 1px 0 2px rgba(56, 189, 248, 0.20);
   overflow: hidden;
 }
 
@@ -786,8 +822,45 @@ body.desktop-body {
 
 .stage-main-card .hud-content {
   flex: 1;
-  padding: 16px 20px;
+  height: 100%;
+  max-height: none !important;
+  padding: 16px 22px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-main-card .terminal-box {
+  flex: 1;
+  height: 100%;
+  min-height: 380px;
+  max-height: none;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+/* Config Grid & Grouped Cards */
+.config-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.config-card-group {
+  background: rgba(255, 255, 255, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.03);
+}
+.config-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(186, 230, 253, 0.4);
 }
 
 /* Modal */

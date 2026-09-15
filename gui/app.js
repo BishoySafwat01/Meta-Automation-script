@@ -1,10 +1,24 @@
 /**
- * Meta Automation Desktop Control Center (V6.0.0)
- * Apple Prismatic Glass Client Application
+ * Meta Automation Desktop Control Center (V6.1.0)
+ * Apple Prismatic Liquid Glass Client Application
+ * Cupertino / SF Symbols Vector SVG Integration
  */
 
 (function () {
   'use strict';
+
+  // ---------------------------------------------------------------------------
+  // Cupertino / SF Symbols SVG Icons Catalog
+  // ---------------------------------------------------------------------------
+  const ICONS = {
+    play: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,
+    stop: `<svg class="sf-icon" viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`,
+    pencil: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+    trash: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+    bolt: `<svg class="sf-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+    info: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+    save: `<svg class="sf-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`
+  };
 
   const state = {
     profiles: [],
@@ -70,37 +84,59 @@
   };
 
   // ---------------------------------------------------------------------------
-  // Real-Time Telemetry Dispatcher (called from Python evaluate_js)
+  // Real-Time Telemetry Dispatcher (Normalized Envelope Handler)
   // ---------------------------------------------------------------------------
   window.__RECEIVE_TELEMETRY__ = function (payload) {
     if (!payload || typeof payload !== 'object') return;
     const profName = payload.profile_name || 'Default';
 
-    // 1. Logs
-    if (payload.level && payload.message) {
+    // 1. Logs (Unpacks {type: "LOG", data: {tag, message}} and flat {level, message})
+    if (payload.type === 'LOG' && payload.data) {
+      const tag = payload.data.tag || 'INFO';
+      const msg = payload.data.message || '';
+      appendLog(profName, tag, msg, payload.prefix);
+    } else if (payload.level && payload.message) {
       appendLog(profName, payload.level, payload.message, payload.prefix);
     }
 
-    // 2. Stats
-    if (payload.evaluated !== undefined || payload.matched !== undefined) {
+    // 2. Stats (Unpacks {type: "STATS", data: {...}} and flat metrics)
+    let statsObj = null;
+    if (payload.type === 'STATS' && payload.data && typeof payload.data === 'object') {
+      statsObj = payload.data;
+    } else if (payload.evaluated !== undefined || payload.matched !== undefined) {
+      statsObj = payload;
+    }
+
+    if (statsObj) {
       if (!state.stats[profName]) {
         state.stats[profName] = { evaluated: 0, matched: 0, unread: 0, skipped: 0 };
       }
-      if (payload.evaluated !== undefined) state.stats[profName].evaluated = payload.evaluated;
-      if (payload.matched !== undefined) state.stats[profName].matched = payload.matched;
-      if (payload.unread !== undefined) state.stats[profName].unread = payload.unread;
-      if (payload.skipped !== undefined) state.stats[profName].skipped = payload.skipped;
+      if (statsObj.evaluated !== undefined) state.stats[profName].evaluated = statsObj.evaluated;
+      if (statsObj.matched !== undefined) state.stats[profName].matched = statsObj.matched;
+      if (statsObj.unreadRestored !== undefined) state.stats[profName].unread = statsObj.unreadRestored;
+      else if (statsObj.unread !== undefined) state.stats[profName].unread = statsObj.unread;
+      if (statsObj.skippedOutbound !== undefined) state.stats[profName].skipped = statsObj.skippedOutbound;
+      else if (statsObj.skipped !== undefined) state.stats[profName].skipped = statsObj.skipped;
 
       if (state.selectedProfile === profName) {
         updateStatsUI(state.stats[profName]);
       }
     }
 
-    // 3. Status
-    if (payload.status) {
+    // 3. Status (Unpacks {type: "STATE", data: {status, type}} and flat status)
+    let statusText = null;
+    if (payload.type === 'STATE' && payload.data) {
+      statusText = typeof payload.data === 'object' ? (payload.data.status || payload.data.type) : String(payload.data);
+    } else if (payload.status) {
+      statusText = payload.status;
+    }
+
+    if (statusText) {
       const prof = state.profiles.find(p => p.name === profName);
       if (prof) {
-        prof.status = payload.status;
+        const isStopped = statusText === 'READY' || statusText === 'جاهز' || statusText === 'STOPPED';
+        prof.status = isStopped ? 'STOPPED' : 'RUNNING';
+        prof.rawStatus = statusText;
         renderProfilesList();
         if (state.selectedProfile === profName) {
           updateProfileHeaderUI(prof);
@@ -123,7 +159,7 @@
     };
     const color = levelColors[level] || '#475569';
     const logItem = `
-      <div class="log-entry" style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 11.5px; font-family: monospace;">
+      <div class="log-entry" style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, monospace;">
         <span style="color: #94a3b8; min-width: 55px;">[${timeStr}]</span>
         <span style="color: ${color}; font-weight: 700; min-width: 50px;">[${level}]</span>
         ${prefix ? `<span style="color: #6366f1; font-weight: 600;">${prefix}</span>` : ''}
@@ -182,14 +218,14 @@
             <span class="profile-card-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
           </div>
           <div class="profile-card-actions">
-            <button class="icon-action-btn btn-rename" title="إعادة تسمية">✏️</button>
-            <button class="icon-action-btn btn-delete" title="حذف البروفايل">🗑️</button>
+            <button class="icon-action-btn btn-rename" title="إعادة تسمية">${ICONS.pencil}</button>
+            <button class="icon-action-btn btn-delete" title="حذف البروفايل">${ICONS.trash}</button>
           </div>
         </div>
         <div class="profile-card-bottom">
           <span class="profile-card-rules-tag">${p.rules_count || 0} قاعدة رد</span>
           <button class="btn-card-toggle ${isRunning ? 'stop' : 'start'}">
-            ${isRunning ? 'إيقاف 🛑' : 'تشغيل 🚀'}
+            ${isRunning ? `${ICONS.stop} <span>إيقاف</span>` : `${ICONS.play} <span>تشغيل</span>`}
           </button>
         </div>
       `;
@@ -205,7 +241,8 @@
         if (isRunning) {
           await callApi('stop_profile', p.name);
         } else {
-          await callApi('start_profile', p.name);
+          // Launch browser visibly
+          await callApi('start_profile', p.name, false);
         }
         await refreshProfiles();
       });
@@ -257,11 +294,14 @@
     elements.activeProfileName.textContent = prof.name;
     const isRunning = prof.status === 'RUNNING';
 
-    elements.activeProfileStatus.textContent = isRunning ? 'يعمل بالخلفية 🟢' : 'جاهز ⚪';
+    elements.activeProfileStatus.innerHTML = `
+      <span class="ghost-dot ${isRunning ? 'running' : 'stopped'}" style="margin-left: 6px;"></span>
+      <span>${isRunning ? 'يعمل بالمتصفح' : 'جاهز للتشغيل'}</span>
+    `;
     elements.activeProfileStatus.className = `stage-status-badge ${isRunning ? 'status-running' : 'status-ready'}`;
 
-    elements.btnActiveStart.style.display = isRunning ? 'none' : 'inline-block';
-    elements.btnActiveStop.style.display = isRunning ? 'inline-block' : 'none';
+    elements.btnActiveStart.style.display = isRunning ? 'none' : 'inline-flex';
+    elements.btnActiveStop.style.display = isRunning ? 'inline-flex' : 'none';
   }
 
   function updateStatsUI(s) {
@@ -282,26 +322,29 @@
     rules.forEach((rule, idx) => {
       const card = document.createElement('div');
       card.className = 'rule-item';
-      card.style.cssText = 'background: rgba(255, 255, 255, 0.65); border: 1px solid rgba(186, 230, 253, 0.6); border-radius: 12px; padding: 12px; margin-bottom: 10px;';
+      card.style.cssText = 'background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);';
       card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <label class="switch">
               <input type="checkbox" class="rule-active" ${rule.active !== false ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-            <span style="font-size: 12.5px; font-weight: 600; color: #0f172a;">قاعدة #${idx + 1}</span>
+            <span style="font-size: 13px; font-weight: 600; color: #0f172a;">قاعدة #${idx + 1}</span>
           </div>
-          <button class="icon-action-btn rule-delete-btn" style="color: #dc2626;" title="حذف القاعدة">🗑️</button>
+          <button class="icon-action-btn rule-delete-btn" style="color: #dc2626;" title="حذف القاعدة">${ICONS.trash}</button>
         </div>
-        <div style="margin-bottom: 8px;">
-          <label style="display: block; font-size: 11px; color: #64748b; margin-bottom: 4px;">الكلمات الدلالية المفتاحية (مفصولة بفواصل):</label>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 11.5px; color: #475569; margin-bottom: 4px; font-weight: 500;">الكلمات الدلالية المفتاحية (مفصولة بفواصل):</label>
           <input type="text" class="rule-keyword config-input" style="width: 100%; text-align: right;" value="${escapeHtml(rule.keyword || '')}">
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label style="font-size: 11px; color: #64748b;">نص الرد التلقائي:</label>
-            <span style="font-size: 10px; color: #0284c7; font-weight: 600;">💡 كل سطر جديد (Enter) يُرسل كرسالة منفصلة</span>
+            <label style="font-size: 11.5px; color: #475569; font-weight: 500;">نص الرد التلقائي:</label>
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: #0284c7; font-weight: 600;">
+              ${ICONS.info}
+              <span>كل سطر جديد (Enter) يُرسل كرسالة منفصلة</span>
+            </span>
           </div>
           <textarea class="rule-reply config-input" rows="3" style="width: 100%; text-align: right; resize: vertical; line-height: 1.5;">${escapeHtml(rule.reply || '')}</textarea>
         </div>
@@ -408,7 +451,7 @@
     // Active Start / Stop
     elements.btnActiveStart.addEventListener('click', async () => {
       if (!state.selectedProfile) return;
-      await callApi('start_profile', state.selectedProfile);
+      await callApi('start_profile', state.selectedProfile, false);
       await refreshProfiles();
     });
     elements.btnActiveStop.addEventListener('click', async () => {
@@ -453,7 +496,7 @@
     elements.btnSaveRules.addEventListener('click', async () => {
       if (!state.selectedProfile || !state.currentConfig) return;
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
-      alert('✅ تم حفظ وتحديث القواعد بنجاح!');
+      alert('تم حفظ وتحديث القواعد بنجاح');
       await refreshProfiles();
     });
 
@@ -475,7 +518,7 @@
       state.currentConfig.auto_start = elements.cfgAutoStart.checked;
 
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
-      alert('✅ تم حفظ الإعدادات وتطبيقها بنجاح!');
+      alert('تم حفظ الإعدادات وتطبيقها بنجاح');
     });
   }
 

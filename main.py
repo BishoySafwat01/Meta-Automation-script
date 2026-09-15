@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.0.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.1.0 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -248,7 +248,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.0.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.1.0 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -278,6 +278,16 @@ async def setup_page_bridges(
 
     async def py_log_handler(tag, message):
         format_log(tag, message, prefix=prefix)
+        if event_queue is not None:
+            try:
+                await event_queue.put({
+                    "type": "LOG",
+                    "data": {"tag": tag, "message": message},
+                    "profile_name": tenant_name,
+                    "timestamp": time.time()
+                })
+            except Exception:
+                pass
 
     async def py_update_stats_handler(stats):
         eval_c = stats.get("evaluated", 0)
@@ -292,6 +302,16 @@ async def setup_page_bridges(
             f"[{Colors.PURPLE}مستبعد: {skip_c}{Colors.END}]  "
         )
         sys.stdout.flush()
+        if event_queue is not None:
+            try:
+                await event_queue.put({
+                    "type": "STATS",
+                    "data": stats,
+                    "profile_name": tenant_name,
+                    "timestamp": time.time()
+                })
+            except Exception:
+                pass
 
     async def py_save_config_handler(rules_json_str, config_json_str):
         try:
@@ -306,6 +326,16 @@ async def setup_page_bridges(
 
     async def py_state_handler(status_text):
         format_log("INFO", f"حالة المحرك تغيرت إلى: {status_text}", prefix=prefix)
+        if event_queue is not None:
+            try:
+                await event_queue.put({
+                    "type": "STATE",
+                    "data": {"status": status_text},
+                    "profile_name": tenant_name,
+                    "timestamp": time.time()
+                })
+            except Exception:
+                pass
 
     async def py_telemetry_handler(source, payload_str):
         try:
@@ -357,6 +387,7 @@ async def inject_hud_and_rules(
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V610_LOADED__;
             delete window.__MBS_AUTOMATOR_V600_LOADED__;
             delete window.__MBS_AUTOMATOR_V560_LOADED__;
             delete window.__MBS_AUTOMATOR_V550_LOADED__;
@@ -561,7 +592,20 @@ async def run_tenant_worker(
     profile_dir = get_tenant_profile_dir(profile_name)
     prefix = f"[{profile_name}]"
 
-    format_log("INIT", f"بدء تهيئة البروفايل المعزول: {profile_dir}", prefix=prefix)
+    async def emit_host_log(tag: str, msg: str):
+        format_log(tag, msg, prefix=prefix)
+        if event_queue is not None:
+            try:
+                await event_queue.put({
+                    "type": "LOG",
+                    "data": {"tag": tag, "message": msg},
+                    "profile_name": profile_name,
+                    "timestamp": time.time()
+                })
+            except Exception:
+                pass
+
+    await emit_host_log("INIT", f"بدء تهيئة البروفايل: {profile_dir}")
 
     with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
         bot_js_code = f.read()
@@ -578,7 +622,7 @@ async def run_tenant_worker(
             pid = controller.get_pid_for_profile(profile_name)
             controller.pids[profile_name] = pid
     except Exception as e:
-        format_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}", prefix=prefix)
+        await emit_host_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}")
         return
 
     # If headless agent mode is enabled, set flag before scripts load
@@ -601,12 +645,12 @@ async def run_tenant_worker(
         event_queue=event_queue
     )
 
-    format_log("INIT", f"فتح صفحة الصندوق: {META_INBOX_URL}", prefix=prefix)
+    await emit_host_log("INIT", f"فتح صفحة الصندوق: {META_INBOX_URL}")
     try:
         await page.goto(META_INBOX_URL, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         if not SHUTDOWN_EVENT.is_set():
-            format_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}", prefix=prefix)
+            await emit_host_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}")
 
     if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
         return
@@ -643,15 +687,15 @@ async def run_tenant_worker(
     page.on("domcontentloaded", lambda: asyncio.create_task(on_reloaded()))
 
     if auto_start:
-        format_log("INFO", "⚡ تفعيل بدء الأتمتة التلقائي...", prefix=prefix)
+        await emit_host_log("INFO", "⚡ تفعيل بدء الأتمتة التلقائي...")
         await asyncio.sleep(1)
         await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
 
-    format_log("INFO", "✅ جلسة المتصفح نشطة وتعمل بالخلفية 24/7.", prefix=prefix)
+    await emit_host_log("INFO", "✅ جلسة المتصفح نشطة وتعمل 24/7.")
 
     while not SHUTDOWN_EVENT.is_set() and not (stop_event and stop_event.is_set()):
         if page.is_closed():
-            format_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.", prefix=prefix)
+            await emit_host_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.")
             break
         await asyncio.sleep(1)
 
@@ -806,7 +850,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.0.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.1.0)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
