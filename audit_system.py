@@ -193,11 +193,11 @@ def main():
         required_methods = [
             "get_profiles", "create_profile", "rename_profile", "delete_profile",
             "get_profile_config", "save_profile_config", "start_profile", "stop_profile",
-            "start_all_profiles", "stop_all_profiles", "get_worker_statuses"
+            "send_page_command", "start_all_profiles", "stop_all_profiles", "get_worker_statuses"
         ]
         missing = [m for m in required_methods if not hasattr(bridge, m)]
         if not missing:
-            log("PASS", "DesktopBridgeApi Endpoints", "All 11 bridge methods implemented")
+            log("PASS", "DesktopBridgeApi Endpoints", "All 12 bridge methods implemented")
         else:
             log("FAIL", "DesktopBridgeApi Endpoints", f"Missing: {missing}")
             failures += 1

@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.1.0)
+ * Meta Automation Desktop Control Center (V6.2.0)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -436,6 +436,12 @@
         const targetId = `tab-${btn.dataset.tab}`;
         const pane = document.getElementById(targetId);
         if (pane) pane.classList.add('active');
+
+        if (btn.dataset.tab === 'rules') {
+          renderRulesUI();
+        } else if (btn.dataset.tab === 'config') {
+          renderConfigUI();
+        }
       });
     });
 
@@ -451,12 +457,18 @@
     // Active Start / Stop
     elements.btnActiveStart.addEventListener('click', async () => {
       if (!state.selectedProfile) return;
-      await callApi('start_profile', state.selectedProfile, false);
+      const current = state.profiles.find(p => p.name === state.selectedProfile);
+      const isRunning = current && current.status === 'RUNNING';
+      if (!isRunning) {
+        await callApi('start_profile', state.selectedProfile, false);
+      } else {
+        await callApi('send_page_command', state.selectedProfile, 'START');
+      }
       await refreshProfiles();
     });
     elements.btnActiveStop.addEventListener('click', async () => {
       if (!state.selectedProfile) return;
-      await callApi('stop_profile', state.selectedProfile);
+      await callApi('send_page_command', state.selectedProfile, 'STOP');
       await refreshProfiles();
     });
 

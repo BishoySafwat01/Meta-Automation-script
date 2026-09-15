@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Meta Automation Hub (Apple Prismatic Glass Edition V6.1.0)
+# Meta Automation Hub (Apple Prismatic Glass Edition V6.2.0)
 # Linux Desktop Launcher
 # ==============================================================================
 
@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "=============================================================================="
-echo "  ⚡ Meta Business Suite Automation - Desktop Control Center V6.1.0"
+echo "  ⚡ Meta Business Suite Automation - Desktop Control Center V6.2.0"
 echo "  Apple Prismatic Glass Edition (Linux Launcher)"
 echo "=============================================================================="
 

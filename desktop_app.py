@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.1.0)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.2.0)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -190,6 +190,39 @@ class DesktopBridgeApi:
                 "error": str(e)
             }
 
+    def send_page_command(self, profile_name: str, command: str, payload: Any = None) -> bool:
+        """Dispatch runtime command to target profile's active page via __MBS_EXEC_COMMAND__."""
+        if not self.controller:
+            return False
+
+        page = self.controller.pages.get(profile_name)
+        if not page or page.is_closed():
+            return False
+
+        async def _exec():
+            try:
+                js = f"""() => {{
+                    if (typeof window.__MBS_EXEC_COMMAND__ === 'function') {{
+                        return window.__MBS_EXEC_COMMAND__({json.dumps(command)}, {json.dumps(payload)});
+                    }}
+                    if ({json.dumps(command)} === 'START' && typeof window.__MBS_AUTOMATOR_START__ === 'function') {{
+                        return window.__MBS_AUTOMATOR_START__();
+                    }}
+                    if ({json.dumps(command)} === 'STOP' && typeof window.__MBS_AUTOMATOR_STOP__ === 'function') {{
+                        return window.__MBS_AUTOMATOR_STOP__();
+                    }}
+                    return false;
+                }}"""
+                return await page.evaluate(js)
+            except Exception as e:
+                print(f"[DesktopBridgeApi] Failed to send command '{command}' to '{profile_name}': {e}")
+                return False
+
+        try:
+            return bool(self._run_async(_exec(), timeout=5.0))
+        except Exception:
+            return False
+
     def start_all_profiles(self) -> Dict[str, Any]:
         """Start all configured profiles concurrently."""
         profiles = self.pm.list_profiles()
@@ -321,7 +354,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.1.0)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.2.0)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -340,7 +373,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.1.0)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.2.0)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")
