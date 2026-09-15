@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.4.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V5.5.0 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -29,6 +29,8 @@ import asyncio
 import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+telemetry_queue: Optional[asyncio.Queue] = None
 
 try:
     from playwright.async_api import (
@@ -233,7 +235,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.4.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V5.5.0 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -285,6 +287,22 @@ async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tena
     async def py_state_handler(status_text):
         format_log("INFO", f"حالة المحرك تغيرت إلى: {status_text}", prefix=prefix)
 
+    async def py_telemetry_handler(source, payload_str):
+        try:
+            payload = json.loads(payload_str) if isinstance(payload_str, str) else payload_str
+            t_type = payload.get("type", "UNKNOWN")
+            t_data = payload.get("data")
+            t_tenant = payload.get("tenantId", tenant_name or "default")
+
+            if "telemetry_queue" in globals() and globals()["telemetry_queue"] is not None:
+                await globals()["telemetry_queue"].put(payload)
+
+            if t_type == "STATE":
+                st = t_data.get("status") if isinstance(t_data, dict) else str(t_data)
+                format_log("STATE", f"حالة المحرك (Telemetry): {st}", prefix=prefix)
+        except Exception as ex:
+            format_log("WARN", f"تعذر معالجة حزمة Telemetry: {ex}", prefix=prefix)
+
     for name, handler in [
         ("pyLog", py_log_handler),
         ("pyUpdateStats", py_update_stats_handler),
@@ -297,6 +315,12 @@ async def setup_page_bridges(page: Page, settings: dict, config_path: Path, tena
             # Function already exposed on this page session
             pass
 
+    try:
+        await page.expose_binding("pyEmitTelemetry", py_telemetry_handler)
+    except Exception:
+        # Binding already exposed on this page session
+        pass
+
 async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, prefix: str = ""):
     """Inject the HUD and rules into an active page."""
     try:
@@ -304,6 +328,7 @@ async def inject_hud_and_rules(page: Page, bot_js_code: str, settings: dict, pre
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V550_LOADED__;
             delete window.__MBS_AUTOMATOR_V540_LOADED__;
             delete window.__MBS_AUTOMATOR_V530_LOADED__;
             delete window.__MBS_AUTOMATOR_V520_LOADED__;
@@ -601,7 +626,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.4.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V5.5.0)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

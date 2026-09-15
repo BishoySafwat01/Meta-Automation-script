@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.4.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V5.5.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      5.4.0
+// @version      5.5.0
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat (Senior Automation Engineer)
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.4.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V5.5.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V540_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V550_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V540_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V550_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -1584,6 +1584,22 @@
   };
 
   // ---------------------------------------------------------------------------
+  // TELEMETRY BRIDGE (Bidirectional Remote GUI & Supervisor Telemetry)
+  // ---------------------------------------------------------------------------
+  function emitTelemetry(type, data) {
+    if (typeof window.pyEmitTelemetry === 'function') {
+      try {
+        window.pyEmitTelemetry(JSON.stringify({
+          type,
+          data,
+          tenantId: state.currentTenantId,
+          timestamp: Date.now()
+        }));
+      } catch (_) {}
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 5. HUD INTERFACE (Shadow DOM Isolated, RTL, Dark Glassmorphism)
   // ---------------------------------------------------------------------------
   class AutomatorHUD {
@@ -1592,46 +1608,69 @@
       this.shadow = null;
       this.activeTab = 'console';
       this.isGhostMode = false;
+      this.isHeadless = Boolean(window.__MBS_HEADLESS_MODE__);
+      this._popstateBound = false;
+      this._rehydrateInterval = null;
       this.init();
     }
 
     init() {
-      if (!document.body) {
-        window.addEventListener('DOMContentLoaded', () => this.init(), { once: true });
-        return;
+      this.isHeadless = Boolean(window.__MBS_HEADLESS_MODE__);
+
+      if (!this.isHeadless) {
+        if (!document.body) {
+          window.addEventListener('DOMContentLoaded', () => this.init(), { once: true });
+          return;
+        }
+
+        const existing = document.getElementById('mbs-inbox-automator-root');
+        if (existing) {
+          existing.remove();
+        }
+
+        try {
+          const { ghostKey, legacyGhostKey } = getTenantStorageKeys();
+          const gVal = localStorage.getItem(ghostKey) || localStorage.getItem(legacyGhostKey);
+          this.isGhostMode = gVal === 'true';
+        } catch (_) {
+          this.isGhostMode = false;
+        }
+
+        this.container = document.createElement('div');
+        this.container.id = 'mbs-inbox-automator-root';
+        this.container.style.position = 'fixed';
+        this.container.style.bottom = '20px';
+        this.container.style.left = '20px';
+        this.container.style.zIndex = '9999999';
+        this.container.style.direction = 'rtl';
+        this.container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif';
+
+        this.shadow = this.container.attachShadow({ mode: 'open' });
+        this.render();
+        document.body.appendChild(this.container);
+
+        this.bindEvents();
       }
 
-      const existing = document.getElementById('mbs-inbox-automator-root');
-      if (existing) {
-        existing.remove();
+      if (!this._popstateBound) {
+        this._popstateBound = true;
+        window.addEventListener('popstate', () => {
+          checkAndRehydrateTenant(this);
+        });
       }
 
-      try {
-        const { ghostKey, legacyGhostKey } = getTenantStorageKeys();
-        const gVal = localStorage.getItem(ghostKey) || localStorage.getItem(legacyGhostKey);
-        this.isGhostMode = gVal === 'true';
-      } catch (_) {
-        this.isGhostMode = false;
+      if (!this._rehydrateInterval) {
+        this._rehydrateInterval = setInterval(() => {
+          checkAndRehydrateTenant(this);
+        }, 2500);
       }
 
-      this.container = document.createElement('div');
-      this.container.id = 'mbs-inbox-automator-root';
-      this.container.style.position = 'fixed';
-      this.container.style.bottom = '20px';
-      this.container.style.left = '20px';
-      this.container.style.zIndex = '9999999';
-      this.container.style.direction = 'rtl';
-      this.container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif';
-
-      this.shadow = this.container.attachShadow({ mode: 'open' });
-      this.render();
-      document.body.appendChild(this.container);
-
-      this.bindEvents();
-      this.log('INIT', 'تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.4.0).');
+      this.setStatus('READY', 'ready');
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V5.5.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
+      if (!this.shadow) return;
       const cooldownSec = state.config.maxCooldown ? Number(((state.config.minCooldown + state.config.maxCooldown) / 2000).toFixed(1)) : 1.5;
       const monitoringSec = state.config.monitoringInterval ? Number((state.config.monitoringInterval / 1000).toFixed(1)) : 6;
 
@@ -2220,6 +2259,7 @@
     }
 
     toggleGhostMode(enable) {
+      if (this.isHeadless || !this.shadow) return;
       this.isGhostMode = enable;
       try {
         const { ghostKey } = getTenantStorageKeys();
@@ -2462,18 +2502,10 @@
           Orchestrator.stop();
         }
       });
-
-      // Multi-Tenant SPA Navigation & URL Watcher
-      window.addEventListener('popstate', () => {
-        checkAndRehydrateTenant(this);
-      });
-
-      setInterval(() => {
-        checkAndRehydrateTenant(this);
-      }, 2500);
     }
 
     updateTenantUI(tenantId) {
+      if (!this.shadow) return;
       const badge = this.shadow.getElementById('hud-tenant-badge');
       if (badge) {
         badge.textContent = tenantId === 'default' ? 'Default Page' : `Page: ${tenantId}`;
@@ -2481,6 +2513,7 @@
     }
 
     updateConfigUI() {
+      if (!this.shadow) return;
       const typingSpeedEl = this.shadow.getElementById('cfg-typing-speed');
       if (typingSpeedEl) {
         typingSpeedEl.value = state.config.typingSpeed || Math.round(((state.config.minTypingSpeed || 35) + (state.config.maxTypingSpeed || 65)) / 2) || 45;
@@ -2502,6 +2535,7 @@
     }
 
     renderRulesList() {
+      if (!this.shadow) return;
       const container = this.shadow.getElementById('rules-container');
       if (!container) return;
 
@@ -2579,68 +2613,77 @@
     }
 
     setStatus(text, type = 'ready') {
-      const el = this.shadow.getElementById('hud-status');
-      if (el) {
-        el.textContent = text;
-        el.className = `status-badge status-${type}`;
-      }
-      const gDot = this.shadow.getElementById('ghost-dot');
-      if (gDot) {
-        gDot.className = `ghost-dot ${type}`;
+      if (this.shadow) {
+        const el = this.shadow.getElementById('hud-status');
+        if (el) {
+          el.textContent = text;
+          el.className = `status-badge status-${type}`;
+        }
+        const gDot = this.shadow.getElementById('ghost-dot');
+        if (gDot) {
+          gDot.className = `ghost-dot ${type}`;
+        }
       }
       if (window.pyOnStateChange) {
         window.pyOnStateChange(text).catch(() => {});
       }
+      emitTelemetry('STATE', { status: text, type });
     }
 
     updateStats() {
-      const sEval = this.shadow.getElementById('stat-evaluated');
-      if (sEval) sEval.textContent = state.stats.evaluated;
-      const mEval = this.shadow.getElementById('min-stat-eval');
-      if (mEval) mEval.textContent = state.stats.evaluated;
-      const mMatch = this.shadow.getElementById('min-stat-match');
-      if (mMatch) mMatch.textContent = state.stats.matched;
-      const mUnread = this.shadow.getElementById('min-stat-unread');
-      if (mUnread) mUnread.textContent = state.stats.unreadRestored;
-      const sMatch = this.shadow.getElementById('stat-matched');
-      if (sMatch) sMatch.textContent = state.stats.matched;
-      const sUnread = this.shadow.getElementById('stat-unread');
-      if (sUnread) sUnread.textContent = state.stats.unreadRestored;
-      const sSkip = this.shadow.getElementById('stat-skipped');
-      if (sSkip) sSkip.textContent = state.stats.skippedOutbound;
+      if (this.shadow) {
+        const sEval = this.shadow.getElementById('stat-evaluated');
+        if (sEval) sEval.textContent = state.stats.evaluated;
+        const mEval = this.shadow.getElementById('min-stat-eval');
+        if (mEval) mEval.textContent = state.stats.evaluated;
+        const mMatch = this.shadow.getElementById('min-stat-match');
+        if (mMatch) mMatch.textContent = state.stats.matched;
+        const mUnread = this.shadow.getElementById('min-stat-unread');
+        if (mUnread) mUnread.textContent = state.stats.unreadRestored;
+        const sMatch = this.shadow.getElementById('stat-matched');
+        if (sMatch) sMatch.textContent = state.stats.matched;
+        const sUnread = this.shadow.getElementById('stat-unread');
+        if (sUnread) sUnread.textContent = state.stats.unreadRestored;
+        const sSkip = this.shadow.getElementById('stat-skipped');
+        if (sSkip) sSkip.textContent = state.stats.skippedOutbound;
 
-      const gCounter = this.shadow.getElementById('ghost-reply-counter');
-      if (gCounter) gCounter.textContent = state.stats.matched;
+        const gCounter = this.shadow.getElementById('ghost-reply-counter');
+        if (gCounter) gCounter.textContent = state.stats.matched;
+      }
 
       if (window.pyUpdateStats) {
         window.pyUpdateStats(state.stats).catch(() => {});
       }
+      emitTelemetry('STATS', state.stats);
     }
 
     log(tag, message) {
-      const terminal = this.shadow.getElementById('terminal');
-      if (!terminal) return;
+      if (this.shadow) {
+        const terminal = this.shadow.getElementById('terminal');
+        if (terminal) {
+          const line = document.createElement('div');
+          line.className = 'log-line';
 
-      const line = document.createElement('div');
-      line.className = 'log-line';
+          const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
+          line.innerHTML = `
+            <span class="log-tag-${tag}">[${tag}]</span>
+            <span>${message}</span>
+            <span class="log-time">${time}</span>
+          `;
 
-      const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
-      line.innerHTML = `
-        <span class="log-tag-${tag}">[${tag}]</span>
-        <span>${message}</span>
-        <span class="log-time">${time}</span>
-      `;
+          terminal.appendChild(line);
+          terminal.scrollTop = terminal.scrollHeight;
 
-      terminal.appendChild(line);
-      terminal.scrollTop = terminal.scrollHeight;
-
-      while (terminal.children.length > 150) {
-        terminal.removeChild(terminal.firstChild);
+          while (terminal.children.length > 150) {
+            terminal.removeChild(terminal.firstChild);
+          }
+        }
       }
 
       if (window.pyLog) {
         window.pyLog(tag, message).catch(() => {});
       }
+      emitTelemetry('LOG', { tag, message });
     }
   }
 
@@ -2673,6 +2716,7 @@
           this.hud.log('STOP', 'تم إيقاف الدورة فوراً بناءً على إشارة التوقف.');
         } else {
           state.stats.errors++;
+          this.hud.setStatus('ERROR', 'error');
           this.hud.log('ERROR', `خطأ غير متوقع: ${err.message}`);
           console.error(err);
         }
@@ -2767,7 +2811,7 @@
       abortAllSleeps();
 
       if (this.hud) {
-        this.hud.setStatus('STOPPED', 'stopped');
+        this.hud.setStatus('STANDBY', 'stopped');
         if (wasRunning) {
           this.hud.log('STOP', 'الأتمتة متوقفة حالياً.');
         }
@@ -3203,8 +3247,50 @@
     try {
       state.config = { ...state.config, ...JSON.parse(configJson) };
       saveConfig();
+      if (window.__MBS_AUTOMATOR_HUD__ && !window.__MBS_AUTOMATOR_HUD__.isHeadless) {
+        window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
+      }
     } catch (_) {}
   };
 
-  console.log('[MBS Automator V5.4.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  // Remote Supervisor Runtime Command Dispatcher
+  window.__MBS_EXEC_COMMAND__ = (cmd, payload) => {
+    switch (cmd) {
+      case 'START':
+        return Orchestrator.start();
+      case 'STOP':
+        return Orchestrator.stop();
+      case 'RELOAD_RULES':
+        if (payload) {
+          try {
+            state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            saveRules();
+            if (window.__MBS_AUTOMATOR_HUD__) window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+          } catch (e) {
+            console.warn('[MBS Automator] Failed to reload rules from payload:', e);
+          }
+        } else {
+          checkAndRehydrateTenant(window.__MBS_AUTOMATOR_HUD__);
+        }
+        break;
+      case 'UPDATE_CONFIG':
+        if (payload) {
+          try {
+            const cfg = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            state.config = { ...state.config, ...cfg };
+            saveConfig();
+            if (window.__MBS_AUTOMATOR_HUD__ && !window.__MBS_AUTOMATOR_HUD__.isHeadless) {
+              window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
+            }
+          } catch (e) {
+            console.warn('[MBS Automator] Failed to update config from payload:', e);
+          }
+        }
+        break;
+      default:
+        console.warn(`[MBS Automator] Unknown command: ${cmd}`);
+    }
+  };
+
+  console.log('[MBS Automator V5.5.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
