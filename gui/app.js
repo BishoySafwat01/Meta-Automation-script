@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.3.1)
+ * Meta Automation Desktop Control Center (V6.3.2)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -307,12 +307,25 @@
       elements.btnActiveStart.style.display = 'inline-flex';
       elements.btnActiveStop.style.display = 'none';
     } else {
-      const isLoopActive = autoState === 'RUNNING' || autoState === 'COOLDOWN' || autoState === 'SEARCHING';
+      const isLoopActive = autoState === 'RUNNING' || 
+                           autoState === 'MONITORING' || 
+                           autoState === 'SEARCHING' || 
+                           (typeof autoState === 'string' && autoState.startsWith('COOLDOWN'));
       if (isLoopActive) {
         // c. Browser Running & Loop Active
+        let label = 'الأتمتة قيد العمل 🟢';
+        let dotStyle = '';
+        if (autoState === 'MONITORING') {
+          label = 'الأتمتة قيد المراقبة 🟢';
+        } else if (autoState.startsWith('COOLDOWN')) {
+          const match = autoState.match(/COOLDOWN\s*\(([^)]+)\)/);
+          label = `تهدئة مؤقتة (${match ? match[1] : 'نشطة'}) ⏳`;
+          dotStyle = 'background: #06b6d4;';
+        }
+
         elements.activeProfileStatus.innerHTML = `
-          <span class="ghost-dot running" style="margin-left: 6px;"></span>
-          <span>الأتمتة قيد العمل 🟢</span>
+          <span class="ghost-dot running" style="margin-left: 6px; ${dotStyle}"></span>
+          <span>${label}</span>
         `;
         elements.activeProfileStatus.className = 'stage-status-badge status-running';
         elements.btnActiveStart.style.display = 'none';

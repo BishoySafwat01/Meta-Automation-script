@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.3.1)
+Meta Business Suite Profile Manager Module (V6.3.2)
 Provides thread-safe and process-isolated multi-tenant sandbox management.
 """
 

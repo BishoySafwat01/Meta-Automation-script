@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.2)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.1
+// @version      6.3.2
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.1)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.2)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V631_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V632_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V631_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V632_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -337,7 +337,7 @@
       .replace(/[ى]/g, 'ي')
       .replace(/[ؤئ]/g, 'ء')
       .replace(/[\u0640\u064B-\u065F\u0670]/g, '') // حذف التشكيل والتطويل
-      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, ' ')
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}/:.?=&_*-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -378,11 +378,11 @@
           const normKw = normalizeArabicText(cleanKw);
           if (!normKw && !cleanKw) continue;
 
-          // 1. Direct equality against normalized or raw message
+          // 1. Direct equality against normalized or raw message (including case-insensitive Latin check)
           if (normMsg && normKw && normMsg === normKw) {
             return { rule, matchedKeyword: kw };
           }
-          if (text.trim() === cleanKw) {
+          if (text.trim() === cleanKw || text.trim().toLowerCase() === cleanKw.toLowerCase()) {
             return { rule, matchedKeyword: kw };
           }
 
@@ -400,14 +400,14 @@
             return { rule, matchedKeyword: kw };
           }
         } else {
-          // 'contains' (default substring match)
+          // 'contains' (default substring match with case-insensitive Latin resilience)
           const normKw = normalizeArabicText(cleanKw);
           if (!normKw && !cleanKw) continue;
 
           if (normMsg && normKw && normMsg.includes(normKw)) {
             return { rule, matchedKeyword: kw };
           }
-          if (text && cleanKw && text.includes(cleanKw)) {
+          if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) {
             return { rule, matchedKeyword: kw };
           }
         }
@@ -1454,7 +1454,9 @@
       const viewport = this.getMessageScrollContainer() || this.getChatCanvas();
       if (!viewport) return false;
       const audioEls = Array.from(viewport.querySelectorAll('audio, video, [data-testid*="audio" i], [data-testid*="voice" i], [aria-label*="صوت" i], [aria-label*="voice" i], [aria-label*="تسجيل صوتي" i], [aria-label*="رسالة صوتية" i]')).filter(el => {
-        return !el.closest('#mbs-inbox-automator-root');
+        if (el.closest('#mbs-inbox-automator-root')) return false;
+        if (el.closest('a[href], [data-testid*="link_preview" i], [data-testid*="preview" i], [class*="preview" i]')) return false;
+        return true;
       });
       if (audioEls.length === 0) return false;
       const lastAudio = audioEls[audioEls.length - 1];
@@ -1537,7 +1539,7 @@
         bubble.style.setProperty('box-shadow', '0 0 0 1.5px rgba(56, 189, 248, 0.45), 0 6px 20px rgba(14, 165, 233, 0.14)', 'important');
         bubble.style.setProperty('transition', 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 'important');
 
-        await sleep(600);
+        await sleep(200);
 
         if (origBorderRadius) bubble.style.borderRadius = origBorderRadius;
         else bubble.style.removeProperty('border-radius');
@@ -1776,7 +1778,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.2)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3123,7 +3125,10 @@
               boundaryResult = DOM.parseInboundBoundary();
             } catch (boundaryErr) {
               this.hud.log('WARN', `استثناء أثناء فحص حدود الرسائل: ${boundaryErr?.message || boundaryErr}. استعادة كغير مقروء لمراجعة خدمة العملاء...`);
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
+              }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
               const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
               return { skipLoop: true, cooldown };
             }
@@ -3151,7 +3156,10 @@
             const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia();
             if (isTrailingVoice) {
               this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون 10 دقائق...');
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
+              }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
               const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
               return { skipLoop: true, cooldown };
             }
@@ -3183,7 +3191,10 @@
 
             if (customerBubbles.length === 0) {
               this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
+              }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
 
               const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
               return { skipLoop: true, cooldown };
@@ -3197,7 +3208,10 @@
 
             if (!latestText) {
               this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
+              }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
 
               const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
               return { skipLoop: true, cooldown };
@@ -3264,7 +3278,10 @@
             } else {
               // Branch B: No Match / Media Message / Skip
               this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
+              }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
             }
 
             return { skipLoop: false };
@@ -3353,7 +3370,10 @@
       }
     },
 
-    async executeBranchB(contactKey, rowFingerprint, targetRow) {
+    async executeBranchB(contactKey, rowFingerprint, targetRow, watchdogExtender = null) {
+      if (typeof watchdogExtender === 'function') {
+        watchdogExtender(8500);
+      }
       if (contactKey) {
         state.processedContacts.add(contactKey);
         state.chatCooldowns.set(contactKey, Date.now() + (10 * 60 * 1000)); // 10 minutes cooldown
@@ -3447,5 +3467,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.1] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.2] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

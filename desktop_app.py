@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.3.1)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.3.2)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -356,7 +356,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.1)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.2)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,

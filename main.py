@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.1 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.2 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -250,7 +250,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.1 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.2 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -280,16 +280,6 @@ async def setup_page_bridges(
 
     async def py_log_handler(tag, message):
         format_log(tag, message, prefix=prefix)
-        if event_queue is not None:
-            try:
-                await event_queue.put({
-                    "type": "LOG",
-                    "data": {"tag": tag, "message": message},
-                    "profile_name": tenant_name,
-                    "timestamp": time.time()
-                })
-            except Exception:
-                pass
 
     async def py_update_stats_handler(stats):
         eval_c = stats.get("evaluated", 0)
@@ -385,34 +375,38 @@ async def inject_hud_and_rules(
 ):
     """Inject the HUD and rules into an active page."""
     try:
-        await page.evaluate("""() => {
-            if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
-            const root = document.getElementById("mbs-inbox-automator-root");
-            if (root) root.remove();
-            delete window.__MBS_AUTOMATOR_V631_LOADED__;
-            delete window.__MBS_AUTOMATOR_V630_LOADED__;
-            delete window.__MBS_AUTOMATOR_V622_LOADED__;
-            delete window.__MBS_AUTOMATOR_V621_LOADED__;
-            delete window.__MBS_AUTOMATOR_V620_LOADED__;
-            delete window.__MBS_AUTOMATOR_V610_LOADED__;
-            delete window.__MBS_AUTOMATOR_V600_LOADED__;
-            delete window.__MBS_AUTOMATOR_V560_LOADED__;
-            delete window.__MBS_AUTOMATOR_V550_LOADED__;
-            delete window.__MBS_AUTOMATOR_V540_LOADED__;
-            delete window.__MBS_AUTOMATOR_V530_LOADED__;
-            delete window.__MBS_AUTOMATOR_V520_LOADED__;
-            delete window.__MBS_AUTOMATOR_V510_LOADED__;
-            delete window.__MBS_AUTOMATOR_V500_LOADED__;
-            delete window.__MBS_AUTOMATOR_V496_LOADED__;
-            delete window.__MBS_AUTOMATOR_V495_LOADED__;
-            delete window.__MBS_AUTOMATOR_V494_LOADED__;
-            delete window.__MBS_AUTOMATOR_V493_LOADED__;
-            delete window.__MBS_AUTOMATOR_V492_LOADED__;
-            delete window.__MBS_AUTOMATOR_V491_LOADED__;
-            delete window.__MBS_AUTOMATOR_V490_LOADED__;
-            delete window.__MBS_AUTOMATOR_V480_LOADED__;
+        # Check if already loaded via add_init_script or prior injection
+        is_already_loaded = await page.evaluate("""() => {
+            return Boolean(
+                window.__MBS_AUTOMATOR_V632_LOADED__ ||
+                window.__MBS_AUTOMATOR_ORCHESTRATOR__ ||
+                window.__MBS_AUTOMATOR_HUD__
+            );
         }""")
 
+        if is_already_loaded:
+            # Script already mounted: refresh rules & config via in-page command without re-evaluating the full 146KB script
+            await page.evaluate("""
+                ({ rules, config, isHeadless }) => {
+                    window.__INITIAL_RULES__ = rules;
+                    window.__INITIAL_CONFIG__ = config;
+                    if (isHeadless) {
+                        window.__MBS_HEADLESS_MODE__ = true;
+                    }
+                    if (typeof window.__MBS_EXEC_COMMAND__ === 'function') {
+                        window.__MBS_EXEC_COMMAND__('RELOAD_RULES', rules);
+                        window.__MBS_EXEC_COMMAND__('UPDATE_CONFIG', config);
+                    }
+                }
+            """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent})
+
+            if headless_agent:
+                format_log("INIT", "✨ تم مزامنة قواعد محرك الأتمتة بنمط الوكيل الرأسي (Headless Agent Mode) بنجاح!", prefix=prefix)
+            else:
+                format_log("INIT", "✨ تم تحديث ومزامنة القواعد في المتصفح بنجاح!", prefix=prefix)
+            return
+
+        # Fresh injection: set initial configuration and evaluate script
         await page.evaluate("""
             ({ rules, config, isHeadless }) => {
                 window.__INITIAL_RULES__ = rules;
@@ -882,7 +876,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.1)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.2)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
