@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.5)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.6)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.5
+// @version      6.3.6
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.5)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.6)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V635_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V636_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V635_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V636_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -402,7 +402,7 @@
           if (normMsg && normKw) {
             const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
             if (baseKw) {
-              const boundaryRegex = new RegExp('(^|[\\s\\p{P}])(?:ال)?' + escapeRegExp(baseKw) + '($|[\\s\\p{P}])', 'u');
+              const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
               if (boundaryRegex.test(normMsg)) {
                 return { rule, matchedKeyword: kw };
               }
@@ -410,7 +410,7 @@
           }
 
           // 3. Raw boundary check (essential for emoji / flag sequences)
-          const rawBoundaryRegex = new RegExp('(^|[\\s\\p{P}])' + escapeRegExp(cleanKw) + '($|[\\s\\p{P}])', 'u');
+          const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
           if (rawBoundaryRegex.test(text)) {
             return { rule, matchedKeyword: kw };
           }
@@ -501,10 +501,150 @@
   // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
-    clearStaleComposerDraft(logger = null) {
+    sendEscape() {
       try {
-        const composer = this.getComposer();
-        if (!composer) return;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
+        }
+      } catch (_) {}
+    },
+
+    getActiveThreadKey() {
+      try {
+        if (typeof window !== 'undefined' && window.location) {
+          const url = new URL(window.location.href);
+          const selId = url.searchParams.get('selected_item_id');
+          if (selId) return `id_${selId}`;
+          const matchPath = url.pathname.match(/\/inbox\/(?:all\/)?([0-9]+)/);
+          if (matchPath) return `id_${matchPath[1]}`;
+        }
+      } catch (_) {}
+
+      try {
+        const selectedRow = document.querySelector('[aria-selected="true"], [data-thread-id][aria-selected="true"], [data-selected="true"]');
+        if (selectedRow) {
+          const threadId = selectedRow.getAttribute('data-thread-id');
+          if (threadId) return `thread_${threadId}`;
+          const key = this.getStableRowKey(selectedRow);
+          if (key) return key;
+        }
+      } catch (_) {}
+
+      try {
+        const headerName = this.getActiveChatContactName();
+        if (headerName) return `contact_${normalizeArabicText(this.sanitizeName(headerName))}`;
+      } catch (_) {}
+
+      return null;
+    },
+
+    resolveComposer() {
+      const isSearchOrTop = (el) => {
+        if (!el) return true;
+        if (el.matches && (el.matches('#inbox-search-input, [role="searchbox"], [role="search"], input[type="search"]') || el.closest('#inbox-search-input, [role="searchbox"], [role="search"]'))) {
+          return true;
+        }
+        const r = el.getBoundingClientRect();
+        if (r.top < window.innerHeight * 0.45) {
+          return true;
+        }
+        return false;
+      };
+
+      const selectors = [
+        'div[role="textbox"][contenteditable="true"]',
+        'div[contenteditable="true"][data-lexical-editor="true"]',
+        'div[contenteditable="true"][aria-label*="رسالة" i]',
+        'div[contenteditable="true"][aria-label*="message" i]',
+        'div[role="textbox"]',
+        'div[contenteditable="true"]',
+        'textarea'
+      ];
+
+      for (const sel of selectors) {
+        const elements = Array.from(document.querySelectorAll(sel));
+        for (const el of elements) {
+          if (el.offsetParent === null || el.closest('#mbs-inbox-automator-root')) continue;
+          if (isSearchOrTop(el)) continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 180 && rect.height > 15) {
+            return el;
+          }
+        }
+      }
+      return null;
+    },
+
+    acquireComposerLease() {
+      const threadKey = this.getActiveThreadKey();
+      const composer = this.resolveComposer();
+      if (!composer || !composer.isConnected) {
+        throw new FocusIntegrityError('COMPOSER_NOT_RESOLVED');
+      }
+      return {
+        threadKey,
+        composer,
+        timestamp: Date.now()
+      };
+    },
+
+    assertComposerLease(lease) {
+      if (!lease || !lease.composer) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      if (!lease.composer.isConnected) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      const currentThread = this.getActiveThreadKey();
+      if (lease.threadKey && currentThread && lease.threadKey !== currentThread) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      const currentComposer = this.resolveComposer();
+      if (!currentComposer || currentComposer !== lease.composer) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      if (document.activeElement && (
+        document.activeElement.matches?.('#inbox-search-input, [role="searchbox"], [role="search"], input[type="search"]') ||
+        document.activeElement.closest?.('#inbox-search-input, [role="searchbox"], [role="search"]')
+      )) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      return true;
+    },
+
+    async materializeRowActions(row) {
+      if (!row) return;
+      try {
+        const rect = row.getBoundingClientRect();
+        const clientX = rect.left + Math.max(10, Math.min(50, rect.width * 0.2));
+        const clientY = rect.top + (rect.height / 2);
+        const eventOpts = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX,
+          clientY
+        };
+        row.dispatchEvent(new PointerEvent('pointerover', eventOpts));
+        row.dispatchEvent(new MouseEvent('mouseover', eventOpts));
+        row.dispatchEvent(new MouseEvent('mousemove', eventOpts));
+
+        await new Promise(r => {
+          if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.requestAnimationFrame(r));
+          } else {
+            setTimeout(r, 32);
+          }
+        });
+      } catch (_) {}
+    },
+
+    clearStaleComposerDraft(logger = null, composerTarget = null) {
+      try {
+        const composer = composerTarget || this.resolveComposer();
+        if (!composer) return { ok: true, humanDraft: false };
         const content = (composer.innerText || composer.textContent || '').trim();
         const isPlaceholder = content.includes('رد في Messenger') ||
                               content.includes('رد في Instagram') ||
@@ -512,7 +652,19 @@
                               content.includes('اكتب رسالة') ||
                               content.includes('Type a message');
         if (!isPlaceholder && content.length > 0) {
-          if (logger) logger.log('WARN', 'رصد مسودة قديمة غير مرسلة في محرر الرد. تفريغ النص الاحتياطي لمنع الإرسال الخطأ...');
+          const ownership = botDraftOwnership.get(composer);
+          const currentThreadKey = this.getActiveThreadKey();
+          const isBotOwned = ownership &&
+            ownership.text &&
+            (content === ownership.text || content.includes(ownership.text) || ownership.text.includes(content)) &&
+            (!ownership.threadKey || !currentThreadKey || ownership.threadKey === currentThreadKey);
+
+          if (!isBotOwned) {
+            if (logger) logger.log('WARN', '[DRAFT SAFETY] رصد نص في محرر الرد كتبه موظف بشري (غير تابع للبوت). الحفاظ على المسودة وتخطي الرد الآلي.');
+            return { ok: false, humanDraft: true };
+          }
+
+          if (logger) logger.log('WARN', 'رصد مسودة قديمة غير مرسلة للبوت في محرر الرد. تفريغ النص الاحتياطي لمنع الإرسال الخطأ...');
           composer.focus();
           const sel = window.getSelection();
           const range = document.createRange();
@@ -526,7 +678,10 @@
           }
           this.deselectActiveChat();
         }
-      } catch (_) {}
+        return { ok: true, humanDraft: false };
+      } catch (_) {
+        return { ok: true, humanDraft: false };
+      }
     },
 
     deselectActiveChat() {
@@ -1050,26 +1205,7 @@
     },
 
     getComposer() {
-      const selectors = [
-        'div[role="textbox"][contenteditable="true"]',
-        'div[contenteditable="true"][data-lexical-editor="true"]',
-        'div[contenteditable="true"][aria-label*="رسالة" i]',
-        'div[contenteditable="true"][aria-label*="message" i]',
-        'div[role="textbox"]',
-        'div[contenteditable="true"]',
-        'textarea'
-      ];
-
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null && !el.closest('#mbs-inbox-automator-root')) {
-          const rect = el.getBoundingClientRect();
-          if (rect.bottom >= window.innerHeight - 250 && rect.width > 180) {
-            return el;
-          }
-        }
-      }
-      return null;
+      return this.resolveComposer();
     },
 
     getSendButton() {
@@ -1124,7 +1260,7 @@
       return true;
     },
 
-    async executeRestoreToUnread(logger, targetRow, contactKey) {
+    async executeRestoreToUnread(logger, targetRow, contactKey, budget = null) {
       const neutralizeFocus = () => {
         releaseChatFocus();
         try {
@@ -1138,6 +1274,7 @@
       // PRIMARY STRATEGY: Row-Level Action in left conversation list
       // -------------------------------------------------------------------------
       if (targetRow) {
+        await this.materializeRowActions(targetRow);
         const rowUnreadBtn = targetRow.querySelector(
           'button[aria-label*="غير مقروء" i], button[aria-label*="unread" i], ' +
           'div[role="button"][aria-label*="غير مقروء" i], div[role="button"][aria-label*="unread" i], ' +
@@ -1152,7 +1289,7 @@
             dispatchFullClick(rowUnreadBtn);
             neutralizeFocus();
             const verified = await pollVerification(1500);
-            if (verified) return true;
+            if (verified) return { ok: true, alreadyUnread: false };
           } catch (_) {}
         }
       }
@@ -1282,57 +1419,59 @@
 
         let result = false;
         try {
+          if (budget && typeof budget.touch === 'function') budget.touch(3000);
           await HumanSimulator.flashEnvelopeButton(dropdownBtn);
           neutralizeFocus();
           dispatchFullClick(dropdownBtn);
+          if (budget && typeof budget.touch === 'function') budget.touch(3000);
           await sleep(500);
 
-          // Strictly target [role="menuitem"] inside [role="menu"] or floating popovers
           const menuItems = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menuitem"], div[role="menu"] div[role="button"]')).filter(el => !el.closest('#mbs-inbox-automator-root'));
 
-          // 1. Detect "Already Unread" State:
-          // If menu contains "تمييز كمقروءة" (Mark as READ) and does NOT contain "غير مقروء" (Mark as UNREAD)
-          const hasMarkAsRead = menuItems.some(el => {
-            const allTxt = `${el.innerText || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
-            return (allTxt.includes('كمقروءة') || allTxt.includes('كمقروء') || allTxt.includes('mark as read')) &&
-                   !allTxt.includes('غير') && !allTxt.includes('unread');
-          });
+          const currentMenuState = () => {
+            const hasMarkAsRead = menuItems.some(el => {
+              const allTxt = `${el.innerText || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+              return (allTxt.includes('كمقروءة') || allTxt.includes('كمقروء') || allTxt.includes('mark as read')) &&
+                     !allTxt.includes('غير') && !allTxt.includes('unread');
+            });
+            const unreadItem = menuItems.find(el => {
+              const allTxt = `${el.innerText || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+              const r = el.getBoundingClientRect();
+              return (allTxt.includes('غير مقروء') || allTxt.includes('unread')) &&
+                     !allTxt.includes('نقل') && !allTxt.includes('المجلد') && !allTxt.includes('حذف') &&
+                     r.height > 15 && r.height < 70 && r.width > 0;
+            });
+            if (hasMarkAsRead && !unreadItem) return 'ALREADY_UNREAD';
+            if (unreadItem) return { action: 'MARK_UNREAD', item: unreadItem };
+            return 'UNAVAILABLE';
+          };
 
-          const unreadMenuItem = menuItems.find(el => {
-            const txt = (el.innerText || '').trim();
-            const aria = (el.getAttribute('aria-label') || '').trim();
-            const allTxt = `${txt} ${aria}`.toLowerCase();
-            const r = el.getBoundingClientRect();
-            return (allTxt.includes('غير مقروء') || allTxt.includes('unread')) &&
-                   !allTxt.includes('نقل') && !allTxt.includes('المجلد') && !allTxt.includes('حذف') &&
-                   r.height > 15 && r.height < 70 && r.width > 0;
-          });
-
-          if (hasMarkAsRead && !unreadMenuItem) {
+          const stateResult = currentMenuState();
+          if (stateResult === 'ALREADY_UNREAD') {
             isAlreadyUnreadDetected = true;
             if (logger) logger.log('UNREAD', '[UNREAD] المحادثة غير مقروءة بالفعل في نظام Meta. تجاوز بأمان.');
-            result = true;
-            return true;
+            result = { ok: true, alreadyUnread: true };
+            return result;
           }
 
-          if (unreadMenuItem) {
+          if (typeof stateResult === 'object' && stateResult.action === 'MARK_UNREAD') {
             neutralizeFocus();
-            dispatchFullClick(unreadMenuItem);
+            dispatchFullClick(stateResult.item);
             neutralizeFocus();
+            if (budget && typeof budget.touch === 'function') budget.touch(3000);
             await sleep(350);
-            result = true;
-            return true;
+            result = { ok: true, alreadyUnread: false };
+            return result;
           } else if (menuItems.length > 0) {
-            // 2. Safe Graceful Fallback (e.g. WhatsApp channel without unread action)
             isUnreadOptionUnavailable = true;
             if (logger) logger.log('UNREAD', '[UNREAD] تعذر العثور على خيار غير مقروء في هذه القناة (واتساب). إنهاء التعديل بأمان.');
-            result = true;
-            return true;
+            result = { ok: true, alreadyUnread: true };
+            return result;
           }
         } finally {
-          // Guaranteed Menu Dismissal: Always dispatch Escape so no popup or backdrop remains blocking the viewport
           try {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            DOM.sendEscape();
+            DOM.sendEscape();
             neutralizeFocus();
           } catch (_) {}
         }
@@ -1353,6 +1492,7 @@
         if (!targetRow) return true;
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
+          if (budget && typeof budget.touch === 'function') budget.touch(2000);
           if (checkVerifiedUnread()) return true;
           await sleep(100);
         }
@@ -1714,7 +1854,8 @@
 
     async typeIntoComposer(composer, text, logger) {
       if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-      if (!composer || !composer.isConnected) throw new Error('Composer element not found or disconnected');
+      const lease = DOM.acquireComposerLease();
+      DOM.assertComposerLease(lease);
 
       // Assert that activeElement is not an input or search field
       if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
@@ -1722,9 +1863,13 @@
       }
 
       composer.focus();
+      DOM.assertComposerLease(lease);
       await sleep(randomRange(70, 120));
+      DOM.assertComposerLease(lease);
+
       if (document.activeElement !== composer && composer.isConnected) {
         composer.focus();
+        DOM.assertComposerLease(lease);
       }
 
       const selection = window.getSelection();
@@ -1737,13 +1882,15 @@
       } catch (_) {
         range.deleteContents();
       }
+      DOM.assertComposerLease(lease);
       await sleep(randomRange(50, 90));
+      DOM.assertComposerLease(lease);
 
       logger.log('TYPING', `محاكاة كتابة الرد (${text.length} حرف، تذبذب ${state.config.minTypingSpeed}-${state.config.maxTypingSpeed}ms)...`);
 
       for (let i = 0; i < text.length; i++) {
         if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-        if (!composer || !composer.isConnected) throw new Error('Composer disconnected during typing');
+        DOM.assertComposerLease(lease);
 
         // Re-assert composer focus if focus drifted to an input or outside composer
         if (document.activeElement !== composer) {
@@ -1751,11 +1898,12 @@
             try { document.activeElement.blur(); } catch (_) {}
           }
           composer.focus();
+          DOM.assertComposerLease(lease);
         }
 
         // Hard guard: NEVER type if activeElement is an input
         if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
-          throw new Error('FOCUS_HIJACK_PREVENTED: activeElement is an input field');
+          throw new FocusIntegrityError('FOCUS_HIJACK_PREVENTED: activeElement is an input field');
         }
 
         const char = text[i];
@@ -1788,11 +1936,13 @@
           data: char
         }));
 
+        DOM.assertComposerLease(lease);
         let delay = randomRange(state.config.minTypingSpeed, state.config.maxTypingSpeed);
         if ([' ', '،', '.', '!', '؟'].includes(char)) {
           delay += randomRange(40, 80);
         }
         await sleep(delay);
+        DOM.assertComposerLease(lease);
       }
 
       if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
@@ -1934,7 +2084,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.5)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.6)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3300,17 +3450,44 @@
           state.activeRowElement = targetRow;
         }
 
+        class OperationBudget {
+          constructor(baseIdleMs = 4000, hardMaxMs = 20000, onTimeout = null) {
+            this.baseIdleMs = baseIdleMs;
+            this.hardMaxMs = hardMaxMs;
+            this.startTime = Date.now();
+            this.timer = null;
+            this.onTimeout = onTimeout;
+            this.touch();
+          }
+
+          touch(additionalIdleMs = null) {
+            if (this.timer) clearTimeout(this.timer);
+            const elapsed = Date.now() - this.startTime;
+            const remainingHardCap = this.hardMaxMs - elapsed;
+            if (remainingHardCap <= 0) {
+              if (this.onTimeout) this.onTimeout(new Error('OPERATION_BUDGET_HARD_MAX_EXCEEDED'));
+              return;
+            }
+            const idleTime = additionalIdleMs || this.baseIdleMs;
+            const delay = Math.min(idleTime, remainingHardCap);
+            this.timer = setTimeout(() => {
+              if (this.onTimeout) this.onTimeout(new Error('ROW_TIMEOUT_EXCEEDED'));
+            }, delay);
+          }
+
+          dispose() {
+            if (this.timer) clearTimeout(this.timer);
+          }
+        }
+
         let rowTimeoutId = null;
         let extendWatchdog = null;
+        let operationBudget = null;
         try {
           const timeoutPromise = new Promise((_, reject) => {
-            const setTimer = (ms) => {
-              if (rowTimeoutId) clearTimeout(rowTimeoutId);
-              rowTimeoutId = setTimeout(() => reject(new Error('ROW_TIMEOUT_EXCEEDED')), ms);
-            };
-            setTimer(4000);
+            operationBudget = new OperationBudget(4000, 20000, (err) => reject(err));
             extendWatchdog = (additionalMs) => {
-              setTimer(additionalMs);
+              if (operationBudget) operationBudget.touch(additionalMs);
             };
           });
 
@@ -3487,12 +3664,29 @@
                     extendWatchdog(neededMs);
                   }
 
+                  // Check stale composer draft before typing (protecting human drafts)
+                  const draftCheck = DOM.clearStaleComposerDraft(this.hud, composer);
+                  if (draftCheck && draftCheck.humanDraft) {
+                    this.hud.log('WARN', '[DRAFT SAFETY] تم حفظ مسودة الموظف البشري. تخطي الرد الآلي وتحويل المحادثة للمراجعة.');
+                    await this.executeBranchB(contactKey, rowFingerprint, targetRow, operationBudget || extendWatchdog);
+                    return { skipLoop: false };
+                  }
+
                   for (let idx = 0; idx < replies.length; idx++) {
                     if (state.emergencyAbort || !state.isRunning) break;
                     const snippetText = replies[idx].length > 25 ? `${replies[idx].substring(0, 25)}...` : replies[idx];
                     this.hud.log('TYPING', `إرسال الفقاعة (${idx + 1}/${replies.length}): "${snippetText}"`);
+                    botDraftOwnership.set(composer, { threadKey: DOM.getActiveThreadKey(), text: replies[idx], timestamp: Date.now() });
                     composer.focus();
-                    await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
+                    try {
+                      await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
+                    } catch (typeErr) {
+                      if (typeErr instanceof FocusIntegrityError || (typeErr && typeErr.name === 'FocusIntegrityError')) {
+                        this.hud.log('ERROR', `[FOCUS INTEGRITY] إحباط الكتابة لمنع انحراف التركيز: ${typeErr.message}`);
+                        throw typeErr;
+                      }
+                      throw typeErr;
+                    }
                     if (idx < replies.length - 1) {
                       await DOM.waitForComposerClear(composer, 1800);
                       await sleep(randomRange(900, 1500));
@@ -3642,7 +3836,7 @@
       }
 
       await sleep(randomRange(150, 250));
-      const restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey);
+      const restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey, watchdogExtender);
       try {
         DOM.deselectActiveChat();
       } catch (_) {}
@@ -3727,5 +3921,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.5] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.6] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

@@ -213,7 +213,7 @@ def main():
         log("FAIL", "Browser Executable", "No suitable Chrome binary found in PATH")
         failures += 1
 
-    # 8. Author Metadata & Discreet Attribution Integrity (V6.3.5)
+    # 8. Author Metadata & Discreet Attribution Integrity (V6.3.6)
     author_ok = True
     for f in ["main.py", "desktop_app.py", "profile_manager.py"]:
         content = (root / f).read_text(encoding="utf-8", errors="ignore")
