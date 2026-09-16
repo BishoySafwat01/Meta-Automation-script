@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.4)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.5)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.4
+// @version      6.3.5
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.4)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.5)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V634_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V635_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V634_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V635_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -501,6 +501,34 @@
   // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
+    clearStaleComposerDraft(logger = null) {
+      try {
+        const composer = this.getComposer();
+        if (!composer) return;
+        const content = (composer.innerText || composer.textContent || '').trim();
+        const isPlaceholder = content.includes('رد في Messenger') ||
+                              content.includes('رد في Instagram') ||
+                              content.includes('Reply in') ||
+                              content.includes('اكتب رسالة') ||
+                              content.includes('Type a message');
+        if (!isPlaceholder && content.length > 0) {
+          if (logger) logger.log('WARN', 'رصد مسودة قديمة غير مرسلة في محرر الرد. تفريغ النص الاحتياطي لمنع الإرسال الخطأ...');
+          composer.focus();
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(composer);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          try {
+            document.execCommand('delete', false, null);
+          } catch (_) {
+            range.deleteContents();
+          }
+          this.deselectActiveChat();
+        }
+      } catch (_) {}
+    },
+
     deselectActiveChat() {
       try {
         // 1. Send Escape keys to dismiss drawers/menus
@@ -1106,6 +1134,29 @@
         } catch (_) {}
       };
 
+      // -------------------------------------------------------------------------
+      // PRIMARY STRATEGY: Row-Level Action in left conversation list
+      // -------------------------------------------------------------------------
+      if (targetRow) {
+        const rowUnreadBtn = targetRow.querySelector(
+          'button[aria-label*="غير مقروء" i], button[aria-label*="unread" i], ' +
+          'div[role="button"][aria-label*="غير مقروء" i], div[role="button"][aria-label*="unread" i], ' +
+          '[data-testid*="mark_as_unread" i], [data-testid*="unread" i], ' +
+          '[aria-label*="علامة كغير" i]'
+        );
+        if (rowUnreadBtn) {
+          if (logger) logger.log('UNREAD', '[UNREAD] تم رصد زر غير مقروء مباشرة في صف المحادثة. النقر المباشر...');
+          try {
+            await HumanSimulator.flashEnvelopeButton(rowUnreadBtn);
+            neutralizeFocus();
+            dispatchFullClick(rowUnreadBtn);
+            neutralizeFocus();
+            const verified = await pollVerification(1500);
+            if (verified) return true;
+          } catch (_) {}
+        }
+      }
+
       // Container-Relative & Dynamic Coordinate Scope:
       // Dynamically scope toolbar horizontally using composer bounds (with safe fallback)
       const composer = this.getComposer();
@@ -1195,17 +1246,39 @@
       let isUnreadOptionUnavailable = false;
 
       const tryClickDropdown = async () => {
-        if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
         const allHeaderButtons = getHeaderButtons();
+
+        // -----------------------------------------------------------------------
+        // SECONDARY STRATEGY: Direct Action Bar Detection
+        // If direct action buttons (Done, Star, Delete) exist WITHOUT a three-dot menu,
+        // do not search for dropdown menu - rely on direct button or row-level action.
+        // -----------------------------------------------------------------------
+        const hasDirectActionBar = allHeaderButtons.some(b => {
+          const txt = (b.innerText || '').trim();
+          const aria = (b.getAttribute('aria-label') || '').trim();
+          const title = (b.getAttribute('title') || '').trim();
+          return /^(تم|نقل إلى تم|Done|Mark as done|تمييز بنجمة|Star|حذف|Delete)$/i.test(txt) ||
+                 /^(تم|نقل إلى تم|Done|Mark as done|تمييز بنجمة|Star|حذف|Delete)$/i.test(aria) ||
+                 /^(تم|نقل إلى تم|Done|Mark as done|تمييز بنجمة|Star|حذف|Delete)$/i.test(title);
+        });
+
         const dropdownBtn = allHeaderButtons.find(b => {
           const t = (b.innerText || '').trim();
           const aria = (b.getAttribute('aria-label') || '').trim();
           const title = (b.getAttribute('title') || '').trim();
           return t.includes('فتح القائمة المنسدلة') || aria.includes('المزيد') || aria.includes('More') ||
-                 title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة');
+                 title.includes('المزيد') || title.includes('More') || aria.includes('القائمة المنسدلة') ||
+                 aria.includes('خيارات') || title.includes('خيارات');
         });
 
-        if (!dropdownBtn) return false;
+        if (!dropdownBtn) {
+          if (hasDirectActionBar && logger) {
+            logger.log('INFO', '[DIRECT-BAR] رصد شريط الإجراءات المباشر بدون قائمة منسدلة (...). الاعتماد على الإجراء المباشر.');
+          }
+          return false;
+        }
+
+        if (logger) logger.log('SCAN', 'فحص القائمة المنسدلة العلوية للتمييز كغير مقروءة...');
 
         let result = false;
         try {
@@ -1861,7 +1934,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.4)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.5)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3194,6 +3267,9 @@
         const contactName = DOM.getRowCustomerName(targetRow);
         let contactKey = targetContactKey || DOM.getStableRowKey(targetRow) || (contactName ? `contact_${normalizeArabicText(contactName)}` : `row_${Date.now()}`);
         let rowFingerprint = targetFingerprint || `${contactKey}__${DOM.getRowSnippet(targetRow)}`;
+        try {
+          DOM.clearStaleComposerDraft();
+        } catch (_) {}
 
         state.stats.evaluated++;
         this.hud.updateStats();
@@ -3544,6 +3620,9 @@
       if (typeof watchdogExtender === 'function') {
         watchdogExtender(8500);
       }
+      try {
+        DOM.clearStaleComposerDraft(this.hud);
+      } catch (_) {}
       if (contactKey) {
         state.processedContacts.add(contactKey);
         state.chatCooldowns.set(contactKey, Date.now() + (2 * 60 * 1000)); // 2 minutes cooldown (120s)
@@ -3648,5 +3727,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.4] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.5] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
