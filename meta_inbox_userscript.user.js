@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.2)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.3)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.2
+// @version      6.3.3
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.2)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.3)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V632_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V633_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V632_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V633_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -167,11 +167,13 @@
   const state = {
     isRunning: false,
     emergencyAbort: false,
+    lastHeartbeat: Date.now(),
     currentIndex: 0,
     currentTenantId: getActiveTenantId(),
     rules: loadRules(),
     config: loadConfig(),
     chatCooldowns: new Map(), // contactKey -> expiryTimestamp
+    lastSeenSnippets: new Map(), // contactKey -> latestSnippet
     processedContacts: new Set(),
     lastRepliedSnippets: new Map(),
     processedSnapshots: new Set(),
@@ -294,6 +296,7 @@
       state.processedSnapshots.clear();
       state.lastRepliedSnippets.clear();
       if (state.chatCooldowns) state.chatCooldowns.clear();
+      if (state.lastSeenSnippets) state.lastSeenSnippets.clear();
       if (state.skippedRows) state.skippedRows.clear();
 
       // Reset statistics counters for the new page context
@@ -386,11 +389,23 @@
             return { rule, matchedKeyword: kw };
           }
 
-          // 2. Unicode word boundary check
+          // Direct equality with optional definite article "ال"
           if (normMsg && normKw) {
-            const boundaryRegex = new RegExp('(^|[\\s\\p{P}])' + escapeRegExp(normKw) + '($|[\\s\\p{P}])', 'u');
-            if (boundaryRegex.test(normMsg)) {
+            const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
+            const baseMsg = (normMsg.startsWith('ال') && normMsg.length > 2) ? normMsg.slice(2) : normMsg;
+            if (baseKw && baseMsg && baseMsg === baseKw) {
               return { rule, matchedKeyword: kw };
+            }
+          }
+
+          // 2. Unicode word boundary check (with dynamic optional definite article "ال")
+          if (normMsg && normKw) {
+            const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
+            if (baseKw) {
+              const boundaryRegex = new RegExp('(^|[\\s\\p{P}])(?:ال)?' + escapeRegExp(baseKw) + '($|[\\s\\p{P}])', 'u');
+              if (boundaryRegex.test(normMsg)) {
+                return { rule, matchedKeyword: kw };
+              }
             }
           }
 
@@ -486,6 +501,31 @@
   // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
+    deselectActiveChat() {
+      try {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+
+        releaseChatFocus();
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
+        }
+
+        const neutralTarget = document.querySelector(
+          'input[placeholder*="بحث" i], input[placeholder*="Search" i], #inbox-search-input, [data-testid*="search"], header, div[role="banner"]'
+        );
+        if (neutralTarget) {
+          try {
+            neutralTarget.focus({ preventScroll: true });
+            neutralTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            if (typeof neutralTarget.blur === 'function') {
+              neutralTarget.blur();
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    },
+
     sanitizeName(str) {
       if (!str) return '';
       return str
@@ -1778,7 +1818,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.2)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.3)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -2809,6 +2849,47 @@
       this.hud = hud;
     },
 
+    _heartbeatInterval: null,
+    _isRestarting: false,
+    _isLoopActive: false,
+
+    startHeartbeatWatchdog() {
+      this.stopHeartbeatWatchdog();
+      state.lastHeartbeat = Date.now();
+      this._heartbeatInterval = setInterval(async () => {
+        if (!state.isRunning || state.emergencyAbort) return;
+
+        const now = Date.now();
+        if (state.lastHeartbeat && (now - state.lastHeartbeat > 30000) && !this._isRestarting) {
+          this._isRestarting = true;
+          console.warn('[SUPERVISOR] تجمد حلقة الأتمتة لأكثر من 30 ثانية دون نبضات قلب. استرجاع ذاتي فوري...');
+          if (this.hud) {
+            this.hud.log('WARN', '[SUPERVISOR] رصد تجمد في حلقة الأتمتة (>30s). جارٍ الاسترجاع الذاتي وإيقاظ المهام المعلقة...');
+          }
+          try {
+            DOM.deselectActiveChat();
+            abortAllSleeps();
+          } catch (_) {}
+          setTimeout(() => {
+            state.lastHeartbeat = Date.now();
+            this._isRestarting = false;
+            if (state.isRunning && !state.emergencyAbort && !this._isLoopActive) {
+              this._isLoopActive = true;
+              this.runLoop().catch(e => console.error('[SUPERVISOR] re-run error:', e)).finally(() => { this._isLoopActive = false; });
+            }
+          }, 1500);
+        }
+      }, 10000);
+    },
+
+    stopHeartbeatWatchdog() {
+      if (this._heartbeatInterval) {
+        clearInterval(this._heartbeatInterval);
+        this._heartbeatInterval = null;
+      }
+      this._isRestarting = false;
+    },
+
     async start() {
       if (state.isRunning) return;
 
@@ -2817,6 +2898,8 @@
       state.isRunning = true;
       state.emergencyAbort = false;
       state.currentIndex = 0;
+      state.lastHeartbeat = Date.now();
+      this.startHeartbeatWatchdog();
       this.hud.setStatus('RUNNING', 'running');
       await DOM.ensureUnreadFilterActive(this.hud);
       this.hud.log('INIT', 'بدء فحص قائمة المحادثات (تثبيت فلتر غير مقروء التلقائي)...');
@@ -2824,7 +2907,7 @@
       try {
         await this.runLoop();
       } catch (err) {
-        if (err.message === 'ABORT_SIGNAL') {
+        if (err.message === 'ABORT_SIGNAL' || state.emergencyAbort) {
           this.hud.log('STOP', 'تم إيقاف الدورة فوراً بناءً على إشارة التوقف.');
         } else {
           state.stats.errors++;
@@ -2917,6 +3000,7 @@
     },
 
     stop() {
+      this.stopHeartbeatWatchdog();
       const wasRunning = state.isRunning;
       state.isRunning = false;
       state.emergencyAbort = true;
@@ -2933,7 +3017,11 @@
     },
 
     async runLoop() {
-      while (state.isRunning && !state.emergencyAbort) {
+      this._isLoopActive = true;
+      try {
+        while (state.isRunning && !state.emergencyAbort) {
+          try {
+            state.lastHeartbeat = Date.now();
         // STEP -1: Multi-Tenant Rehydration Check
         checkAndRehydrateTenant(this.hud);
 
@@ -2967,6 +3055,15 @@
           const snippet = DOM.getRowSnippet(r);
           const key = DOM.getStableRowKey(r) || (name ? `contact_${normalizeArabicText(name)}` : null);
           const fingerprint = key ? `${key}__${snippet}` : null;
+
+          // Invalidate active cooldown if snippet changed
+          if (key && snippet && state.lastSeenSnippets && state.lastSeenSnippets.has(key)) {
+            const prevSnippet = state.lastSeenSnippets.get(key);
+            if (prevSnippet && prevSnippet !== snippet) {
+              state.chatCooldowns.delete(key);
+              state.lastSeenSnippets.set(key, snippet);
+            }
+          }
 
           const isCoolingDown = key && state.chatCooldowns && state.chatCooldowns.has(key) && Date.now() < state.chatCooldowns.get(key);
           if (isCoolingDown) {
@@ -3002,6 +3099,13 @@
               const s = DOM.getRowSnippet(r);
               const k = DOM.getStableRowKey(r) || (n ? `contact_${normalizeArabicText(n)}` : null);
               const fp = k ? `${k}__${s}` : null;
+              if (k && s && state.lastSeenSnippets && state.lastSeenSnippets.has(k)) {
+                const prevS = state.lastSeenSnippets.get(k);
+                if (prevS && prevS !== s) {
+                  state.chatCooldowns.delete(k);
+                  state.lastSeenSnippets.set(k, s);
+                }
+              }
               const isCoolingDown = k && state.chatCooldowns && state.chatCooldowns.has(k) && Date.now() < state.chatCooldowns.get(k);
               if (isCoolingDown) return false;
               const isSame = k && s && state.lastRepliedSnippets.get(k) === s;
@@ -3028,6 +3132,9 @@
           await DOM.ensureUnreadFilterActive(this.hud);
 
           // 3. Transition to Standby Monitoring Mode
+          try {
+            DOM.deselectActiveChat();
+          } catch (_) {}
           this.hud.setStatus('MONITORING', 'monitoring');
           this.hud.log('INFO', `اكتمل فحص جميع المحادثات غير المقروءة. وضع المراقبة الذكية بانتظار رسائل جديدة (إعادة الفحص من أول محادثة كل ${state.config.monitoringInterval / 1000} ثوانٍ)...`);
           await sleep(state.config.monitoringInterval);
@@ -3155,7 +3262,7 @@
             // Detect Voice Note / Audio / Media at the tail of the conversation
             const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia();
             if (isTrailingVoice) {
-              this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون 10 دقائق...');
+              this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون دقيقتين...');
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -3344,7 +3451,7 @@
           // STEP 6: Guaranteed Cleanup & Focus Blur
           this.clearActiveRowHighlight(targetRow);
           try {
-            releaseChatFocus();
+            DOM.deselectActiveChat();
           } catch (_) {}
         }
 
@@ -3359,6 +3466,7 @@
 
         // Periodic LRU cache guard
         pruneLRUCache(state.lastRepliedSnippets, 350, 100);
+        pruneLRUCache(state.lastSeenSnippets, 500, 100);
         pruneLRUCache(state.processedSnapshots, 350, 100);
         pruneLRUCache(state.chatCooldowns, 500, 100);
 
@@ -3367,6 +3475,25 @@
         this.hud.log('INFO', `تهدئة بشرية: انتظار ${(cooldown / 1000).toFixed(1)} ثانية...`);
         await sleep(cooldown);
         this.hud.setStatus('RUNNING', 'running');
+          } catch (loopErr) {
+            if (state.emergencyAbort || loopErr?.message === 'ABORT_SIGNAL') {
+              break;
+            }
+            console.error('[SUPERVISOR] انقطاع غير متوقع في حلقة الأتمتة، جارٍ إعادة التشغيل الذاتي...', loopErr);
+            if (this.hud) {
+              this.hud.log('WARN', '[SUPERVISOR] رصد خطأ في حلقة الفحص. جارٍ الاسترجاع الذاتي خلال 3 ثوانٍ...');
+            }
+            try {
+              this.clearActiveRowHighlight();
+              DOM.deselectActiveChat();
+            } catch (_) {}
+            try {
+              await sleep(3000);
+            } catch (_) {}
+          }
+        }
+      } finally {
+        this._isLoopActive = false;
       }
     },
 
@@ -3376,8 +3503,16 @@
       }
       if (contactKey) {
         state.processedContacts.add(contactKey);
-        state.chatCooldowns.set(contactKey, Date.now() + (10 * 60 * 1000)); // 10 minutes cooldown
+        state.chatCooldowns.set(contactKey, Date.now() + (2 * 60 * 1000)); // 2 minutes cooldown (120s)
         pruneLRUCache(state.chatCooldowns, 500, 100);
+
+        if (targetRow) {
+          const s = DOM.getRowSnippet(targetRow);
+          if (s) {
+            state.lastSeenSnippets.set(contactKey, s);
+            pruneLRUCache(state.lastSeenSnippets, 500, 100);
+          }
+        }
       }
       if (rowFingerprint) {
         state.processedSnapshots.add(rowFingerprint);
@@ -3386,11 +3521,14 @@
 
       await sleep(randomRange(150, 250));
       const restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey);
+      try {
+        DOM.deselectActiveChat();
+      } catch (_) {}
 
       if (restored) {
         state.stats.unreadRestored++;
         this.hud.updateStats();
-        this.hud.log('UNREAD', '[UNREAD] تم تمييز المحادثة كغير مقروءة بنجاح.');
+        this.hud.log('UNREAD', '[UNREAD] تم تمييز المحادثة كغير مقروءة بنجاح (كول داون دقيقتين).');
       } else {
         this.hud.log('WARN', 'تعذر تأكيد استعادة حالة غير مقروء للمحادثة في شريط الأدوات أو القائمة المنسدلة.');
       }
@@ -3467,5 +3605,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.2] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.3] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
