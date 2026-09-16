@@ -321,6 +321,11 @@
   // ---------------------------------------------------------------------------
   // 2. ARABIC TEXT NORMALIZATION & KEYWORD MATCHING
   // ---------------------------------------------------------------------------
+  function escapeRegExp(string) {
+    if (!string || typeof string !== 'string') return '';
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   function normalizeArabicText(text) {
     if (!text || typeof text !== 'string') return '';
     return text
@@ -336,28 +341,57 @@
   }
 
   function evaluateActiveRules(text, rules) {
-    if (!text) return null;
+    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
     const normMsg = normalizeArabicText(text);
-    if (!normMsg) return null;
-
-    const words = new Set(normMsg.split(' '));
 
     for (const rule of rules) {
-      if (!rule.active || !rule.keyword || !rule.reply) continue;
+      if (!rule || !rule.active || !rule.reply) continue;
 
-      const rawKeywords = rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+      let rawKeywords = [];
+      if (Array.isArray(rule.keywords) && rule.keywords.length > 0) {
+        rawKeywords = rule.keywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      } else if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
+        rawKeywords = rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+      }
+      if (rawKeywords.length === 0) continue;
+
+      const mType = rule.matchType || 'contains';
+
       for (const kw of rawKeywords) {
-        const normKw = normalizeArabicText(kw);
-        if (!normKw) continue;
+        if (!kw) continue;
 
-        const mType = rule.matchType || 'contains';
-        if (mType === 'exact') {
-          if (normMsg === normKw) return { rule, matchedKeyword: kw };
-        } else if (mType === 'word') {
-          if (words.has(normKw)) return { rule, matchedKeyword: kw };
+        if (mType === 'regex') {
+          try {
+            const flags = rule.caseSensitive ? 'u' : 'iu';
+            const re = new RegExp(kw, flags);
+            if (re.test(text) || (normMsg && re.test(normMsg))) {
+              return { rule, matchedKeyword: kw };
+            }
+          } catch (e) {
+            // Malformed user regex pattern - gracefully fallback without crashing
+            continue;
+          }
+        } else if (mType === 'exact' || mType === 'word') {
+          const normKw = normalizeArabicText(kw);
+          if (!normKw) continue;
+
+          if (normMsg === normKw) {
+            return { rule, matchedKeyword: kw };
+          }
+          if (normMsg) {
+            const boundaryRegex = new RegExp('(^|[\\s\\p{P}])' + escapeRegExp(normKw) + '($|[\\s\\p{P}])', 'u');
+            if (boundaryRegex.test(normMsg)) {
+              return { rule, matchedKeyword: kw };
+            }
+          }
         } else {
-          // 'contains' (default)
-          if (normMsg.includes(normKw)) return { rule, matchedKeyword: kw };
+          // 'contains' (default substring match)
+          const normKw = normalizeArabicText(kw);
+          if (!normKw) continue;
+
+          if (normMsg && normMsg.includes(normKw)) {
+            return { rule, matchedKeyword: kw };
+          }
         }
       }
     }
