@@ -17,6 +17,8 @@
     trash: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
     bolt: `<svg class="sf-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
     info: `<svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+    copy: `<svg class="sf-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
+    check: `<svg class="sf-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
     save: `<svg class="sf-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`
   };
 
@@ -393,9 +395,15 @@
         </div>
 
         <div class="rule-section">
-          <div class="rule-section-header">
-            <label class="rule-section-label">الكلمات الدلالية المفتاحية:</label>
-            <span class="rule-section-hint">اضغط Enter أو فاصلة (,) لإضافة الكلمة</span>
+          <div class="rule-section-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label class="rule-section-label" style="margin-bottom: 0;">الكلمات المفتاحية:</label>
+              <span class="rule-section-hint">اضغط Enter أو فاصلة (,) لإضافة الكلمة</span>
+            </div>
+            <button type="button" class="btn-copy-keywords" data-rule-id="${rule.id || idx}" title="نسخ كافة الكلمات">
+              ${ICONS.copy}
+              <span>نسخ الكلمات</span>
+            </button>
           </div>
           <div class="chip-input-container">
             <input type="text" class="chip-text-input" placeholder="اكتب كلمة واضغط Enter..." style="border: none; background: transparent; padding: 4px 6px; box-shadow: none; min-width: 140px; flex: 1; text-align: right; outline: none; font-family: inherit; font-size: 11.5px; color: #0f172a;">
@@ -474,6 +482,74 @@
           renderChips();
         }
       });
+
+      // Smart Paste Support: automatic splitting into chips
+      chipInput.addEventListener('paste', (e) => {
+        const pasteData = (e.clipboardData || window.clipboardData)?.getData('text');
+        if (pasteData && (pasteData.includes(',') || pasteData.includes('،') || pasteData.includes('\n'))) {
+          e.preventDefault();
+          const combined = (chipInput.value + ' ' + pasteData).trim();
+          const tokens = combined.split(/[,،\n]+/).map(s => s.trim().replace(/^[,\s]+|[,\s]+$/g, '')).filter(Boolean);
+          if (tokens.length > 0) {
+            tokens.forEach(t => {
+              if (!rule.keywords.includes(t)) {
+                rule.keywords.push(t);
+              }
+            });
+            syncKeywords();
+            renderChips();
+            chipInput.value = '';
+          }
+        }
+      });
+
+      // One-Click Copy Button Handler
+      const copyBtn = card.querySelector('.btn-copy-keywords');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const kwList = Array.isArray(rule.keywords) && rule.keywords.length > 0
+            ? rule.keywords
+            : (typeof rule.keyword === 'string' ? rule.keyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean) : []);
+          const textToCopy = kwList.join(', ');
+          if (!textToCopy) return;
+
+          let copied = false;
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            try {
+              await navigator.clipboard.writeText(textToCopy);
+              copied = true;
+            } catch (_) {}
+          }
+          if (!copied) {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = textToCopy;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.focus();
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              copied = true;
+            } catch (_) {}
+          }
+
+          if (copied) {
+            const origHtml = copyBtn.innerHTML;
+            copyBtn.classList.add('copied');
+            copyBtn.innerHTML = `
+              ${ICONS.check}
+              <span>تم النسخ</span>
+            `;
+            setTimeout(() => {
+              copyBtn.classList.remove('copied');
+              copyBtn.innerHTML = origHtml;
+            }, 1500);
+          }
+        });
+      }
 
       chipInput.addEventListener('blur', () => {
         addKeywordFromInput();

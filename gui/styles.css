@@ -553,6 +553,35 @@ input:checked + .slider:before { transform: translateX(18px); }
   background: rgba(2, 132, 199, 0.25);
   color: #0c4a6e;
 }
+
+/* Copy Keywords Action Button */
+.btn-copy-keywords {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px solid rgba(186, 230, 253, 0.85);
+  border-radius: 6px;
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  font-family: inherit;
+}
+.btn-copy-keywords:hover {
+  background: rgba(2, 132, 199, 0.16);
+  color: #0284c7;
+  border-color: #0284c7;
+}
+.btn-copy-keywords.copied {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
 .chip-text-input {
   border: none;
   outline: none;
