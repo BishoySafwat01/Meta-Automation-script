@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.1 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -250,7 +250,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.1 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -389,6 +389,7 @@ async def inject_hud_and_rules(
             if (window.__MBS_AUTOMATOR_STOP__) window.__MBS_AUTOMATOR_STOP__();
             const root = document.getElementById("mbs-inbox-automator-root");
             if (root) root.remove();
+            delete window.__MBS_AUTOMATOR_V631_LOADED__;
             delete window.__MBS_AUTOMATOR_V630_LOADED__;
             delete window.__MBS_AUTOMATOR_V622_LOADED__;
             delete window.__MBS_AUTOMATOR_V621_LOADED__;
@@ -468,9 +469,16 @@ async def run_attach_mode(p: Playwright, port: int, settings: dict, config_path:
     if not target_page:
         print(f"\n{Colors.YELLOW}⚠️ لم يتم العثور على تبويب Meta Business Suite مفتوح.{Colors.END}")
         print(f"{Colors.CYAN}🌐 جاري فتح صفحة الصندوق تلقائياً في المتصفح...{Colors.END}")
+        inbox_target = META_INBOX_URL
+        custom_inbox = settings.get("inboxUrl") or settings.get("config", {}).get("inboxUrl")
+        if custom_inbox and isinstance(custom_inbox, str):
+            custom_inbox_clean = custom_inbox.strip()
+            if custom_inbox_clean.startswith("https://business.facebook.com") or custom_inbox_clean.startswith("https://web.facebook.com") or custom_inbox_clean.startswith("https://www.facebook.com"):
+                inbox_target = custom_inbox_clean
+
         target_context = browser.contexts[0] if browser.contexts else await browser.new_context()
         target_page = await target_context.new_page()
-        await target_page.goto(META_INBOX_URL)
+        await target_page.goto(inbox_target)
         print(f"{Colors.GRAY}⏳ بانتظار تحميل الصفحة...{Colors.END}")
         try:
             await target_page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -651,9 +659,16 @@ async def run_tenant_worker(
         event_queue=event_queue
     )
 
-    await emit_host_log("INIT", f"فتح صفحة الصندوق: {META_INBOX_URL}")
+    inbox_target = META_INBOX_URL
+    custom_inbox = settings.get("inboxUrl") or settings.get("config", {}).get("inboxUrl")
+    if custom_inbox and isinstance(custom_inbox, str):
+        custom_inbox_clean = custom_inbox.strip()
+        if custom_inbox_clean.startswith("https://business.facebook.com") or custom_inbox_clean.startswith("https://web.facebook.com") or custom_inbox_clean.startswith("https://www.facebook.com"):
+            inbox_target = custom_inbox_clean
+
+    await emit_host_log("INIT", f"فتح صفحة الصندوق: {inbox_target}")
     try:
-        await page.goto(META_INBOX_URL, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(inbox_target, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         if not SHUTDOWN_EVENT.is_set():
             await emit_host_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}")
@@ -867,7 +882,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.1)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

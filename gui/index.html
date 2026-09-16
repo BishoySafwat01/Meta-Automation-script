@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.0)</title>
+  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.1)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="desktop-body">
@@ -17,7 +17,7 @@
           </svg>
           <span>Meta Automation Hub</span>
         </div>
-        <span class="version-pill">V6.3.0</span>
+        <span class="version-pill">V6.3.1</span>
       </div>
 
       <button id="btn-new-profile" class="btn-new-profile">
@@ -139,6 +139,17 @@
           <!-- Tab 3: Config Settings -->
           <div id="tab-config" class="tab-pane">
             <div class="config-grid">
+              <!-- Group 0: Dedicated Page Inbox URL -->
+              <div class="config-card-group" style="grid-column: 1 / -1;">
+                <div class="config-group-title">رابط صندوق الرسائل المخصص (Inbox URL)</div>
+                <div class="config-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                  <span class="config-label" style="font-size: 11.5px; opacity: 0.85;">
+                    رابط صندوق رسائل الصفحة (يحتوي على asset_id أو mailbox_id لفتح صندوق رسائل الصفحة المحددة مباشرة):
+                  </span>
+                  <input type="url" id="cfg-inbox-url" class="config-input" style="width: 100%; direction: ltr; text-align: left;" placeholder="https://business.facebook.com/latest/inbox/all?asset_id=...&mailbox_id=...">
+                </div>
+              </div>
+
               <!-- Group 1: Timing & Cooldown -->
               <div class="config-card-group">
                 <div class="config-group-title">إعدادات الفترات والتهدئة</div>

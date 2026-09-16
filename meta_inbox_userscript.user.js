@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.0
+// @version      6.3.1
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.1)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V630_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V631_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V630_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V631_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -336,8 +336,8 @@
       .replace(/[ة]/g, 'ه')
       .replace(/[ى]/g, 'ي')
       .replace(/[ؤئ]/g, 'ء')
-      .replace(/[\u064B-\u065F\u0670]/g, '') // حذف التشكيل
-      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, ' ')
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '') // حذف التشكيل والتطويل
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -360,12 +360,13 @@
       const mType = rule.matchType || 'contains';
 
       for (const kw of rawKeywords) {
-        if (!kw) continue;
+        if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
+        const cleanKw = kw.trim();
 
         if (mType === 'regex') {
           try {
             const flags = rule.caseSensitive ? 'u' : 'iu';
-            const re = new RegExp(kw, flags);
+            const re = new RegExp(cleanKw, flags);
             if (re.test(text) || (normMsg && re.test(normMsg))) {
               return { rule, matchedKeyword: kw };
             }
@@ -374,24 +375,39 @@
             continue;
           }
         } else if (mType === 'exact' || mType === 'word') {
-          const normKw = normalizeArabicText(kw);
-          if (!normKw) continue;
+          const normKw = normalizeArabicText(cleanKw);
+          if (!normKw && !cleanKw) continue;
 
-          if (normMsg === normKw) {
+          // 1. Direct equality against normalized or raw message
+          if (normMsg && normKw && normMsg === normKw) {
             return { rule, matchedKeyword: kw };
           }
-          if (normMsg) {
+          if (text.trim() === cleanKw) {
+            return { rule, matchedKeyword: kw };
+          }
+
+          // 2. Unicode word boundary check
+          if (normMsg && normKw) {
             const boundaryRegex = new RegExp('(^|[\\s\\p{P}])' + escapeRegExp(normKw) + '($|[\\s\\p{P}])', 'u');
             if (boundaryRegex.test(normMsg)) {
               return { rule, matchedKeyword: kw };
             }
           }
+
+          // 3. Raw boundary check (essential for emoji / flag sequences)
+          const rawBoundaryRegex = new RegExp('(^|[\\s\\p{P}])' + escapeRegExp(cleanKw) + '($|[\\s\\p{P}])', 'u');
+          if (rawBoundaryRegex.test(text)) {
+            return { rule, matchedKeyword: kw };
+          }
         } else {
           // 'contains' (default substring match)
-          const normKw = normalizeArabicText(kw);
-          if (!normKw) continue;
+          const normKw = normalizeArabicText(cleanKw);
+          if (!normKw && !cleanKw) continue;
 
-          if (normMsg && normMsg.includes(normKw)) {
+          if (normMsg && normKw && normMsg.includes(normKw)) {
+            return { rule, matchedKeyword: kw };
+          }
+          if (text && cleanKw && text.includes(cleanKw)) {
             return { rule, matchedKeyword: kw };
           }
         }
@@ -1302,6 +1318,34 @@
       return false;
     },
 
+    isAudioOrMediaElement(el) {
+      if (!el || !(el instanceof Element)) return false;
+      try {
+        if (el.tagName === 'AUDIO' || el.tagName === 'VIDEO') return true;
+        if (el.matches && el.matches('audio, video, [data-testid*="audio" i], [data-testid*="voice" i]')) return true;
+        if (el.querySelector && el.querySelector('audio, video, [data-testid*="audio" i], [data-testid*="voice" i]')) return true;
+
+        const aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
+        if (/صوت|voice|audio|تسجيل صوتي|رسالة صوتية|Voice clip/i.test(aria)) return true;
+
+        if (el.querySelector && el.querySelector('[aria-label*="صوت" i], [aria-label*="voice" i], [aria-label*="audio" i], [aria-label*="تسجيل صوتي" i], [aria-label*="رسالة صوتية" i], [aria-label*="Voice clip" i]')) {
+          return true;
+        }
+
+        if (el.querySelector && el.querySelector('[class*="waveform" i], svg[class*="waveform" i], [role="progressbar"], [role="slider"]')) {
+          return true;
+        }
+
+        if (el.querySelector && el.querySelector('button[aria-label*="تشغيل" i], button[aria-label*="Play" i], button[aria-label*="إيقاف مؤقت" i], button[aria-label*="Pause" i]')) {
+          const txt = (el.innerText || '').trim();
+          if (/^[0-9]{1,2}:[0-9]{2}$/.test(txt) || txt.length < 15) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    },
+
     getMessageBubbles() {
       const composer = this.getComposer();
       const compRect = composer ? composer.getBoundingClientRect() : null;
@@ -1313,7 +1357,7 @@
 
       const viewport = this.getMessageScrollContainer() || this.getChatCanvas() || document.body;
 
-      const candidateElements = Array.from(viewport.querySelectorAll('div, span, p')).filter(el => {
+      const candidateElements = Array.from(viewport.querySelectorAll('div, span, p, audio, video')).filter(el => {
         if (el.closest('#mbs-inbox-automator-root')) return false;
         if (composer && (composer.contains(el) || el.contains(composer))) return false;
         if (el.closest('button, header, footer, nav, [role="toolbar"]')) return false;
@@ -1322,16 +1366,17 @@
         if (rect.left < minX || rect.right > maxX || rect.top < minY || rect.bottom > maxY) return false;
         if (rect.width < 14 || rect.height < 14 || rect.height > 600) return false;
 
+        const isAudioMedia = this.isAudioOrMediaElement(el);
         const text = (el.innerText || '').trim();
-        if (!text) return false;
-        if (/^[0-9]{1,2}:[0-9]{2}[ ]*(م|ص)?$/.test(text)) return false;
+        if (!text && !isAudioMedia) return false;
+        if (!isAudioMedia && /^[0-9]{1,2}:[0-9]{2}[ ]*(م|ص)?$/.test(text)) return false;
 
-        if (this.isAdOrMetadataElement(el, text)) return false;
+        if (!isAudioMedia && this.isAdOrMetadataElement(el, text)) return false;
 
         const style = window.getComputedStyle(el);
         const hasBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent';
         const hasRadius = parseInt(style.borderRadius, 10) >= 6;
-        return hasBg && hasRadius;
+        return isAudioMedia || (hasBg && hasRadius);
       });
 
       const leaves = candidateElements.filter(item => {
@@ -1405,16 +1450,36 @@
       return false;
     },
 
+    hasTrailingAudioOrMedia() {
+      const viewport = this.getMessageScrollContainer() || this.getChatCanvas();
+      if (!viewport) return false;
+      const audioEls = Array.from(viewport.querySelectorAll('audio, video, [data-testid*="audio" i], [data-testid*="voice" i], [aria-label*="صوت" i], [aria-label*="voice" i], [aria-label*="تسجيل صوتي" i], [aria-label*="رسالة صوتية" i]')).filter(el => {
+        return !el.closest('#mbs-inbox-automator-root');
+      });
+      if (audioEls.length === 0) return false;
+      const lastAudio = audioEls[audioEls.length - 1];
+      if (this.isOutboundBubble(lastAudio)) return false;
+
+      const bubbles = this.getMessageBubbles();
+      if (bubbles.length === 0) return true;
+      const lastBubble = bubbles[bubbles.length - 1];
+      const audioRect = lastAudio.getBoundingClientRect();
+      const bubbleRect = lastBubble.getBoundingClientRect();
+      return audioRect.top >= bubbleRect.top - 15;
+    },
+
     parseInboundBoundary() {
       const bubbles = this.getMessageBubbles();
       if (bubbles.length === 0) {
-        return { lastIsOutbound: false, customerBubbles: [] };
+        return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null };
       }
 
       const lastBubble = bubbles[bubbles.length - 1];
       if (this.isOutboundBubble(lastBubble)) {
-        return { lastIsOutbound: true, customerBubbles: [] };
+        return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble };
       }
+
+      const isVoiceOrMedia = this.isAudioOrMediaElement(lastBubble);
 
       const customerBubbles = [];
       for (let i = bubbles.length - 1; i >= 0; i--) {
@@ -1425,7 +1490,7 @@
         customerBubbles.unshift(b);
       }
 
-      return { lastIsOutbound: false, customerBubbles };
+      return { lastIsOutbound: false, customerBubbles, isVoiceOrMedia, tailBubble: lastBubble };
     }
   };
 
@@ -1711,7 +1776,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3051,9 +3116,19 @@
               await sleep(randomRange(150, 250));
             }
 
-            // STEP 3: Inbound Boundary Evaluation (Post-Representative Messages Only)
+            // STEP 3: Inbound Boundary Evaluation & Message Extraction Guard
             this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
-            const { lastIsOutbound, customerBubbles } = DOM.parseInboundBoundary();
+            let boundaryResult = null;
+            try {
+              boundaryResult = DOM.parseInboundBoundary();
+            } catch (boundaryErr) {
+              this.hud.log('WARN', `استثناء أثناء فحص حدود الرسائل: ${boundaryErr?.message || boundaryErr}. استعادة كغير مقروء لمراجعة خدمة العملاء...`);
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+              return { skipLoop: true, cooldown };
+            }
+
+            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble } = boundaryResult;
 
             if (lastIsOutbound) {
               state.stats.skippedOutbound++;
@@ -3072,7 +3147,14 @@
               return { skipLoop: true, cooldown };
             }
 
-            const customerTexts = (customerBubbles || []).map(b => (b ? (b.innerText || b.textContent || '') : '').trim()).filter(Boolean);
+            // Detect Voice Note / Audio / Media at the tail of the conversation
+            const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia();
+            if (isTrailingVoice) {
+              this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون 10 دقائق...');
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+              return { skipLoop: true, cooldown };
+            }
 
             // WhatsApp Unsupported Message Detection:
             const canvas = DOM.getChatCanvas();
@@ -3084,14 +3166,7 @@
               "محتوى غير مدعوم"
             ].some(indicator => canvasText.includes(indicator));
 
-            const validCustomerTexts = customerTexts.filter(t => 
-              !t.includes("Message can't be displayed") &&
-              !t.includes("which is not supported in Inbox") &&
-              !t.includes("WhatsApp Business App") &&
-              !t.includes("محتوى غير مدعوم")
-            );
-
-            if (hasUnsupportedWhatsApp && validCustomerTexts.length === 0) {
+            if (hasUnsupportedWhatsApp && customerBubbles.length === 0) {
               this.hud.log('INFO', '[INFO] رسالة واتساب غير مدعومة على الويب (وسائط/طلب). تخطي فوري لمراجعة خدمة العملاء.');
               try {
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
@@ -3106,7 +3181,7 @@
               return { skipLoop: true, cooldown };
             }
 
-            if (customerBubbles.length === 0 || customerTexts.length === 0) {
+            if (customerBubbles.length === 0) {
               this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
               await this.executeBranchB(contactKey, rowFingerprint, targetRow);
 
@@ -3114,21 +3189,28 @@
               return { skipLoop: true, cooldown };
             }
 
-            // STEP 4: Visual Search & Keyword Evaluation
+            // STEP 4: Strict Customer Tail Message Evaluation
             const latestBubble = customerBubbles[customerBubbles.length - 1];
             await HumanSimulator.highlightCustomerBubble(latestBubble);
 
-            const combinedText = customerTexts.join(' ');
-            const snippet = combinedText.length > 40 ? combinedText.slice(0, 40) + '...' : combinedText;
-            this.hud.log('SCAN', `فحص نصوص العميل الواردة (${customerTexts.length} فقاعات): "${snippet}"`);
+            const latestText = (latestBubble ? (latestBubble.innerText || latestBubble.textContent || '') : '').trim();
+
+            if (!latestText) {
+              this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow);
+
+              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+              return { skipLoop: true, cooldown };
+            }
+
+            const snippet = latestText.length > 40 ? latestText.slice(0, 40) + '...' : latestText;
+            this.hud.log('SCAN', `فحص آخر رسالة واردة من العميل: "${snippet}"`);
 
             let matchResult = null;
-            for (let i = customerTexts.length - 1; i >= 0; i--) {
-              matchResult = evaluateActiveRules(customerTexts[i], state.rules);
-              if (matchResult) break;
-            }
-            if (!matchResult && combinedText) {
-              matchResult = evaluateActiveRules(combinedText, state.rules);
+            try {
+              matchResult = evaluateActiveRules(latestText, state.rules);
+            } catch (evalErr) {
+              this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
             }
 
             // STEP 5: Execution Branches
@@ -3365,5 +3447,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.1] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

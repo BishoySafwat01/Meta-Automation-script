@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.3.0)
+ * Meta Automation Desktop Control Center (V6.3.1)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -69,6 +69,7 @@
     rulesContainer: document.getElementById('rules-container'),
     btnAddRule: document.getElementById('add-rule-btn'),
     btnSaveRules: document.getElementById('btn-save-rules'),
+    cfgInboxUrl: document.getElementById('cfg-inbox-url'),
     cfgCooldown: document.getElementById('cfg-cooldown-sec'),
     cfgMonitoring: document.getElementById('cfg-monitoring-sec'),
     cfgTypingSpeed: document.getElementById('cfg-typing-speed'),
@@ -498,6 +499,9 @@
     const cooldownSec = c.maxCooldown ? Number(((c.minCooldown + c.maxCooldown) / 2000).toFixed(1)) : 1.5;
     const monitoringSec = c.monitoringInterval ? Number((c.monitoringInterval / 1000).toFixed(1)) : 5.0;
 
+    if (elements.cfgInboxUrl) {
+      elements.cfgInboxUrl.value = state.currentConfig.inboxUrl || (c.inboxUrl || '');
+    }
     elements.cfgCooldown.value = cooldownSec;
     elements.cfgMonitoring.value = monitoringSec;
     elements.cfgTypingSpeed.value = c.typingSpeed || 15;
@@ -667,8 +671,11 @@
       const cooldownSec = parseFloat(elements.cfgCooldown.value) || 1.5;
       const monitoringSec = parseFloat(elements.cfgMonitoring.value) || 5.0;
       const speed = parseInt(elements.cfgTypingSpeed.value, 10) || 15;
+      const inboxUrl = elements.cfgInboxUrl ? elements.cfgInboxUrl.value.trim() : '';
 
       if (!state.currentConfig.config) state.currentConfig.config = {};
+      state.currentConfig.inboxUrl = inboxUrl;
+      state.currentConfig.config.inboxUrl = inboxUrl;
       state.currentConfig.config.typingSpeed = speed;
       state.currentConfig.config.minTypingSpeed = Math.max(10, speed - 4);
       state.currentConfig.config.maxTypingSpeed = speed + 4;

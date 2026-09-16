@@ -1,5 +1,5 @@
-# أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V6.3.0)
-### Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.0)
+# أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (الإصدار المؤسسي V6.3.1)
+### Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.1)
 > نظام أتمتة مؤسسي متكامل لإدارة وتدقيق صندوق رسائل **Meta Business Suite** (صفحات فيسبوك وإنستغرام) عبر لغة **Python** ومحرك **Playwright** بالحقن الأصلي المباشر (Zero-Extension) بدون الحاجة لتثبيت أي إضافات متصفح، مع واجهة تحكم فاخرة بتصميم **Apple Prismatic Liquid Glass** عالي الشفافية، وآلية استعادة غير مقروء فائقة الموثوقية بفك تركيز المحادثة والتحقق التفاعلي، واستخراج أسماء العملاء المشدد، وتسمية موحدة للصفحات (Page ID).  
 > **المسؤول التقني والمطور:** Bishoy Safwat (Senior Automation & Systems Engineer)
 
