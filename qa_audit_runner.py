@@ -4,7 +4,7 @@
 =============================================================================
 Rigorous Pre-Delivery Forensic Audit & Stress Testing (Lead QA Runner)
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
-Version: V6.2.2-QA-FINAL
+Version: V6.3.0-QA-FINAL
 =============================================================================
 Executes comprehensive programmatic assertions against real objects, methods,
 and runtime contracts with zero assumptions and zero residual artifacts.

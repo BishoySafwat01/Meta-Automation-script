@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.2.2)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.2.2
+// @version      6.3.0
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.2.2)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V622_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V630_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V622_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V630_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -171,6 +171,7 @@
     currentTenantId: getActiveTenantId(),
     rules: loadRules(),
     config: loadConfig(),
+    chatCooldowns: new Map(), // contactKey -> expiryTimestamp
     processedContacts: new Set(),
     lastRepliedSnippets: new Map(),
     processedSnapshots: new Set(),
@@ -292,6 +293,7 @@
       state.processedContacts.clear();
       state.processedSnapshots.clear();
       state.lastRepliedSnippets.clear();
+      if (state.chatCooldowns) state.chatCooldowns.clear();
       if (state.skippedRows) state.skippedRows.clear();
 
       // Reset statistics counters for the new page context
@@ -1027,6 +1029,15 @@
     },
 
     async executeRestoreToUnread(logger, targetRow, contactKey) {
+      const neutralizeFocus = () => {
+        releaseChatFocus();
+        try {
+          if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+          }
+        } catch (_) {}
+      };
+
       // Container-Relative & Dynamic Coordinate Scope:
       // Dynamically scope toolbar horizontally using composer bounds (with safe fallback)
       const composer = this.getComposer();
@@ -1131,7 +1142,7 @@
         let result = false;
         try {
           await HumanSimulator.flashEnvelopeButton(dropdownBtn);
-          releaseChatFocus();
+          neutralizeFocus();
           dispatchFullClick(dropdownBtn);
           await sleep(500);
 
@@ -1164,8 +1175,9 @@
           }
 
           if (unreadMenuItem) {
+            neutralizeFocus();
             dispatchFullClick(unreadMenuItem);
-            releaseChatFocus();
+            neutralizeFocus();
             await sleep(350);
             result = true;
             return true;
@@ -1180,7 +1192,7 @@
           // Guaranteed Menu Dismissal: Always dispatch Escape so no popup or backdrop remains blocking the viewport
           try {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-            releaseChatFocus();
+            neutralizeFocus();
           } catch (_) {}
         }
         return result;
@@ -1196,27 +1208,27 @@
         return this.isRowVisuallyUnread(row);
       };
 
-      const pollVerification = async (timeoutMs = 1500) => {
+      const pollVerification = async (timeoutMs = 2000) => {
         if (!targetRow) return true;
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
           if (checkVerifiedUnread()) return true;
-          await sleep(150);
+          await sleep(100);
         }
         return checkVerifiedUnread();
       };
 
       // ATTEMPT 1: Focus release -> Click Direct or Dropdown -> Focus release -> Verification poll
-      releaseChatFocus();
+      neutralizeFocus();
       let clicked = false;
       let usedDropdown = false;
       const directBtn = findDirectButton();
 
       if (directBtn) {
         await HumanSimulator.flashEnvelopeButton(directBtn);
-        releaseChatFocus();
+        neutralizeFocus();
         dispatchFullClick(directBtn);
-        releaseChatFocus();
+        neutralizeFocus();
         clicked = true;
       } else {
         usedDropdown = true;
@@ -1228,13 +1240,13 @@
       }
 
       if (clicked) {
-        const verified = await pollVerification(1500);
+        const verified = await pollVerification(2000);
         if (verified) return true;
       }
 
       // ATTEMPT 2 (RETRY with alternate selector / dropdown):
-      if (logger) logger.log('WARN', 'لم يتم تأكيد حالة غير مقروء في المحاولة الأولى، جاري إعادة المحاولة...');
-      releaseChatFocus();
+      if (logger) logger.log('WARN', 'لم يتم تأكيد حالة غير مقروء في المحاولة الأولى، جاري إعادة المحاولة مع تحييد التركيز...');
+      neutralizeFocus();
       await sleep(250);
 
       if (!usedDropdown) {
@@ -1243,9 +1255,9 @@
         const retryBtn = findDirectButton();
         if (retryBtn) {
           await HumanSimulator.flashEnvelopeButton(retryBtn);
-          releaseChatFocus();
+          neutralizeFocus();
           dispatchFullClick(retryBtn);
-          releaseChatFocus();
+          neutralizeFocus();
           clicked = true;
         } else {
           clicked = await tryClickDropdown();
@@ -1257,7 +1269,7 @@
       }
 
       if (clicked) {
-        const verified = await pollVerification(1500);
+        const verified = await pollVerification(2000);
         return verified;
       }
 
@@ -1699,7 +1711,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.2.2)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -2889,6 +2901,11 @@
           const key = DOM.getStableRowKey(r) || (name ? `contact_${normalizeArabicText(name)}` : null);
           const fingerprint = key ? `${key}__${snippet}` : null;
 
+          const isCoolingDown = key && state.chatCooldowns && state.chatCooldowns.has(key) && Date.now() < state.chatCooldowns.get(key);
+          if (isCoolingDown) {
+            continue;
+          }
+
           const isSameSnippetReplied = key && snippet && state.lastRepliedSnippets.get(key) === snippet;
           const isProcessed = (fingerprint && state.processedSnapshots.has(fingerprint)) ||
                               (key && state.processedContacts.has(key)) ||
@@ -2918,6 +2935,8 @@
               const s = DOM.getRowSnippet(r);
               const k = DOM.getStableRowKey(r) || (n ? `contact_${normalizeArabicText(n)}` : null);
               const fp = k ? `${k}__${s}` : null;
+              const isCoolingDown = k && state.chatCooldowns && state.chatCooldowns.has(k) && Date.now() < state.chatCooldowns.get(k);
+              if (isCoolingDown) return false;
               const isSame = k && s && state.lastRepliedSnippets.get(k) === s;
               const isSkipped = (k && state.skippedRows && state.skippedRows.has(k)) ||
                                 (fp && state.skippedRows && state.skippedRows.has(fp));
@@ -2948,7 +2967,7 @@
 
           if (state.emergencyAbort) break;
 
-          // 4. Clear processedContacts and skippedRows for the new cycle (preserves lastRepliedSnippets & processedSnapshots)
+          // 4. Clear processedContacts and skippedRows for the new cycle (preserves lastRepliedSnippets, processedSnapshots & chatCooldowns)
           state.processedContacts.clear();
           if (state.skippedRows) state.skippedRows.clear();
           this.hud.setStatus('RUNNING', 'running');
@@ -2996,7 +3015,7 @@
               if (rowTimeoutId) clearTimeout(rowTimeoutId);
               rowTimeoutId = setTimeout(() => reject(new Error('ROW_TIMEOUT_EXCEEDED')), ms);
             };
-            setTimer(9000);
+            setTimer(4000);
             extendWatchdog = (additionalMs) => {
               setTimer(additionalMs);
             };
@@ -3187,11 +3206,19 @@
         } catch (err) {
           if (err && err.message === 'ABORT_SIGNAL') throw err;
           if (err && err.message === 'ROW_TIMEOUT_EXCEEDED') {
-            this.hud.log('WARN', 'تجاوزت المحادثة الحد الزمني المخصص لها. تخطي إجباري لحماية المحرك...');
+            this.hud.log('WARN', '[WATCHDOG] تم تجاوز مهلة معالجة المحادثة (4 ثوانٍ)، تخطي فوري لمنع التعليق.');
             try {
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
               releaseChatFocus();
+              if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                document.activeElement.blur();
+              }
             } catch (_) {}
+            const cooldownKey = contactKey || targetContactKey;
+            if (cooldownKey) {
+              state.chatCooldowns.set(cooldownKey, Date.now() + (3 * 60 * 1000)); // 3 minutes cooldown
+              pruneLRUCache(state.chatCooldowns, 500, 100);
+            }
             if (targetContactKey) state.skippedRows.add(targetContactKey);
             if (contactKey) state.skippedRows.add(contactKey);
             if (rowFingerprint) {
@@ -3205,6 +3232,9 @@
           try {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
             releaseChatFocus();
+            if (document.activeElement && typeof document.activeElement.blur === 'function') {
+              document.activeElement.blur();
+            }
           } catch (_) {}
           if (contactKey) state.processedContacts.add(contactKey);
           if (rowFingerprint) {
@@ -3231,6 +3261,7 @@
         // Periodic LRU cache guard
         pruneLRUCache(state.lastRepliedSnippets, 350, 100);
         pruneLRUCache(state.processedSnapshots, 350, 100);
+        pruneLRUCache(state.chatCooldowns, 500, 100);
 
         const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
         this.hud.setStatus(`COOLDOWN (${(cooldown / 1000).toFixed(1)}s)`, 'cooldown');
@@ -3241,7 +3272,11 @@
     },
 
     async executeBranchB(contactKey, rowFingerprint, targetRow) {
-      if (contactKey) state.processedContacts.add(contactKey);
+      if (contactKey) {
+        state.processedContacts.add(contactKey);
+        state.chatCooldowns.set(contactKey, Date.now() + (10 * 60 * 1000)); // 10 minutes cooldown
+        pruneLRUCache(state.chatCooldowns, 500, 100);
+      }
       if (rowFingerprint) {
         state.processedSnapshots.add(rowFingerprint);
         pruneLRUCache(state.processedSnapshots, 350, 100);
@@ -3330,5 +3365,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.2.2] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.0] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
