@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.3.6)
+Meta Business Suite Profile Manager Module (V6.3.7)
 Provides thread-safe and process-isolated multi-tenant sandbox management.
 """
 
@@ -32,6 +32,117 @@ DEFAULT_TEMPLATE_CONFIG: Dict[str, Any] = {
 }
 
 NAME_REGEX = re.compile(r"^[a-zA-Z0-9_\u0600-\u06FF\s-]+$")
+
+def atomic_write_json(path: Path, value: Any) -> bool:
+    """High-durability atomic JSON write with flush, fsync, and parent dir fsync."""
+    path = Path(path)
+    parent_dir = path.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+
+    temp_fd, temp_path = tempfile.mkstemp(dir=parent_dir, prefix=".tmp_", suffix=".json")
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_path, path)
+
+        # Execute directory fsync on POSIX systems
+        if os.name != "nt":
+            try:
+                dir_fd = getattr(os, "open")(str(parent_dir), os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+        raise RuntimeError(f"Failed to atomically write JSON to '{path}': {e}")
+
+
+class ProfileLease:
+    """Cross-platform OS-level exclusive lease manager for profile directories."""
+
+    def __init__(self, profile_dir: Path):
+        self.profile_dir = Path(profile_dir)
+        self.lock_path = self.profile_dir / ".app_profile.lock"
+        self._file_obj = None
+
+    def acquire(self):
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._file_obj = open(self.lock_path, "a+", encoding="utf-8")
+        except Exception as e:
+            raise RuntimeError(f"PROFILE_LOCK_OPEN_FAILED: {e}")
+
+        fd = self._file_obj.fileno()
+        if os.name == "nt":
+            import msvcrt
+            try:
+                self._file_obj.seek(0)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            except (OSError, IOError):
+                self._close_file()
+                raise RuntimeError("PROFILE_ALREADY_RUNNING")
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (OSError, IOError):
+                self._close_file()
+                raise RuntimeError("PROFILE_ALREADY_RUNNING")
+
+        try:
+            self._file_obj.seek(0)
+            self._file_obj.truncate()
+            self._file_obj.write(f"{os.getpid()}\n")
+            self._file_obj.flush()
+        except Exception:
+            pass
+
+    def release(self):
+        if self._file_obj is not None:
+            try:
+                fd = self._file_obj.fileno()
+                if os.name == "nt":
+                    import msvcrt
+                    try:
+                        self._file_obj.seek(0)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    except Exception:
+                        pass
+                else:
+                    import fcntl
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+            finally:
+                self._close_file()
+
+    def _close_file(self):
+        if self._file_obj:
+            try:
+                self._file_obj.close()
+            except Exception:
+                pass
+            self._file_obj = None
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+
 
 class ProfileManager:
     """Manages browser profiles, directory isolation, configuration, and locks."""
@@ -107,11 +218,23 @@ class ProfileManager:
                 return True
         return False
 
-    def clean_stale_locks(self, name: str):
-        """Clean up stale Chromium lock artifacts if browser is not actively running."""
+    def get_profile_lease(self, name: str) -> ProfileLease:
+        """Return a ProfileLease instance for the specified profile."""
+        return ProfileLease(self.get_profile_dir(name))
+
+    def clean_stale_locks(self, name: str, is_leased: bool = False):
+        """Clean up stale Chromium lock artifacts only when no other process holds an OS lease."""
         pdir = self.get_profile_dir(name)
         if not pdir.exists():
             return
+        if not is_leased:
+            lease = ProfileLease(pdir)
+            try:
+                lease.acquire()
+                lease.release()
+            except RuntimeError:
+                # Active OS lease held by another process: do NOT delete locks!
+                return
         lock_files = ["SingletonLock", "SingletonSocket", "SingletonCookie"]
         for lfile in lock_files:
             p = pdir / lfile
@@ -228,23 +351,7 @@ class ProfileManager:
             raise RuntimeError(f"Failed to read config for profile '{name}': {e}")
 
     def save_profile_config(self, name: str, data: Dict[str, Any]) -> bool:
-        """Persist configuration atomically (temp file write + atomic rename)."""
+        """Persist configuration atomically with fsync and directory sync."""
         pdir = self.get_profile_dir(name)
-        pdir.mkdir(parents=True, exist_ok=True)
         target_path = pdir / "config.json"
-
-        temp_fd, temp_path = tempfile.mkstemp(dir=pdir, prefix="config_tmp_", suffix=".json")
-        try:
-            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, target_path)
-            return True
-        except Exception as e:
-            if os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except Exception:
-                    pass
-            raise RuntimeError(f"Failed to atomically save config for profile '{name}': {e}")
+        return atomic_write_json(target_path, data)

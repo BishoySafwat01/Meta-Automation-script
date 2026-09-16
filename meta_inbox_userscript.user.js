@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.6)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.7)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.6
+// @version      6.3.7
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.6)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.7)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V636_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V637_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V636_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V637_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -117,6 +117,10 @@
 
   function pruneLRUCache(collection, maxLimit = 350, pruneCount = 100) {
     if (!collection) return;
+    if (collection instanceof TTLMap) {
+      collection.evictExpired();
+      return;
+    }
     if (collection instanceof Map || collection instanceof Set) {
       if (collection.size > maxLimit) {
         let removed = 0;
@@ -172,8 +176,8 @@
     currentTenantId: getActiveTenantId(),
     rules: loadRules(),
     config: loadConfig(),
-    chatCooldowns: new Map(), // contactKey -> expiryTimestamp
-    lastSeenSnippets: new Map(), // contactKey -> latestSnippet
+    chatCooldowns: new TTLMap(2000, 2 * 60 * 1000), // contactKey -> expiryTimestamp (2000 max, 2 min TTL)
+    lastSeenSnippets: new TTLMap(2000, 30 * 60 * 1000), // contactKey -> latestSnippet (2000 max, 30 min TTL)
     processedContacts: new Set(),
     lastRepliedSnippets: new Map(),
     processedSnapshots: new Set(),
@@ -345,7 +349,7 @@
       .trim();
   }
 
-  function evaluateActiveRules(text, rules) {
+  async function evaluateActiveRules(text, rules) {
     if (!text || !Array.isArray(rules) || rules.length === 0) return null;
     const normMsg = normalizeArabicText(text);
 
@@ -369,12 +373,19 @@
         if (mType === 'regex') {
           try {
             const flags = rule.caseSensitive ? 'u' : 'iu';
-            const re = new RegExp(cleanKw, flags);
-            if (re.test(text) || (normMsg && re.test(normMsg))) {
+            let matched = false;
+            try {
+              matched = await regexSandbox.test(cleanKw, flags, text, 30);
+              if (!matched && normMsg) {
+                matched = await regexSandbox.test(cleanKw, flags, normMsg, 30);
+              }
+            } catch (_) {
+              continue;
+            }
+            if (matched) {
               return { rule, matchedKeyword: kw };
             }
-          } catch (e) {
-            // Malformed user regex pattern - gracefully fallback without crashing
+          } catch (_) {
             continue;
           }
         } else if (mType === 'exact' || mType === 'word') {
@@ -2084,7 +2095,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.6)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.7)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3625,7 +3636,7 @@
 
             let matchResult = null;
             try {
-              matchResult = evaluateActiveRules(latestText, state.rules);
+              matchResult = await evaluateActiveRules(latestText, state.rules);
             } catch (evalErr) {
               this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
             }
@@ -3921,5 +3932,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.6] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.7] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

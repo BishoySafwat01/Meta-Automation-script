@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.6 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.7 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -33,7 +33,7 @@ import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from profile_manager import ProfileManager
+from profile_manager import ProfileManager, ProfileLease
 
 telemetry_queue: Optional[asyncio.Queue] = None
 
@@ -128,10 +128,17 @@ def get_tenant_profile_dir(profile_name: str) -> Path:
 def get_profile_config_path(profile_name: str) -> Path:
     return PROFILE_MGR.get_profile_config_path(profile_name)
 
-def clean_stale_locks(profile_dir: Path):
-    """Safely remove leftover SingletonLock/SingletonCookie/SingletonSocket files."""
+def clean_stale_locks(profile_dir: Path, is_leased: bool = False):
+    """Safely remove leftover Chromium Singleton locks only when profile is not actively running."""
     if not profile_dir.exists():
         return
+    if not is_leased:
+        lease = ProfileLease(profile_dir)
+        try:
+            lease.acquire()
+            lease.release()
+        except RuntimeError:
+            return
     lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
     for lock in lock_files:
         p = profile_dir / lock
@@ -250,7 +257,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.6 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.7 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -378,7 +385,7 @@ async def inject_hud_and_rules(
         # Check if already loaded via add_init_script or prior injection
         is_already_loaded = await page.evaluate("""() => {
             return Boolean(
-                window.__MBS_AUTOMATOR_V636_LOADED__ ||
+                window.__MBS_AUTOMATOR_V637_LOADED__ ||
                 window.__MBS_AUTOMATOR_ORCHESTRATOR__ ||
                 window.__MBS_AUTOMATOR_HUD__
             );
@@ -531,7 +538,7 @@ async def launch_persistent_context_safe(
     tenant_name: str = ""
 ) -> BrowserContext:
     """Launch persistent Chrome context with anti-throttling & lean memory flags."""
-    clean_stale_locks(profile_dir)
+    clean_stale_locks(profile_dir, is_leased=True)
     ACTIVE_PROFILE_DIRS.append(profile_dir)
 
     prefix = f"[{tenant_name}]" if tenant_name else ""
@@ -612,6 +619,13 @@ async def run_tenant_worker(
                 })
             except Exception:
                 pass
+
+    profile_lease = ProfileLease(profile_dir)
+    try:
+        profile_lease.acquire()
+    except RuntimeError as lease_err:
+        await emit_host_log("ERROR", f"الملف الشخصي '{profile_name}' قيد التشغيل بالفعل في عملية أخرى (PROFILE_ALREADY_RUNNING): {lease_err}")
+        return
 
     await emit_host_log("INIT", f"بدء تهيئة البروفايل: {profile_dir}")
 
@@ -732,7 +746,7 @@ async def run_tenant_worker(
     except Exception:
         pass
     finally:
-        clean_stale_locks(profile_dir)
+        clean_stale_locks(profile_dir, is_leased=True)
 
 # ---------------------------------------------------------------------------
 # Asynchronous Multi-Worker Process & Telemetry Controller
@@ -876,7 +890,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.6)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.7)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
