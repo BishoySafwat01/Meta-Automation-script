@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.3.7)
+ * Meta Automation Desktop Control Center (V6.3.8)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */

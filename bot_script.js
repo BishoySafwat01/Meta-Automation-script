@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.7)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.8)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.7
+// @version      6.3.8
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.7)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.8)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V637_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V637_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V638_LOADED__ = true;
 
   class FocusIntegrityError extends Error {
     constructor(message) {
@@ -534,6 +534,8 @@
     if (!text || typeof text !== 'string') return '';
     return text
       .toLowerCase()
+      .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2')
+      .replace(/([\p{So}\u{1F1E6}-\u{1F1FF}])([\p{L}\p{N}])/gu, '$1 $2')
       .replace(/[أإآ]/g, 'ا')
       .replace(/[ة]/g, 'ه')
       .replace(/[ى]/g, 'ي')
@@ -707,6 +709,28 @@
   // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
+    extractTextWithAlt(node) {
+      if (!node) return '';
+      if (node.nodeType === 3) return node.nodeValue || '';
+      if (node.nodeType === 1) {
+        if (node.tagName === 'IMG') {
+          return node.getAttribute('alt') || node.getAttribute('aria-label') || '';
+        }
+        if (node.tagName === 'BR') {
+          return '\n';
+        }
+        if (node.getAttribute('role') === 'img' && node.getAttribute('aria-label') && !node.firstChild) {
+          return node.getAttribute('aria-label') || '';
+        }
+        let out = '';
+        for (let child = node.firstChild; child; child = child.nextSibling) {
+          out += (this && typeof this.extractTextWithAlt === 'function') ? this.extractTextWithAlt(child) : DOM.extractTextWithAlt(child);
+        }
+        return out;
+      }
+      return '';
+    },
+
     sendEscape() {
       try {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
@@ -1112,7 +1136,8 @@
     getRowSnippet(row) {
       if (!row) return '';
       const name = this.getRowCustomerName(row);
-      const lines = (row.innerText || '')
+      const rawText = DOM.extractTextWithAlt(row) || row.innerText || '';
+      const lines = rawText
         .split('\n')
         .map(l => l.trim())
         .filter(l => l && l !== name && !this.isTimestampOrBadge(l));
@@ -1838,7 +1863,7 @@
         if (rect.width < 14 || rect.height < 14 || rect.height > 600) return false;
 
         const isAudioMedia = this.isAudioOrMediaElement(el);
-        const text = (el.innerText || '').trim();
+        const text = DOM.extractTextWithAlt(el).trim();
         if (!text && !isAudioMedia) return false;
         if (!isAudioMedia && /^[0-9]{1,2}:[0-9]{2}[ ]*(م|ص)?$/.test(text)) return false;
 
@@ -1860,7 +1885,7 @@
 
     isOutboundBubble(bubble) {
       if (!bubble) return false;
-      const text = (bubble.innerText || '').trim();
+      const text = (DOM.extractTextWithAlt(bubble) || bubble.innerText || '').trim();
 
       // 1. Text match: ONLY if the bubble text contains a substantial chunk of our configured reply (25+ characters)
       // CRITICAL FIX: NEVER check if r.reply includes text (short customer messages like "تفاصيل" or "سعر" must NEVER be marked outbound!)
@@ -2290,7 +2315,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.7)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.8)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3813,7 +3838,7 @@
             const latestBubble = customerBubbles[customerBubbles.length - 1];
             await HumanSimulator.highlightCustomerBubble(latestBubble);
 
-            const latestText = (latestBubble ? (latestBubble.innerText || latestBubble.textContent || '') : '').trim();
+            const latestText = (latestBubble ? DOM.extractTextWithAlt(latestBubble) : '').trim();
 
             if (!latestText) {
               this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
@@ -4127,5 +4152,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.7] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.8] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();

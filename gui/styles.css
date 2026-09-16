@@ -28,7 +28,7 @@
   flex-direction: column;
   overflow: hidden;
   user-select: none;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", "Twemoji Mozilla", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, border-radius 0.25s ease;
 }
 
@@ -520,6 +520,7 @@ input:checked + .slider:before { transform: translateX(18px); }
 }
 .keyword-chip {
   display: inline-flex;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", "Twemoji Mozilla", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   align-items: center;
   gap: 5px;
   background: rgba(2, 132, 199, 0.12);
@@ -675,7 +676,7 @@ body.desktop-body {
     radial-gradient(circle at 50% 82%, rgba(14, 165, 233, 0.15), transparent 50%),
     radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.12), transparent 45%),
     linear-gradient(135deg, #f0f7ff 0%, #f8fafc 40%, #f5f3ff 100%);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Segoe UI", "Twemoji Mozilla", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   color: #0f172a;
 }
 
