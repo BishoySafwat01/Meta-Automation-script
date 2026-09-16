@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.3)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.4)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.3
+// @version      6.3.4
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.3)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.4)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V633_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V634_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V633_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V634_LOADED__ = true;
 
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
@@ -503,26 +503,15 @@
   const DOM = {
     deselectActiveChat() {
       try {
+        // 1. Send Escape keys to dismiss drawers/menus
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
         window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
 
-        releaseChatFocus();
+        // 2. Pure blur of active element (no clicking any inputs)
         if (document.activeElement && typeof document.activeElement.blur === 'function') {
           document.activeElement.blur();
         }
-
-        const neutralTarget = document.querySelector(
-          'input[placeholder*="بحث" i], input[placeholder*="Search" i], #inbox-search-input, [data-testid*="search"], header, div[role="banner"]'
-        );
-        if (neutralTarget) {
-          try {
-            neutralTarget.focus({ preventScroll: true });
-            neutralTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            if (typeof neutralTarget.blur === 'function') {
-              neutralTarget.blur();
-            }
-          } catch (_) {}
-        }
+        releaseChatFocus();
       } catch (_) {}
     },
 
@@ -941,6 +930,29 @@
     },
 
     async ensureUnreadFilterActive(logger) {
+      // Clear stray text in search bar to avoid filtering conversation list
+      try {
+        const searchInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"], input:not([type])')).filter(inp => {
+          if (inp.closest('#mbs-inbox-automator-root')) return false;
+          const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
+          const id = (inp.id || '').toLowerCase();
+          const testid = (inp.getAttribute('data-testid') || '').toLowerCase();
+          return ph.includes('بحث') || ph.includes('search') || id.includes('search') || testid.includes('search');
+        });
+
+        for (const input of searchInputs) {
+          if (input.value && input.value.trim().length > 0) {
+            if (logger) logger.log('WARN', 'تفريغ نص عالق في شريط البحث لمنع تشتيت المحادثات...');
+            input.value = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof input.blur === 'function') {
+              input.blur();
+            }
+          }
+        }
+      } catch (_) {}
+
       if (this.isUnreadFilterActive()) return true;
 
       const unreadBtn = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
@@ -1619,11 +1631,28 @@
       }
     },
 
+    async typeText(composer, text, logger) {
+      return this.typeIntoComposer(composer, text, logger);
+    },
+
+    async typeReply(composer, text, logger) {
+      return this.typeIntoComposer(composer, text, logger);
+    },
+
     async typeIntoComposer(composer, text, logger) {
-      if (!composer) throw new Error('Composer element not found');
+      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
+      if (!composer || !composer.isConnected) throw new Error('Composer element not found or disconnected');
+
+      // Assert that activeElement is not an input or search field
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
+        try { document.activeElement.blur(); } catch (_) {}
+      }
 
       composer.focus();
       await sleep(randomRange(70, 120));
+      if (document.activeElement !== composer && composer.isConnected) {
+        composer.focus();
+      }
 
       const selection = window.getSelection();
       const range = document.createRange();
@@ -1641,6 +1670,20 @@
 
       for (let i = 0; i < text.length; i++) {
         if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
+        if (!composer || !composer.isConnected) throw new Error('Composer disconnected during typing');
+
+        // Re-assert composer focus if focus drifted to an input or outside composer
+        if (document.activeElement !== composer) {
+          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
+            try { document.activeElement.blur(); } catch (_) {}
+          }
+          composer.focus();
+        }
+
+        // Hard guard: NEVER type if activeElement is an input
+        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
+          throw new Error('FOCUS_HIJACK_PREVENTED: activeElement is an input field');
+        }
 
         const char = text[i];
 
@@ -1818,7 +1861,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.3)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.4)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3605,5 +3648,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.3] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.4] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
