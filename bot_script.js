@@ -69,6 +69,201 @@
   }
   window.__MBS_AUTOMATOR_V637_LOADED__ = true;
 
+  class FocusIntegrityError extends Error {
+    constructor(message) {
+      super(message);
+      this.name = 'FocusIntegrityError';
+    }
+  }
+
+  const botDraftOwnership = new WeakMap();
+
+  class TTLMap {
+    constructor(maxEntries = 2000, defaultTtlMs = 600000) {
+      this.maxEntries = maxEntries;
+      this.defaultTtlMs = defaultTtlMs;
+      this.map = new Map();
+    }
+
+    set(key, value, ttlMs = null) {
+      this.evictExpired();
+      if (this.map.size >= this.maxEntries) {
+        const oldestKey = this.map.keys().next().value;
+        if (oldestKey !== undefined) this.map.delete(oldestKey);
+      }
+      const duration = (typeof ttlMs === 'number' && ttlMs > 0) ? ttlMs : this.defaultTtlMs;
+      let expires;
+      if (typeof value === 'number' && value > Date.now()) {
+        expires = value;
+      } else {
+        expires = Date.now() + duration;
+      }
+      this.map.set(key, { value, expires });
+      return this;
+    }
+
+    get(key) {
+      const entry = this.map.get(key);
+      if (!entry) return undefined;
+      if (Date.now() > entry.expires) {
+        this.map.delete(key);
+        return undefined;
+      }
+      return entry.value;
+    }
+
+    has(key) {
+      return this.get(key) !== undefined;
+    }
+
+    delete(key) {
+      return this.map.delete(key);
+    }
+
+    clear() {
+      this.map.clear();
+    }
+
+    get size() {
+      this.evictExpired();
+      return this.map.size;
+    }
+
+    *keys() {
+      this.evictExpired();
+      for (const [key, entry] of this.map.entries()) {
+        if (Date.now() <= entry.expires) yield key;
+      }
+    }
+
+    evictExpired() {
+      const now = Date.now();
+      for (const [key, entry] of this.map.entries()) {
+        if (now > entry.expires) {
+          this.map.delete(key);
+        }
+      }
+    }
+  }
+
+  class RegexSandbox {
+    constructor(timeoutMs = 30) {
+      this.timeoutMs = timeoutMs;
+      this.seq = 0;
+      this.pending = new Map();
+      this.worker = null;
+      try {
+        this.#spawn();
+      } catch (e) {
+        console.warn('[MBS Automator] CSP prevented Worker creation. Using safe inline evaluation.', e);
+        this.worker = null;
+      }
+    }
+
+    #spawn() {
+      if (typeof window === 'undefined' || typeof Worker === 'undefined' || typeof Blob === 'undefined') {
+        this.worker = null;
+        return;
+      }
+      try {
+        const workerCode = `
+          self.onmessage = function(e) {
+            const { id, pattern, flags, text } = e.data;
+            try {
+              const re = new RegExp(pattern, flags);
+              const matched = re.test(text);
+              self.postMessage({ id, success: true, matched });
+            } catch (err) {
+              self.postMessage({ id, success: false, error: err.message });
+            }
+          };
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        try {
+          this.worker = new Worker(url);
+        } finally {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+        }
+
+        this.worker.onmessage = (e) => {
+          const { id, success, matched, error } = e.data;
+          const req = this.pending.get(id);
+          if (req) {
+            this.pending.delete(id);
+            clearTimeout(req.timer);
+            if (success) req.resolve(Boolean(matched));
+            else req.reject(new Error(error || 'REGEX_EVAL_ERROR'));
+          }
+        };
+
+        this.worker.onerror = (err) => {
+          console.warn('[MBS Automator] Regex Worker error/CSP denial. Falling back to inline.', err);
+          try { if (this.worker) this.worker.terminate(); } catch (_) {}
+          this.worker = null;
+          this.terminatePending(new Error('WORKER_ERROR'));
+        };
+      } catch (e) {
+        console.warn('[MBS Automator] CSP prevented Worker creation. Using safe inline evaluation.', e);
+        this.worker = null;
+      }
+    }
+
+    terminatePending(err) {
+      for (const req of this.pending.values()) {
+        clearTimeout(req.timer);
+        req.reject(err);
+      }
+      this.pending.clear();
+    }
+
+    async test(pattern, flags, text, timeoutMs = null) {
+      if (!this.worker) {
+        return this.testInline(pattern, flags, text);
+      }
+
+      const id = ++this.seq;
+      const timeout = timeoutMs || this.timeoutMs;
+
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          try {
+            if (this.worker) this.worker.terminate();
+          } catch (_) {}
+          this.worker = null;
+          try {
+            this.#spawn();
+          } catch (_) {}
+          resolve(this.testInline(pattern, flags, text));
+        }, timeout);
+
+        this.pending.set(id, { resolve, timer });
+
+        try {
+          this.worker.postMessage({ id, pattern, flags, text });
+        } catch (_) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          this.worker = null;
+          resolve(this.testInline(pattern, flags, text));
+        }
+      });
+    }
+
+    testInline(pattern, flags, text) {
+      try {
+        const safeText = (typeof text === 'string' && text.length > 512) ? text.slice(0, 512) : (text || '');
+        const re = new RegExp(pattern, flags);
+        return re.test(safeText);
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  const regexSandbox = new RegexSandbox();
+
   // ---------------------------------------------------------------------------
   // 1. DYNAMIC TENANT EXTRACTION & STORAGE ISOLATION
   // ---------------------------------------------------------------------------
