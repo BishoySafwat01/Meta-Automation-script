@@ -24,6 +24,7 @@
     profiles: [],
     selectedProfile: null,
     currentConfig: null,
+    automationState: {}, // profile_name -> in-page status ('RUNNING' | 'PAUSED' | 'READY' | 'STOPPED' | etc.)
     logs: {}, // profile_name -> array of html log entries
     stats: {}, // profile_name -> { evaluated, matched, unread, skipped }
     modalMode: null, // 'create' | 'rename'
@@ -132,10 +133,9 @@
     }
 
     if (statusText) {
+      state.automationState[profName] = statusText;
       const prof = state.profiles.find(p => p.name === profName);
       if (prof) {
-        const isStopped = statusText === 'READY' || statusText === 'جاهز' || statusText === 'STOPPED';
-        prof.status = isStopped ? 'STOPPED' : 'RUNNING';
         prof.rawStatus = statusText;
         renderProfilesList();
         if (state.selectedProfile === profName) {
@@ -225,7 +225,7 @@
         <div class="profile-card-bottom">
           <span class="profile-card-rules-tag">${p.rules_count || 0} قاعدة رد</span>
           <button class="btn-card-toggle ${isRunning ? 'stop' : 'start'}">
-            ${isRunning ? `${ICONS.stop} <span>إيقاف</span>` : `${ICONS.play} <span>تشغيل</span>`}
+            ${isRunning ? `${ICONS.stop} <span>إغلاق المتصفح</span>` : `${ICONS.play} <span>فتح المتصفح</span>`}
           </button>
         </div>
       `;
@@ -240,6 +240,7 @@
         e.stopPropagation();
         if (isRunning) {
           await callApi('stop_profile', p.name);
+          state.automationState[p.name] = 'STOPPED';
         } else {
           // Launch browser visibly
           await callApi('start_profile', p.name, false);
@@ -292,16 +293,40 @@
   function updateProfileHeaderUI(prof) {
     if (!prof) return;
     elements.activeProfileName.textContent = prof.name;
-    const isRunning = prof.status === 'RUNNING';
+    const isBrowserRunning = prof.status === 'RUNNING';
+    const autoState = (state.automationState[prof.name] || prof.rawStatus || '').toUpperCase();
 
-    elements.activeProfileStatus.innerHTML = `
-      <span class="ghost-dot ${isRunning ? 'running' : 'stopped'}" style="margin-left: 6px;"></span>
-      <span>${isRunning ? 'يعمل بالمتصفح' : 'جاهز للتشغيل'}</span>
-    `;
-    elements.activeProfileStatus.className = `stage-status-badge ${isRunning ? 'status-running' : 'status-ready'}`;
-
-    elements.btnActiveStart.style.display = isRunning ? 'none' : 'inline-flex';
-    elements.btnActiveStop.style.display = isRunning ? 'inline-flex' : 'none';
+    if (!isBrowserRunning) {
+      // a. Browser Stopped
+      elements.activeProfileStatus.innerHTML = `
+        <span class="ghost-dot stopped" style="margin-left: 6px;"></span>
+        <span>المتصفح مغلق</span>
+      `;
+      elements.activeProfileStatus.className = 'stage-status-badge status-ready';
+      elements.btnActiveStart.style.display = 'inline-flex';
+      elements.btnActiveStop.style.display = 'none';
+    } else {
+      const isLoopActive = autoState === 'RUNNING' || autoState === 'COOLDOWN' || autoState === 'SEARCHING';
+      if (isLoopActive) {
+        // c. Browser Running & Loop Active
+        elements.activeProfileStatus.innerHTML = `
+          <span class="ghost-dot running" style="margin-left: 6px;"></span>
+          <span>الأتمتة قيد العمل 🟢</span>
+        `;
+        elements.activeProfileStatus.className = 'stage-status-badge status-running';
+        elements.btnActiveStart.style.display = 'none';
+        elements.btnActiveStop.style.display = 'inline-flex';
+      } else {
+        // b. Browser Running & Loop Paused (or READY)
+        elements.activeProfileStatus.innerHTML = `
+          <span class="ghost-dot paused" style="margin-left: 6px;"></span>
+          <span>جاهز (الأتمتة متوقفة)</span>
+        `;
+        elements.activeProfileStatus.className = 'stage-status-badge status-paused';
+        elements.btnActiveStart.style.display = 'inline-flex';
+        elements.btnActiveStop.style.display = 'none';
+      }
+    }
   }
 
   function updateStatsUI(s) {
@@ -320,27 +345,52 @@
 
     const rules = (state.currentConfig && state.currentConfig.rules) || [];
     rules.forEach((rule, idx) => {
+      // Ensure backward compatibility: convert rule.keyword string to rule.keywords array if needed
+      if (!Array.isArray(rule.keywords)) {
+        if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
+          rule.keywords = rule.keyword.split(',').map(s => s.trim()).filter(Boolean);
+        } else {
+          rule.keywords = [];
+        }
+      }
+      if (!rule.matchType) {
+        rule.matchType = 'contains';
+      }
+
       const card = document.createElement('div');
-      card.className = 'rule-item';
-      card.style.cssText = 'background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);';
+      card.className = 'rule-card';
       card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="rule-meta-bar">
+          <div class="rule-meta-left">
             <label class="switch">
               <input type="checkbox" class="rule-active" ${rule.active !== false ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-            <span style="font-size: 13px; font-weight: 600; color: #0f172a;">قاعدة #${idx + 1}</span>
+            <span class="rule-title">قاعدة #${idx + 1}</span>
           </div>
-          <button class="icon-action-btn rule-delete-btn" style="color: #dc2626;" title="حذف القاعدة">${ICONS.trash}</button>
+          <div class="rule-meta-right">
+            <select class="glass-select rule-match-type" title="نوع المطابقة">
+              <option value="contains" ${rule.matchType === 'contains' ? 'selected' : ''}>يحتوي (Contains)</option>
+              <option value="exact" ${rule.matchType === 'exact' ? 'selected' : ''}>تطابق تام (Exact)</option>
+              <option value="regex" ${rule.matchType === 'regex' ? 'selected' : ''}>تعبير نمطي (Regex)</option>
+            </select>
+            <button class="icon-action-btn rule-delete-btn" style="color: #dc2626;" title="حذف القاعدة">${ICONS.trash}</button>
+          </div>
         </div>
-        <div style="margin-bottom: 10px;">
-          <label style="display: block; font-size: 11.5px; color: #475569; margin-bottom: 4px; font-weight: 500;">الكلمات الدلالية المفتاحية (مفصولة بفواصل):</label>
-          <input type="text" class="rule-keyword config-input" style="width: 100%; text-align: right;" value="${escapeHtml(rule.keyword || '')}">
+
+        <div class="rule-section">
+          <div class="rule-section-header">
+            <label class="rule-section-label">الكلمات الدلالية المفتاحية:</label>
+            <span class="rule-section-hint">اضغط Enter أو فاصلة (,) لإضافة الكلمة</span>
+          </div>
+          <div class="chip-input-container">
+            <input type="text" class="chip-text-input" placeholder="اكتب كلمة واضغط Enter..." style="border: none; background: transparent; padding: 4px 6px; box-shadow: none; min-width: 140px; flex: 1; text-align: right; outline: none; font-family: inherit; font-size: 11.5px; color: #0f172a;">
+          </div>
         </div>
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label style="font-size: 11.5px; color: #475569; font-weight: 500;">نص الرد التلقائي:</label>
+
+        <div class="rule-section" style="margin-bottom: 0;">
+          <div class="rule-section-header">
+            <label class="rule-section-label">نص الرد التلقائي:</label>
             <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: #0284c7; font-weight: 600;">
               ${ICONS.info}
               <span>كل سطر جديد (Enter) يُرسل كرسالة منفصلة</span>
@@ -350,6 +400,74 @@
         </div>
       `;
 
+      // Helper to keep rule.keyword in sync with rule.keywords
+      const syncKeywords = () => {
+        rule.keyword = rule.keywords.join(', ');
+      };
+
+      // Chip Container & Input Logic
+      const chipContainer = card.querySelector('.chip-input-container');
+      const chipInput = card.querySelector('.chip-text-input');
+
+      function renderChips() {
+        chipContainer.querySelectorAll('.keyword-chip').forEach(c => c.remove());
+        rule.keywords.forEach((kw, kwIdx) => {
+          const chip = document.createElement('span');
+          chip.className = 'keyword-chip';
+          chip.innerHTML = `
+            <span>${escapeHtml(kw)}</span>
+            <span class="chip-remove" title="إزالة">&times;</span>
+          `;
+          chip.querySelector('.chip-remove').addEventListener('click', (e) => {
+            e.stopPropagation();
+            rule.keywords.splice(kwIdx, 1);
+            syncKeywords();
+            renderChips();
+            chipInput.focus();
+          });
+          chipContainer.insertBefore(chip, chipInput);
+        });
+      }
+
+      function addKeywordFromInput() {
+        const val = chipInput.value.trim().replace(/^[,\s]+|[,\s]+$/g, '');
+        if (val) {
+          const parts = val.split(',').map(s => s.trim()).filter(Boolean);
+          parts.forEach(p => {
+            if (!rule.keywords.includes(p)) {
+              rule.keywords.push(p);
+            }
+          });
+          syncKeywords();
+          renderChips();
+        }
+        chipInput.value = '';
+      }
+
+      chipContainer.addEventListener('click', (e) => {
+        if (e.target === chipContainer) {
+          chipInput.focus();
+        }
+      });
+
+      chipInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          addKeywordFromInput();
+        } else if (e.key === 'Backspace' && chipInput.value === '' && rule.keywords.length > 0) {
+          rule.keywords.pop();
+          syncKeywords();
+          renderChips();
+        }
+      });
+
+      chipInput.addEventListener('blur', () => {
+        addKeywordFromInput();
+      });
+
+      renderChips();
+
+      // Card Event Handlers
       card.querySelector('.rule-delete-btn').addEventListener('click', () => {
         rules.splice(idx, 1);
         renderRulesUI();
@@ -359,8 +477,8 @@
         rule.active = e.target.checked;
       });
 
-      card.querySelector('.rule-keyword').addEventListener('input', (e) => {
-        rule.keyword = e.target.value;
+      card.querySelector('.rule-match-type').addEventListener('change', (e) => {
+        rule.matchType = e.target.value;
       });
 
       card.querySelector('.rule-reply').addEventListener('input', (e) => {
@@ -454,22 +572,31 @@
       if (e.key === 'Escape') closeProfileModal();
     });
 
-    // Active Start / Stop
+    // Active Start / Stop (In-page automation loop)
     elements.btnActiveStart.addEventListener('click', async () => {
       if (!state.selectedProfile) return;
       const current = state.profiles.find(p => p.name === state.selectedProfile);
-      const isRunning = current && current.status === 'RUNNING';
-      if (!isRunning) {
+      const isBrowserRunning = current && current.status === 'RUNNING';
+      if (!isBrowserRunning) {
+        // Browser stopped: launch browser visibly first (main.py sends START once loaded)
         await callApi('start_profile', state.selectedProfile, false);
       } else {
+        // Browser already running: resume/start in-page automation
         await callApi('send_page_command', state.selectedProfile, 'START');
+        state.automationState[state.selectedProfile] = 'RUNNING';
       }
       await refreshProfiles();
+      const updated = state.profiles.find(p => p.name === state.selectedProfile);
+      if (updated) updateProfileHeaderUI(updated);
     });
+
     elements.btnActiveStop.addEventListener('click', async () => {
       if (!state.selectedProfile) return;
+      // Pause in-page automation without stopping the browser
       await callApi('send_page_command', state.selectedProfile, 'STOP');
-      await refreshProfiles();
+      state.automationState[state.selectedProfile] = 'STOPPED';
+      const current = state.profiles.find(p => p.name === state.selectedProfile);
+      if (current) updateProfileHeaderUI(current);
     });
 
     // Start / Stop All
@@ -496,6 +623,7 @@
       if (!state.currentConfig.rules) state.currentConfig.rules = [];
       state.currentConfig.rules.push({
         id: `rule_${Date.now()}`,
+        keywords: [],
         keyword: '',
         reply: '',
         matchType: 'contains',
@@ -507,6 +635,20 @@
     // Save Rules
     elements.btnSaveRules.addEventListener('click', async () => {
       if (!state.selectedProfile || !state.currentConfig) return;
+      // Ensure all rules have both keywords array and keyword string synchronized
+      if (Array.isArray(state.currentConfig.rules)) {
+        state.currentConfig.rules.forEach(r => {
+          if (Array.isArray(r.keywords)) {
+            r.keyword = r.keywords.join(', ');
+          } else if (typeof r.keyword === 'string') {
+            r.keywords = r.keyword.split(',').map(s => s.trim()).filter(Boolean);
+          } else {
+            r.keywords = [];
+            r.keyword = '';
+          }
+          if (!r.matchType) r.matchType = 'contains';
+        });
+      }
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
 
       const current = state.profiles.find(p => p.name === state.selectedProfile);

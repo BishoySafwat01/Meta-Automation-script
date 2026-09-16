@@ -78,6 +78,8 @@
 .ghost-dot.cooldown { background: #d97706; box-shadow: 0 0 8px rgba(217, 119, 6, 0.5); }
 .ghost-dot.monitoring { background: #0284c7; box-shadow: 0 0 8px rgba(2, 132, 199, 0.5); }
 .ghost-dot.stopped { background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, 0.5); }
+.ghost-dot.paused { background: #f59e0b; box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
+.ghost-dot.offline { background: #94a3b8; box-shadow: 0 0 8px rgba(148, 163, 184, 0.4); }
 
 .ghost-dock-content {
   display: none;
@@ -167,6 +169,7 @@
 .status-cooldown { background: rgba(245, 158, 11, 0.16); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.3); }
 .status-monitoring { background: rgba(2, 132, 199, 0.16); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3); }
 .status-stopped { background: rgba(239, 68, 68, 0.16); color: #b91c1c; border: 1px solid rgba(239, 68, 68, 0.3); }
+.status-paused { background: rgba(245, 158, 11, 0.16); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.3); }
 
 .hud-stats-bar, .hud-stats {
   padding: 10px 18px;
@@ -423,6 +426,144 @@ input:checked + .slider:before { transform: translateX(18px); }
   border-color: #0284c7;
   box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
   outline: none;
+}
+
+/* Rule Card & Interactive Chips Styles */
+.rule-card {
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
+}
+.rule-meta-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rule-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rule-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.rule-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.glass-select {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(186, 230, 253, 0.85);
+  border-radius: 10px;
+  padding: 5px 10px;
+  color: #0f172a;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.glass-select:focus {
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+.rule-section {
+  margin-bottom: 10px;
+}
+.rule-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+.rule-section-label {
+  font-size: 11.5px;
+  color: #475569;
+  font-weight: 600;
+}
+.rule-section-hint {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+.chip-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(186, 230, 253, 0.85);
+  border-radius: 10px;
+  padding: 6px 8px;
+  min-height: 40px;
+  cursor: text;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.chip-input-container:focus-within {
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+.keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(2, 132, 199, 0.12);
+  color: #0369a1;
+  border: 1px solid rgba(186, 230, 253, 0.9);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  user-select: none;
+  animation: chipFadeIn 0.15s ease-out;
+}
+@keyframes chipFadeIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+.keyword-chip .chip-remove {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  color: #0284c7;
+  transition: all 0.15s ease;
+}
+.keyword-chip .chip-remove:hover {
+  background: rgba(2, 132, 199, 0.25);
+  color: #0c4a6e;
+}
+.chip-text-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  min-width: 130px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 500;
+  padding: 2px 4px;
 }
 
 /* Footer */
