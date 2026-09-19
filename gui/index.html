@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.9)</title>
+  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.4.1)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="desktop-body">
@@ -17,7 +17,7 @@
           </svg>
           <span>Meta Automation Hub</span>
         </div>
-        <span class="version-pill">V6.3.9</span>
+        <span class="version-pill">V6.4.1</span>
       </div>
 
       <button id="btn-new-profile" class="btn-new-profile">
@@ -121,7 +121,8 @@
 
           <!-- Tab 2: Rules Management -->
           <div id="tab-rules" class="tab-pane">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <!-- Sticky Action Bar -->
+            <div class="rules-sticky-header">
               <span style="font-size: 13.5px; font-weight: 600; color: #1e293b;">قواعد الرد الآلي للصفحة</span>
               <button id="btn-save-rules" class="btn-primary" style="padding: 7px 16px; font-size: 11.5px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px;">
                 <svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -132,8 +133,12 @@
                 <span>حفظ القواعد</span>
               </button>
             </div>
+
+            <!-- Add Rule Action Button (Positioned at Top of List) -->
+            <button id="add-rule-btn" class="add-rule-btn" style="margin-bottom: 14px;">+ إضافة قاعدة رد جديدة</button>
+
+            <!-- Rules List Container -->
             <div id="rules-container"></div>
-            <button id="add-rule-btn" class="add-rule-btn" style="margin-top: 12px;">+ إضافة قاعدة رد جديدة</button>
           </div>
 
           <!-- Tab 3: Config Settings -->

@@ -283,7 +283,23 @@
 .log-tag-ERROR { color: #dc2626; font-weight: 600; }
 .log-tag-STOP { color: #dc2626; font-weight: 600; }
 
-/* Rules Tab */
+/* Rules Tab Sticky Header */
+.rules-sticky-header {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 10px 0;
+  margin-bottom: 12px;
+  background: rgba(245, 249, 255, 0.88);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid rgba(186, 230, 253, 0.45);
+}
+
 .rule-card {
   background: rgba(255, 255, 255, 0.45);
   border: 1px solid rgba(186, 230, 253, 0.7);
@@ -1131,5 +1147,15 @@ body.desktop-body {
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
+}
+
+/* Compound Ad-Context Styles */
+.context-group {
+  margin-top: 8px;
+}
+.rule-context-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 11px;
 }
 

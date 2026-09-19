@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.3.9)
+Meta Business Suite Profile Manager Module (V6.4.1)
+Author: Bishoy Safwat (Senior Automation & Systems Engineer)
 Provides thread-safe and process-isolated multi-tenant sandbox management.
 """
 
@@ -129,18 +130,33 @@ class ProfileLease:
                 fd = self._file_obj.fileno()
                 if os.name == "nt":
                     import msvcrt
+                    import sys as _sys
                     try:
+                        # [P1-LOCK-01] Always seek(0) before unlock — write ops shift file position
                         self._file_obj.seek(0)
                         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        # [P1-LOCK-01] Log to stderr instead of silently swallowing — lock leak is operator-visible
+                        # [P1-SYS-01] Guard stderr in case process runs under pythonw.exe or PyInstaller --noconsole
+                        if _sys.stderr is not None:
+                            _sys.stderr.write(
+                                f"[ProfileLease] WARNING: Windows msvcrt unlock error on "
+                                f"'{self.lock_path.name}': {e}\n"
+                            )
                 else:
                     import fcntl
                     try:
                         fcntl.flock(fd, fcntl.LOCK_UN)
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        import sys as _sys
+                        # [P1-SYS-01] Guard stderr in case process runs under pythonw.exe or PyInstaller --noconsole
+                        if _sys.stderr is not None:
+                            _sys.stderr.write(
+                                f"[ProfileLease] WARNING: POSIX flock unlock error on "
+                                f"'{self.lock_path.name}': {e}\n"
+                            )
             finally:
+                # [P1-LOCK-01] Guaranteed file closure regardless of unlock outcome
                 self._close_file()
 
     def _close_file(self):

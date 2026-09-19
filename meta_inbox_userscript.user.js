@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.9)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.4.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.9
-// @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
+// @version      6.4.1
+// @description  V6.4.1-ENTERPRISE: Non-blocking IPC Telemetry (P0-IPC-01), Windows --noconsole Lock Safety (P1-SYS-01), Terminal DOM Hard Cap (P1-GUI-01), Dynamic Composer Remount (P1-DOM-02), Send Button Pointer-Events Check (P2-DOM-03), Extended Alternation ReDoS Shielding (P2-NLP-02), Secure Draft Key Entropy (P2-DOM-04).
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.9)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.4.1)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V639_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V641_LOADED__ = true;
 
   class FocusIntegrityError extends Error {
     constructor(message) {
@@ -76,7 +76,54 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // [P0-DOM-01] DUAL-LAYER DRAFT OWNERSHIP — WeakMap (in-session) + sessionStorage (reload-safe)
+  // Survives soft tab reloads within a 60-second TTL so clearStaleComposerDraft never
+  // misclassifies the bot's own partially-typed text as a human agent draft.
+  // ---------------------------------------------------------------------------
   const botDraftOwnership = new WeakMap();
+  const BOT_DRAFT_SS_PREFIX = '__MBS_DRAFT_';
+
+  function claimBotDraft(composer, threadKey, text) {
+    // Primary: in-memory WeakMap for current session
+    botDraftOwnership.set(composer, { threadKey, text, timestamp: Date.now() });
+    // Secondary: sessionStorage TTL record for reload recovery
+    try {
+      const fallbackKey = (typeof DOM !== 'undefined' && typeof DOM.getActiveChatContactName === 'function' ? DOM.getActiveChatContactName() : '') || 'unidentified_thread';
+      const key = BOT_DRAFT_SS_PREFIX + (threadKey || fallbackKey);
+      sessionStorage.setItem(key, JSON.stringify({
+        text: typeof text === 'string' ? text.slice(0, 120) : '',
+        expires: Date.now() + 60000
+      }));
+    } catch (_) {}
+  }
+
+  function getBotDraftOwnership(composer, threadKey) {
+    // Fast path: in-memory WeakMap
+    const inMem = botDraftOwnership.get(composer);
+    if (inMem) return inMem;
+    // Reload-recovery path: sessionStorage
+    try {
+      const fallbackKey = (typeof DOM !== 'undefined' && typeof DOM.getActiveChatContactName === 'function' ? DOM.getActiveChatContactName() : '') || 'unidentified_thread';
+      const key = BOT_DRAFT_SS_PREFIX + (threadKey || fallbackKey);
+      const raw = sessionStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.expires === 'number' && Date.now() < parsed.expires) {
+          return { threadKey, text: parsed.text || '', timestamp: parsed.expires - 60000, reloaded: true };
+        }
+        sessionStorage.removeItem(key); // expired — purge
+      }
+    } catch (_) {}
+    return undefined;
+  }
+
+  function clearBotDraftSessionRecord(threadKey) {
+    try {
+      const fallbackKey = (typeof DOM !== 'undefined' && typeof DOM.getActiveChatContactName === 'function' ? DOM.getActiveChatContactName() : '') || 'unidentified_thread';
+      sessionStorage.removeItem(BOT_DRAFT_SS_PREFIX + (threadKey || fallbackKey));
+    } catch (_) {}
+  }
 
   class TTLMap {
     constructor(maxEntries = 2000, defaultTtlMs = 600000) {
@@ -224,6 +271,7 @@
     }
 
     async test(pattern, flags, text, timeoutMs = null) {
+      // [P1-REGEX-01] If no worker (CSP-blocked), use safe inline evaluation only
       if (!this.worker) {
         return this.testInline(pattern, flags, text);
       }
@@ -241,7 +289,10 @@
           try {
             this.#spawn();
           } catch (_) {}
-          resolve(this.testInline(pattern, flags, text));
+          // [P1-REGEX-01] DO NOT fall back to testInline on timeout — the pattern caused the timeout.
+          // Returning false is the safe fail-closed choice to prevent ReDoS on the main thread.
+          console.warn('[MBS RegexSandbox] تجاوز التعبير النمطي مهلة Worker (30ms). الإبلاغ الآمن بعدم التطابق (false). [REGEX HAZARD]');
+          resolve(false);
         }, timeout);
 
         this.pending.set(id, { resolve, timer });
@@ -259,6 +310,14 @@
 
     testInline(pattern, flags, text) {
       try {
+        // [P1-REGEX-01] Pre-check: reject catastrophic nested-quantifier / alternation-explosion patterns
+        // before running them on the main JS thread (no timeout safety here unlike the Worker).
+        // [P2-NLP-02] Extended alternation check traps nested alternation groups (e.g., (a|b)+)
+        const catastrophicPattern = /(\.\+|\.\*|\[.*\][+*]|\([^)]*\)[+*]){2,}|(\|[^|]*){8,}|(\([^)]*\|[^)]*\)[+*]+)/;
+        if (catastrophicPattern.test(pattern)) {
+          console.warn('[MBS RegexSandbox] Catastrophic backtracking pattern blocked from main-thread inline eval:', pattern.slice(0, 80));
+          return false;
+        }
         // [P2-SAND-01] Safe expansion to 4096 characters to prevent dropping trailing customer inquiries
         const safeText = (typeof text === 'string' && text.length > 4096) ? text.slice(0, 4096) : (text || '');
         const re = new RegExp(pattern, flags);
@@ -541,111 +600,204 @@
     if (!text || typeof text !== 'string') return '';
     const easternDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
     return text
-      .toLowerCase()
-      .replace(/[\u0640\u064B-\u065F\u0670]/g, '') // 1. حذف التشكيل والتطويل أولاً قبل فواصل الإيموجي
-      .replace(/[٠-٩]/g, d => easternDigits.indexOf(d)) // 2. توحيد الأرقام المشرقية إلى الأرقام القياسية
-      .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2') // 3. فصل الإيموجي والأعلام الملتصقة
+      // [P2-NLP-01] Step 1: Strip Tashkeel & Tatweel BEFORE toLowerCase to avoid casing ops on diacritic positions
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '')
+      // Step 2: Normalize eastern digits
+      .replace(/[٠-٩]/g, d => easternDigits.indexOf(d))
+      // [P2-NLP-01] Step 3: Separate emoji/flags BEFORE toLowerCase to preserve Regional Indicator surrogate pairs
+      .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2')
       .replace(/([\p{So}\u{1F1E6}-\u{1F1FF}])([\p{L}\p{N}])/gu, '$1 $2')
-      .replace(/[أإآ]/g, 'ا') // 4. توحيد الألف والتاء المربوطة والياء والهمزات
+      // [P2-NLP-01] Step 4: toLowerCase AFTER emoji boundary split — surrogate pairs are now safely separated
+      .toLowerCase()
+      // Step 5: Unify Arabic character variants
+      .replace(/[أإآ]/g, 'ا')
       .replace(/[ة]/g, 'ه')
       .replace(/[ى]/g, 'ي')
       .replace(/[ؤئ]/g, 'ء')
-      // 5. الحفاظ على الرموز المعتمدة مع ZWJ/ZWNJ (\u200C و \u200D) لسلامة الإيموجي المركب
+      // Step 6: Whitelist filter — preserve ZWJ/ZWNJ (\u200C و \u200D) لسلامة الإيموجي المركب
       .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u200C\u200D/:.?=&_*-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  async function evaluateActiveRules(text, rules) {
-    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
-    const normMsg = normalizeArabicText(text);
+  async function testKeywordsMatch(text, normText, rawKeywords, matchType, caseSensitive = false) {
+    if (!text || !Array.isArray(rawKeywords) || rawKeywords.length === 0) return null;
+    const mType = matchType || 'contains';
 
-    for (const rule of rules) {
-      if (!rule || !rule.active || !rule.reply) continue;
+    for (const kw of rawKeywords) {
+      if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
+      const cleanKw = kw.trim();
 
-      let rawKeywords = [];
-      if (Array.isArray(rule.keywords) && rule.keywords.length > 0) {
-        rawKeywords = rule.keywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
-      } else if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
-        rawKeywords = rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
-      }
-      if (rawKeywords.length === 0) continue;
-
-      const mType = rule.matchType || 'contains';
-
-      for (const kw of rawKeywords) {
-        if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
-        const cleanKw = kw.trim();
-
-        if (mType === 'regex') {
+      if (mType === 'regex') {
+        try {
+          const flags = caseSensitive ? 'u' : 'iu';
+          let matched = false;
           try {
-            const flags = rule.caseSensitive ? 'u' : 'iu';
-            let matched = false;
-            try {
-              matched = await regexSandbox.test(cleanKw, flags, text, 30);
-              if (!matched && normMsg) {
-                matched = await regexSandbox.test(cleanKw, flags, normMsg, 30);
-              }
-            } catch (_) {
-              continue;
-            }
-            if (matched) {
-              return { rule, matchedKeyword: kw };
+            matched = await regexSandbox.test(cleanKw, flags, text, 30);
+            if (!matched && normText) {
+              matched = await regexSandbox.test(cleanKw, flags, normText, 30);
             }
           } catch (_) {
             continue;
           }
-        } else if (mType === 'exact' || mType === 'word') {
-          const normKw = normalizeArabicText(cleanKw);
-          if (!normKw && !cleanKw) continue;
-
-          // 1. Direct equality against normalized or raw message (including case-insensitive Latin check)
-          if (normMsg && normKw && normMsg === normKw) {
-            return { rule, matchedKeyword: kw };
+          if (matched) {
+            return { matched: true, matchedKeyword: kw };
           }
-          if (text.trim() === cleanKw || text.trim().toLowerCase() === cleanKw.toLowerCase()) {
-            return { rule, matchedKeyword: kw };
-          }
+        } catch (_) {
+          continue;
+        }
+      } else if (mType === 'exact' || mType === 'word') {
+        const normKw = normalizeArabicText(cleanKw);
+        if (!normKw && !cleanKw) continue;
 
-          // Direct equality with optional definite article "ال"
-          if (normMsg && normKw) {
-            const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
-            const baseMsg = (normMsg.startsWith('ال') && normMsg.length > 2) ? normMsg.slice(2) : normMsg;
-            if (baseKw && baseMsg && baseMsg === baseKw) {
-              return { rule, matchedKeyword: kw };
+        // 1. Direct equality against normalized or raw message (including case-insensitive Latin check)
+        if (normText && normKw && normText === normKw) {
+          return { matched: true, matchedKeyword: kw };
+        }
+        if (text.trim() === cleanKw || text.trim().toLowerCase() === cleanKw.toLowerCase()) {
+          return { matched: true, matchedKeyword: kw };
+        }
+
+        // Direct equality with optional definite article "ال"
+        if (normText && normKw) {
+          const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
+          const baseMsg = (normText.startsWith('ال') && normText.length > 2) ? normText.slice(2) : normText;
+          if (baseKw && baseMsg && baseMsg === baseKw) {
+            return { matched: true, matchedKeyword: kw };
+          }
+        }
+
+        // 2. Unicode word boundary check (with dynamic optional definite article "ال")
+        if (normText && normKw) {
+          const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
+          if (baseKw) {
+            const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
+            if (boundaryRegex.test(normText)) {
+              return { matched: true, matchedKeyword: kw };
             }
           }
+        }
 
-          // 2. Unicode word boundary check (with dynamic optional definite article "ال")
-          if (normMsg && normKw) {
-            const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
-            if (baseKw) {
-              const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-              if (boundaryRegex.test(normMsg)) {
-                return { rule, matchedKeyword: kw };
-              }
-            }
-          }
+        // 3. Raw boundary check (essential for emoji / flag sequences)
+        const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
+        if (rawBoundaryRegex.test(text)) {
+          return { matched: true, matchedKeyword: kw };
+        }
+      } else {
+        // 'contains' (default substring match with case-insensitive Latin resilience)
+        const normKw = normalizeArabicText(cleanKw);
+        if (!normKw && !cleanKw) continue;
 
-          // 3. Raw boundary check (essential for emoji / flag sequences)
-          const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-          if (rawBoundaryRegex.test(text)) {
-            return { rule, matchedKeyword: kw };
-          }
-        } else {
-          // 'contains' (default substring match with case-insensitive Latin resilience)
-          const normKw = normalizeArabicText(cleanKw);
-          if (!normKw && !cleanKw) continue;
-
-          if (normMsg && normKw && normMsg.includes(normKw)) {
-            return { rule, matchedKeyword: kw };
-          }
-          if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) {
-            return { rule, matchedKeyword: kw };
-          }
+        if (normText && normKw && normText.includes(normKw)) {
+          return { matched: true, matchedKeyword: kw };
+        }
+        if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) {
+          return { matched: true, matchedKeyword: kw };
         }
       }
     }
+    return null;
+  }
+
+  async function evaluateActiveRules(text, rules, contextText = '') {
+    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
+    const normMsg = normalizeArabicText(text);
+    const normContext = contextText ? normalizeArabicText(contextText) : '';
+
+    const getRuleKeywords = (rule) => {
+      if (Array.isArray(rule.keywords) && rule.keywords.length > 0) {
+        return rule.keywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      } else if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
+        return rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    const getRuleContextKeywords = (rule) => {
+      if (Array.isArray(rule.contextKeywords) && rule.contextKeywords.length > 0) {
+        return rule.contextKeywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      } else if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.trim()) {
+        return rule.contextKeyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    const activeRules = rules.filter(r => r && r.active && r.reply);
+    const compoundRules = [];
+    const genericRules = [];
+
+    for (const rule of activeRules) {
+      const cKws = getRuleContextKeywords(rule);
+      if (cKws.length > 0) {
+        compoundRules.push({ rule, contextKeywords: cKws });
+      } else {
+        genericRules.push(rule);
+      }
+    }
+
+    // =========================================================================
+    // PASS 1: Compound Ad-Context Priority
+    // Evaluates rules requiring BOTH context match and customer keyword match
+    // =========================================================================
+    if (contextText && compoundRules.length > 0) {
+      for (const { rule, contextKeywords } of compoundRules) {
+        const rawKeywords = getRuleKeywords(rule);
+        if (rawKeywords.length === 0) continue;
+
+        // Condition 1: Context Match
+        const contextMatch = await testKeywordsMatch(
+          contextText,
+          normContext,
+          contextKeywords,
+          rule.contextMatchType || 'contains',
+          rule.caseSensitive
+        );
+        if (!contextMatch) continue;
+
+        // Condition 2: Customer Trigger Match
+        const keywordMatch = await testKeywordsMatch(
+          text,
+          normMsg,
+          rawKeywords,
+          rule.matchType || 'contains',
+          rule.caseSensitive
+        );
+        if (keywordMatch) {
+          console.log(`[MBS Rules] [COMPOUND MATCH] Rule '${rule.id || 'unnamed'}' matched keyword: "${keywordMatch.matchedKeyword}" with context: "${contextMatch.matchedKeyword}"`);
+          return {
+            rule,
+            matchedKeyword: keywordMatch.matchedKeyword,
+            matchedContextKeyword: contextMatch.matchedKeyword,
+            isCompound: true
+          };
+        }
+      }
+    }
+
+    // =========================================================================
+    // PASS 2: Generic Fallback Rules
+    // Evaluates single-condition rules based solely on customer trigger text
+    // =========================================================================
+    for (const rule of genericRules) {
+      const rawKeywords = getRuleKeywords(rule);
+      if (rawKeywords.length === 0) continue;
+
+      const keywordMatch = await testKeywordsMatch(
+        text,
+        normMsg,
+        rawKeywords,
+        rule.matchType || 'contains',
+        rule.caseSensitive
+      );
+      if (keywordMatch) {
+        return {
+          rule,
+          matchedKeyword: keywordMatch.matchedKeyword,
+          isCompound: false
+        };
+      }
+    }
+
     return null;
   }
 
@@ -723,10 +875,13 @@
       if (!node || depth > 30) return '';
       if (node.nodeType === 3) return node.nodeValue || '';
       if (node.nodeType === 1) {
-        // [P1-DOM-01] Exclude avatar elements, reaction popups, and media players
+        // [P1-DOM-01] Exclude avatar elements, reaction popups, media players, and link preview cards
+        // [P2-DOM-02] Added link preview card selectors to prevent OG-title text from polluting message extraction
         if (node.matches && node.matches(
           '[aria-label*="Profile" i], [aria-label*="صورة الملف" i], [aria-label*="ملف شخصي" i], ' +
-          '[data-testid*="reaction" i], [role="progressbar"], audio, video, svg'
+          '[data-testid*="reaction" i], [role="progressbar"], audio, video, svg, ' +
+          '[data-testid*="link_preview" i], [data-testid*="messenger_link_preview" i], ' +
+          'a[role="link"] > div, div[role="article"], .preview-card'
         )) {
           return '';
         }
@@ -864,15 +1019,19 @@
       if (!lease || !lease.composer) {
         throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
       }
-      if (!lease.composer.isConnected) {
-        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
-      }
       const currentThread = this.getActiveThreadKey();
       if (lease.threadKey && currentThread && lease.threadKey !== currentThread) {
         throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
       }
       const currentComposer = this.resolveComposer();
-      if (!currentComposer || currentComposer !== lease.composer) {
+      if (!currentComposer) {
+        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+      }
+      if (currentComposer !== lease.composer) {
+        // Legitimate React DOM remount in active thread — dynamically update lease reference
+        lease.composer = currentComposer;
+      }
+      if (!lease.composer.isConnected) {
         throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
       }
       if (document.activeElement && (
@@ -922,8 +1081,9 @@
                               content.includes('اكتب رسالة') ||
                               content.includes('Type a message');
         if (!isPlaceholder && content.length > 0) {
-          const ownership = botDraftOwnership.get(composer);
           const currentThreadKey = this.getActiveThreadKey();
+          // [P0-DOM-01] Dual-layer ownership lookup: WeakMap (in-session) + sessionStorage (reload-safe)
+          const ownership = getBotDraftOwnership(composer, currentThreadKey);
           const isBotOwned = ownership &&
             ownership.text &&
             (content === ownership.text || content.includes(ownership.text) || ownership.text.includes(content)) &&
@@ -946,6 +1106,8 @@
           } catch (_) {
             range.deleteContents();
           }
+          // [P0-DOM-01] Clear sessionStorage record after successful stale draft removal
+          clearBotDraftSessionRecord(currentThreadKey);
           this.deselectActiveChat();
         }
         return { ok: true, humanDraft: false };
@@ -1882,6 +2044,26 @@
       return false;
     },
 
+    extractThreadContext(bubbles) {
+      if (!Array.isArray(bubbles) || bubbles.length === 0) return '';
+      
+      // 1. Direct ad referral element check in canvas
+      const adEl = document.querySelector('a[href*="/ads/"], [data-ad-id], [aria-label*="إعلان ممول" i], [aria-label*="Sponsored" i]');
+      const adText = adEl ? (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(adEl) : DOM.extractTextWithAlt(adEl)).trim() : '';
+
+      // 2. Thread inception window (first 2 bubbles - automated ad prompts / icebreakers)
+      const inceptionBubbles = bubbles.slice(0, 2);
+      const inceptionText = inceptionBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : DOM.extractTextWithAlt(b))).join(' ').trim();
+
+      // 3. Recent history window (preceding 4 bubbles before tail)
+      const recentBubbles = bubbles.length > 2 ? bubbles.slice(-5, -1) : [];
+      const recentText = recentBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : DOM.extractTextWithAlt(b))).join(' ').trim();
+
+      // Combine and cap at 1,000 characters to prevent regex performance overhead
+      const combinedContext = [adText, inceptionText, recentText].filter(Boolean).join(' ');
+      return combinedContext.slice(0, 1000).trim();
+    },
+
     getMessageBubbles() {
       const composer = this.getComposer();
       const compRect = composer ? composer.getBoundingClientRect() : null;
@@ -2252,7 +2434,7 @@
       if (!isPlaceholder && currentContent.length > 0) {
         logger.log('TYPING', 'الضغط الاحتياطي على زر الإرسال...');
         const sendBtn = DOM.getSendButton();
-        if (sendBtn && sendBtn.getAttribute('aria-disabled') !== 'true' && !sendBtn.disabled) {
+        if (sendBtn && sendBtn.getAttribute('aria-disabled') !== 'true' && !sendBtn.disabled && window.getComputedStyle(sendBtn).pointerEvents !== 'none') {
           await this.naturalClick(sendBtn);
         }
       }
@@ -2353,7 +2535,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.9)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.4.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3892,9 +4074,12 @@
             const snippet = latestText.length > 40 ? latestText.slice(0, 40) + '...' : latestText;
             this.hud.log('SCAN', `فحص آخر رسالة واردة من العميل: "${snippet}"`);
 
+            const allBubbles = DOM.getMessageBubbles();
+            const contextText = DOM.extractThreadContext(allBubbles);
+
             let matchResult = null;
             try {
-              matchResult = await evaluateActiveRules(latestText, state.rules);
+              matchResult = await evaluateActiveRules(latestText, state.rules, contextText);
             } catch (evalErr) {
               this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
             }
@@ -3917,7 +4102,11 @@
 
               state.stats.matched++;
               this.hud.updateStats();
-              this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
+              if (matchResult.isCompound) {
+                this.hud.log('MATCH', `[تطابق مركب] تطابق الكلمة: "${matchedKeyword}" مع سياق الإعلان: "${matchResult.matchedContextKeyword}". جاري إرسال الرد المخصص للعميل ${contactName || contactKey}...`);
+              } else {
+                this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
+              }
 
               const composer = DOM.getComposer();
               if (!composer) {
@@ -3941,14 +4130,23 @@
                     return { skipLoop: false };
                   }
 
+                  // [TASK-1] Snapshot inbound baseline before typing starts
+                  const preSendInbound = DOM.getMessageBubbles().filter(b => !DOM.isOutboundBubble(b));
+                  const preSendTailInbound = preSendInbound.length > 0 ? preSendInbound[preSendInbound.length - 1] : null;
+                  const preSendTailText = preSendTailInbound ? DOM.extractTextWithAlt(preSendTailInbound).trim() : '';
+                  const preSendInboundCount = preSendInbound.length;
+
                   for (let idx = 0; idx < replies.length; idx++) {
                     if (state.emergencyAbort || !state.isRunning) break;
                     const snippetText = replies[idx].length > 25 ? `${replies[idx].substring(0, 25)}...` : replies[idx];
                     this.hud.log('TYPING', `إرسال الفقاعة (${idx + 1}/${replies.length}): "${snippetText}"`);
-                    botDraftOwnership.set(composer, { threadKey: DOM.getActiveThreadKey(), text: replies[idx], timestamp: Date.now() });
+                    // [P0-DOM-01] Dual-layer claim: WeakMap + sessionStorage TTL (60s reload-safe)
+                    claimBotDraft(composer, DOM.getActiveThreadKey(), replies[idx]);
                     composer.focus();
                     try {
                       await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
+                      // [P0-DOM-01] Clear sessionStorage record on confirmed delivery
+                      clearBotDraftSessionRecord(DOM.getActiveThreadKey());
                     } catch (typeErr) {
                       // [P0-DOM-01] Focus/delivery failure: restore unread and do not drop message
                       if (typeErr instanceof FocusIntegrityError || (typeErr && typeErr.name === 'FocusIntegrityError') || (typeErr && typeErr.message === 'MESSAGE_DELIVERY_VERIFICATION_FAILED')) {
@@ -3967,6 +4165,73 @@
                       await sleep(randomRange(900, 1500));
                     }
                   }
+
+                  // [TASK-1] Post-Send Verification Sweep for mid-typing customer messages
+                  await sleep(700); // Allow Meta DOM and WebSocket streams to settle
+
+                  const postSendBubbles = DOM.getMessageBubbles();
+                  const postSendInbound = postSendBubbles.filter(b => !DOM.isOutboundBubble(b));
+
+                  let midFlightBubbles = [];
+                  if (postSendInbound.length > preSendInboundCount) {
+                    midFlightBubbles = postSendInbound.slice(preSendInboundCount);
+                  } else if (postSendInbound.length > 0) {
+                    const latestPostInbound = postSendInbound[postSendInbound.length - 1];
+                    const latestPostText = DOM.extractTextWithAlt(latestPostInbound).trim();
+                    if (latestPostText && latestPostText !== preSendTailText && !preSendInbound.includes(latestPostInbound)) {
+                      midFlightBubbles = [latestPostInbound];
+                    }
+                  }
+
+                  if (midFlightBubbles.length > 0) {
+                    const midFlightText = midFlightBubbles.map(b => DOM.extractTextWithAlt(b)).join(' ').trim();
+                    this.hud.log('WARN', `[MID-TYPING] رصد رسالة جديدة من العميل أثناء الكتابة: "${midFlightText.slice(0, 40)}..."`);
+
+                    const postContextText = DOM.extractThreadContext(postSendBubbles);
+                    // Evaluate active rules against the mid-flight text
+                    const midMatch = await evaluateActiveRules(midFlightText, state.rules, postContextText);
+
+                    if (midMatch && midMatch.rule) {
+                      if (midMatch.isCompound) {
+                        this.hud.log('MATCH', `[MID-TYPING] [تطابق مركب] مطابقة قاعدة للرسالة المتداخلة (${midMatch.matchedKeyword} + ${midMatch.matchedContextKeyword}). جاري إرسال الرد المكمل...`);
+                      } else {
+                        this.hud.log('MATCH', `[MID-TYPING] مطابقة قاعدة للرسالة المتداخلة (${midMatch.matchedKeyword}). جاري إرسال الرد المكمل...`);
+                      }
+                      const followUpReplies = (typeof splitMessage === 'function' ? splitMessage(midMatch.rule.reply) : DOM.parseSequentialReplies(midMatch.rule.reply));
+                      for (let fIdx = 0; fIdx < followUpReplies.length; fIdx++) {
+                        claimBotDraft(composer, DOM.getActiveThreadKey(), followUpReplies[fIdx]);
+                        composer.focus();
+                        try {
+                          await HumanSimulator.typeIntoComposer(composer, followUpReplies[fIdx], this.hud);
+                          clearBotDraftSessionRecord(DOM.getActiveThreadKey());
+                        } catch (fErr) {
+                          this.hud.log('ERROR', `[MID-TYPING] تعذر إرسال الرد المكمل: ${fErr.message}`);
+                          break;
+                        }
+                        if (fIdx < followUpReplies.length - 1) {
+                          await DOM.waitForComposerClear(composer, 1800);
+                          await sleep(randomRange(800, 1400));
+                        }
+                      }
+                    } else {
+                      // No match: Customer asked something else while we were typing -> Hand off to Human Agent
+                      this.hud.log('UNREAD', '[MID-TYPING ESCALATION] لا توجد كلمات مطابقة للرسالة المتداخلة. إجبار استعادة المحادثة كغير مقروءة وتأمين التهدئة لمنع التجاهل...');
+
+                      // 1. Evict from processed caches so it remains eligible for human review
+                      if (contactKey) state.processedContacts.delete(contactKey);
+                      if (rowFingerprint) state.processedSnapshots.delete(rowFingerprint);
+
+                      // 2. Lock with 5-minute cooldown to neutralize the Re-Scan Trap
+                      if (contactKey) {
+                        state.chatCooldowns.set(contactKey, Date.now() + 5 * 60 * 1000);
+                      }
+
+                      // 3. Force unread restoration
+                      await this.executeBranchB(contactKey, rowFingerprint, targetRow, operationBudget || extendWatchdog);
+                      return { skipLoop: true, cooldown: 1500 };
+                    }
+                  }
+
                   this.hud.log('INFO', `تم إرسال كافة الردود بنجاح للعميل ${contactName || contactKey} (${replies.length} فقاعة).`);
                 }
               }
@@ -4216,5 +4481,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.9] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.4.1] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();

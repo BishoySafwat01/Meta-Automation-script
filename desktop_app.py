@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.3.9)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.4.1-ENTERPRISE)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -327,7 +327,9 @@ class BackgroundEngine:
                 if window:
                     try:
                         payload_json = json.dumps(event, ensure_ascii=False)
-                        window.evaluate_js(
+                        await self.loop.run_in_executor(
+                            None,
+                            window.evaluate_js,
                             f"window.__RECEIVE_TELEMETRY__ && window.__RECEIVE_TELEMETRY__({payload_json});"
                         )
                     except Exception:
@@ -356,7 +358,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.3.9)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.4.1-ENTERPRISE)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -375,7 +377,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.3.1)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.4.1-ENTERPRISE)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

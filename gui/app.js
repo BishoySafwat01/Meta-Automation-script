@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.3.9)
+ * Meta Automation Desktop Control Center (V6.4.1-ENTERPRISE)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -69,6 +69,7 @@
     terminal: document.getElementById('terminal'),
     btnClearLogs: document.getElementById('btn-clear-logs'),
     rulesContainer: document.getElementById('rules-container'),
+    tabRules: document.getElementById('tab-rules'),
     btnAddRule: document.getElementById('add-rule-btn'),
     btnSaveRules: document.getElementById('btn-save-rules'),
     cfgInboxUrl: document.getElementById('cfg-inbox-url'),
@@ -174,6 +175,9 @@
 
     if (state.selectedProfile === profName && elements.terminal) {
       elements.terminal.insertAdjacentHTML('beforeend', logItem);
+      while (elements.terminal.children.length > 500) {
+        elements.terminal.removeChild(elements.terminal.firstChild);
+      }
       elements.terminal.scrollTop = elements.terminal.scrollHeight;
     }
   }
@@ -373,6 +377,18 @@
         rule.matchType = 'contains';
       }
 
+      // [TASK-2] Ensure backward compatibility: support optional contextKeywords
+      if (!Array.isArray(rule.contextKeywords)) {
+        if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.trim()) {
+          rule.contextKeywords = rule.contextKeyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
+        } else {
+          rule.contextKeywords = [];
+        }
+      }
+      if (!rule.contextMatchType) {
+        rule.contextMatchType = 'contains';
+      }
+
       const card = document.createElement('div');
       card.className = 'rule-card';
       card.innerHTML = `
@@ -410,6 +426,16 @@
           </div>
         </div>
 
+        <div class="rule-field-group context-group" style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 8px;">
+          <label style="font-size: 11px; opacity: 0.8; display: block; margin-bottom: 4px;">
+            سياق الإعلان أو الرسالة التلقائية (اختياري - اتركها فارغة للقواعد العامة):
+          </label>
+          <input type="text" class="config-input rule-context-input" 
+                 placeholder="مثال: المشد السحري، كود الإعلان" 
+                 value="${escapeHtml(rule.contextKeyword || (rule.contextKeywords || []).join(', '))}" 
+                 data-rule-id="${rule.id || idx}">
+        </div>
+
         <div class="rule-section" style="margin-bottom: 0;">
           <div class="rule-section-header">
             <label class="rule-section-label">نص الرد التلقائي:</label>
@@ -425,6 +451,9 @@
       // Helper to keep rule.keyword in sync with rule.keywords
       const syncKeywords = () => {
         rule.keyword = rule.keywords.join(', ');
+        if (Array.isArray(rule.contextKeywords)) {
+          rule.contextKeyword = rule.contextKeywords.join(', ');
+        }
       };
 
       // Chip Container & Input Logic
@@ -575,6 +604,14 @@
         rule.reply = e.target.value;
       });
 
+      const contextInput = card.querySelector('.rule-context-input');
+      if (contextInput) {
+        contextInput.addEventListener('input', (e) => {
+          rule.contextKeyword = e.target.value;
+          rule.contextKeywords = e.target.value.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
+        });
+      }
+
       elements.rulesContainer.appendChild(card);
     });
   }
@@ -714,15 +751,30 @@
     elements.btnAddRule.addEventListener('click', () => {
       if (!state.currentConfig) state.currentConfig = { rules: [] };
       if (!state.currentConfig.rules) state.currentConfig.rules = [];
-      state.currentConfig.rules.push({
+
+      state.currentConfig.rules.unshift({
         id: `rule_${Date.now()}`,
         keywords: [],
         keyword: '',
+        contextKeywords: [],
+        contextKeyword: '',
+        contextMatchType: 'contains',
         reply: '',
         matchType: 'contains',
         active: true
       });
+
       renderRulesUI();
+
+      if (elements.tabRules) {
+        elements.tabRules.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      const firstCard = elements.rulesContainer?.querySelector('.rule-card');
+      const chipInput = firstCard?.querySelector('.chip-text-input');
+      if (chipInput) {
+        setTimeout(() => chipInput.focus(), 60);
+      }
     });
 
     // Save Rules
@@ -740,6 +792,17 @@
             r.keyword = '';
           }
           if (!r.matchType) r.matchType = 'contains';
+
+          // [TASK-2] Synchronize context keywords
+          if (Array.isArray(r.contextKeywords)) {
+            r.contextKeyword = r.contextKeywords.join(', ');
+          } else if (typeof r.contextKeyword === 'string') {
+            r.contextKeywords = r.contextKeyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
+          } else {
+            r.contextKeywords = [];
+            r.contextKeyword = '';
+          }
+          if (!r.contextMatchType) r.contextMatchType = 'contains';
         });
       }
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
