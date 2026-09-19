@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.3.8)
+ * Meta Automation Desktop Control Center (V6.3.9)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -775,6 +775,14 @@
       state.currentConfig.auto_start = elements.cfgAutoStart.checked;
 
       await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
+
+      // [P2-GUI-01] Synchronize live runtime configuration with running browser
+      const current = state.profiles.find(p => p.name === state.selectedProfile);
+      const isRunning = current && current.status === 'RUNNING';
+      if (isRunning) {
+        await callApi('send_page_command', state.selectedProfile, 'RELOAD_CONFIG', state.currentConfig.config);
+      }
+
       alert('تم حفظ الإعدادات وتطبيقها بنجاح');
     });
   }

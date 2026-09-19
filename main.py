@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.8 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.3.9 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -257,7 +257,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.8 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.3.9 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -385,6 +385,7 @@ async def inject_hud_and_rules(
         # Check if already loaded via add_init_script or prior injection
         is_already_loaded = await page.evaluate("""() => {
             return Boolean(
+                window.__MBS_AUTOMATOR_V639_LOADED__ ||
                 window.__MBS_AUTOMATOR_V638_LOADED__ ||
                 window.__MBS_AUTOMATOR_ORCHESTRATOR__ ||
                 window.__MBS_AUTOMATOR_HUD__
@@ -539,7 +540,8 @@ async def launch_persistent_context_safe(
 ) -> BrowserContext:
     """Launch persistent Chrome context with anti-throttling & lean memory flags."""
     clean_stale_locks(profile_dir, is_leased=True)
-    ACTIVE_PROFILE_DIRS.append(profile_dir)
+    if profile_dir not in ACTIVE_PROFILE_DIRS:
+        ACTIVE_PROFILE_DIRS.append(profile_dir)
 
     prefix = f"[{tenant_name}]" if tenant_name else ""
     format_log("INIT", f"إطلاق المتصفح المعزول للملف: {profile_dir.name}", prefix=prefix)
@@ -554,7 +556,8 @@ async def launch_persistent_context_safe(
             viewport=None,
             no_viewport=True,
         )
-        ACTIVE_CONTEXTS.append(context)
+        if context not in ACTIVE_CONTEXTS:
+            ACTIVE_CONTEXTS.append(context)
         return context
     except Exception as ex_channel:
         format_log("WARN", f"تعذر الإطلاق عبر channel='chrome': {ex_channel}. محاولة البحث عن مسار Chrome...", prefix=prefix)
@@ -571,7 +574,8 @@ async def launch_persistent_context_safe(
                 viewport=None,
                 no_viewport=True,
             )
-            ACTIVE_CONTEXTS.append(context)
+            if context not in ACTIVE_CONTEXTS:
+                ACTIVE_CONTEXTS.append(context)
             return context
         except Exception as ex_exec:
             format_log("ERROR", f"تعذر الإطلاق عبر المسار {chrome_bin}: {ex_exec}", prefix=prefix)
@@ -585,7 +589,8 @@ async def launch_persistent_context_safe(
             viewport=None,
             no_viewport=True,
         )
-        ACTIVE_CONTEXTS.append(context)
+        if context not in ACTIVE_CONTEXTS:
+            ACTIVE_CONTEXTS.append(context)
         return context
     except Exception as ex_default:
         format_log("ERROR", f"فشل إطلاق المتصفح بالكامل للملف {profile_dir.name}: {ex_default}", prefix=prefix)
@@ -627,126 +632,159 @@ async def run_tenant_worker(
         await emit_host_log("ERROR", f"الملف الشخصي '{profile_name}' قيد التشغيل بالفعل في عملية أخرى (PROFILE_ALREADY_RUNNING): {lease_err}")
         return
 
-    await emit_host_log("INIT", f"بدء تهيئة البروفايل: {profile_dir}")
-
-    with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
-        bot_js_code = f.read()
-
+    context = None
+    page = None
     try:
-        context = await launch_persistent_context_safe(
-            p=p,
-            profile_dir=profile_dir,
-            headless=headless,
-            tenant_name=profile_name
-        )
-        if controller:
-            controller.contexts[profile_name] = context
-            pid = controller.get_pid_for_profile(profile_name)
-            controller.pids[profile_name] = pid
-    except Exception as e:
-        await emit_host_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}")
-        return
+        await emit_host_log("INIT", f"بدء تهيئة البروفايل: {profile_dir}")
 
-    # If headless agent mode is enabled, set flag before scripts load
-    if headless_agent:
-        await context.add_init_script("window.__MBS_HEADLESS_MODE__ = true;")
+        with open(BOT_SCRIPT_PATH, "r", encoding="utf-8") as f:
+            bot_js_code = f.read()
 
-    # Add native init script for permanent zero-extension execution
-    await context.add_init_script(path=str(BOT_SCRIPT_PATH))
-
-    page = context.pages[0] if context.pages else await context.new_page()
-    ACTIVE_PAGES.append(page)
-    if controller:
-        controller.pages[profile_name] = page
-
-    await setup_page_bridges(
-        page,
-        settings,
-        config_path,
-        tenant_name=profile_name,
-        event_queue=event_queue
-    )
-
-    inbox_target = META_INBOX_URL
-    custom_inbox = settings.get("inboxUrl") or settings.get("config", {}).get("inboxUrl")
-    if custom_inbox and isinstance(custom_inbox, str):
-        custom_inbox_clean = custom_inbox.strip()
-        if custom_inbox_clean.startswith("https://business.facebook.com") or custom_inbox_clean.startswith("https://web.facebook.com") or custom_inbox_clean.startswith("https://www.facebook.com"):
-            inbox_target = custom_inbox_clean
-
-    await emit_host_log("INIT", f"فتح صفحة الصندوق: {inbox_target}")
-    try:
-        await page.goto(inbox_target, wait_until="domcontentloaded", timeout=30000)
-    except Exception as e:
-        if not SHUTDOWN_EVENT.is_set():
-            await emit_host_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}")
-
-    if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
-        return
-
-    await asyncio.sleep(2)
-    if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
-        return
-
-    await inject_hud_and_rules(
-        page,
-        bot_js_code,
-        settings,
-        prefix=prefix,
-        headless_agent=headless_agent
-    )
-
-    # Re-inject on navigation
-    async def on_reloaded():
         try:
-            await asyncio.sleep(1)
-            await inject_hud_and_rules(
-                page,
-                bot_js_code,
-                settings,
-                prefix=prefix,
-                headless_agent=headless_agent
+            context = await launch_persistent_context_safe(
+                p=p,
+                profile_dir=profile_dir,
+                headless=headless,
+                tenant_name=profile_name
             )
-            if auto_start:
-                await asyncio.sleep(0.5)
-                await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+            if controller:
+                controller.contexts[profile_name] = context
+                pid = controller.get_pid_for_profile(profile_name)
+                controller.pids[profile_name] = pid
+        except Exception as e:
+            await emit_host_log("ERROR", f"تعذر بدء المتصفح للملف {profile_name}: {e}")
+            return
+
+        # If headless agent mode is enabled, set flag before scripts load
+        if headless_agent:
+            await context.add_init_script("window.__MBS_HEADLESS_MODE__ = true;")
+
+        # Add native init script for permanent zero-extension execution
+        await context.add_init_script(path=str(BOT_SCRIPT_PATH))
+
+        page = context.pages[0] if context.pages else await context.new_page()
+        if page not in ACTIVE_PAGES:
+            ACTIVE_PAGES.append(page)
+        if controller:
+            controller.pages[profile_name] = page
+
+        await setup_page_bridges(
+            page,
+            settings,
+            config_path,
+            tenant_name=profile_name,
+            event_queue=event_queue
+        )
+
+        inbox_target = META_INBOX_URL
+        custom_inbox = settings.get("inboxUrl") or settings.get("config", {}).get("inboxUrl")
+        if custom_inbox and isinstance(custom_inbox, str):
+            custom_inbox_clean = custom_inbox.strip()
+            if custom_inbox_clean.startswith("https://business.facebook.com") or custom_inbox_clean.startswith("https://web.facebook.com") or custom_inbox_clean.startswith("https://www.facebook.com"):
+                inbox_target = custom_inbox_clean
+
+        await emit_host_log("INIT", f"فتح صفحة الصندوق: {inbox_target}")
+        try:
+            await page.goto(inbox_target, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            if not SHUTDOWN_EVENT.is_set():
+                await emit_host_log("WARN", f"تنبيه أثناء تحميل الرابط: {e}")
+
+        if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
+            return
+
+        await asyncio.sleep(2)
+        if SHUTDOWN_EVENT.is_set() or (stop_event and stop_event.is_set()) or page.is_closed():
+            return
+
+        await inject_hud_and_rules(
+            page,
+            bot_js_code,
+            settings,
+            prefix=prefix,
+            headless_agent=headless_agent
+        )
+
+        # Re-inject on navigation
+        async def on_reloaded():
+            try:
+                await asyncio.sleep(1)
+                await inject_hud_and_rules(
+                    page,
+                    bot_js_code,
+                    settings,
+                    prefix=prefix,
+                    headless_agent=headless_agent
+                )
+                if auto_start:
+                    await asyncio.sleep(0.5)
+                    await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+            except Exception:
+                pass
+
+        page.on("domcontentloaded", lambda: asyncio.create_task(on_reloaded()))
+
+        if auto_start:
+            await emit_host_log("INFO", "⚡ تفعيل بدء الأتمتة التلقائي...")
+            await asyncio.sleep(1)
+            await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+
+        await emit_host_log("INFO", "✅ جلسة المتصفح نشطة وتعمل 24/7.")
+        await emit_host_log("START", "⚡ بدء تشغيل دورة الأتمتة تلقائياً...")
+        try:
+            await page.evaluate("""() => {
+                if (typeof window.__MBS_EXEC_COMMAND__ === 'function') {
+                    window.__MBS_EXEC_COMMAND__('START');
+                } else if (typeof window.__MBS_AUTOMATOR_START__ === 'function') {
+                    window.__MBS_AUTOMATOR_START__();
+                }
+            }""")
+        except Exception as e:
+            await emit_host_log("WARN", f"تعذر إرسال أمر البدء التلقائي: {e}")
+
+        while not SHUTDOWN_EVENT.is_set() and not (stop_event and stop_event.is_set()):
+            if page.is_closed():
+                await emit_host_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.")
+                break
+            await asyncio.sleep(1)
+
+        try:
+            if not page.is_closed():
+                await page.evaluate("() => window.__MBS_AUTOMATOR_STOP__ && window.__MBS_AUTOMATOR_STOP__()")
+        except Exception:
+            pass
+    finally:
+        # [P1-MEM-01] Cleanup dead page instance
+        try:
+            if page is not None and page in ACTIVE_PAGES:
+                ACTIVE_PAGES.remove(page)
         except Exception:
             pass
 
-    page.on("domcontentloaded", lambda: asyncio.create_task(on_reloaded()))
+        # [P1-MEM-01] Cleanup dead context instance & close context
+        try:
+            if context is not None:
+                if context in ACTIVE_CONTEXTS:
+                    ACTIVE_CONTEXTS.remove(context)
+                await context.close()
+        except Exception:
+            pass
 
-    if auto_start:
-        await emit_host_log("INFO", "⚡ تفعيل بدء الأتمتة التلقائي...")
-        await asyncio.sleep(1)
-        await page.evaluate("() => { setTimeout(() => window.__MBS_AUTOMATOR_START__ && window.__MBS_AUTOMATOR_START__(), 100); }")
+        # [P1-MEM-01] Cleanup dead profile directory instance
+        try:
+            if profile_dir in ACTIVE_PROFILE_DIRS:
+                ACTIVE_PROFILE_DIRS.remove(profile_dir)
+        except Exception:
+            pass
 
-    await emit_host_log("INFO", "✅ جلسة المتصفح نشطة وتعمل 24/7.")
-    await emit_host_log("START", "⚡ بدء تشغيل دورة الأتمتة تلقائياً...")
-    try:
-        await page.evaluate("""() => {
-            if (typeof window.__MBS_EXEC_COMMAND__ === 'function') {
-                window.__MBS_EXEC_COMMAND__('START');
-            } else if (typeof window.__MBS_AUTOMATOR_START__ === 'function') {
-                window.__MBS_AUTOMATOR_START__();
-            }
-        }""")
-    except Exception as e:
-        await emit_host_log("WARN", f"تعذر إرسال أمر البدء التلقائي: {e}")
-
-    while not SHUTDOWN_EVENT.is_set() and not (stop_event and stop_event.is_set()):
-        if page.is_closed():
-            await emit_host_log("WARN", "تم إغلاق نافذة المتصفح بواسطة المشغل.")
-            break
-        await asyncio.sleep(1)
-
-    try:
-        if not page.is_closed():
-            await page.evaluate("() => window.__MBS_AUTOMATOR_STOP__ && window.__MBS_AUTOMATOR_STOP__()")
-        await context.close()
-    except Exception:
-        pass
-    finally:
         clean_stale_locks(profile_dir, is_leased=True)
+
+        # [P0-SYS-01] Guaranteed ProfileLease release on worker exit
+        try:
+            profile_lease.release()
+            await emit_host_log("STOP", f"تم تحرير حظر الملف الشخصي بنجاح: {profile_name}")
+        except Exception:
+            pass
 
 # ---------------------------------------------------------------------------
 # Asynchronous Multi-Worker Process & Telemetry Controller
@@ -890,7 +928,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.8)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.3.9)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

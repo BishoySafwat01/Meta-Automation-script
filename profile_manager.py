@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.3.8)
+Meta Business Suite Profile Manager Module (V6.3.9)
 Provides thread-safe and process-isolated multi-tenant sandbox management.
 """
 
@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import json
+import time
 import shutil
 import tempfile
 from pathlib import Path
@@ -46,7 +47,16 @@ def atomic_write_json(path: Path, value: Any) -> bool:
             f.flush()
             os.fsync(f.fileno())
 
-        os.replace(temp_path, path)
+        # Windows file lock retry with exponential backoff [P2-WIN-01]
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                os.replace(temp_path, path)
+                break
+            except PermissionError:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(0.05 * (2 ** attempt))
 
         # Execute directory fsync on POSIX systems
         if os.name != "nt":
@@ -94,6 +104,11 @@ class ProfileLease:
                 raise RuntimeError("PROFILE_ALREADY_RUNNING")
         else:
             import fcntl
+            try:
+                flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+                fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+            except Exception:
+                pass
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except (OSError, IOError):

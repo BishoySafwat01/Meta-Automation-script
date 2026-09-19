@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.8)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.9)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.3.8
+// @version      6.3.9
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.8)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.9)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V638_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V638_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V639_LOADED__ = true;
 
   class FocusIntegrityError extends Error {
     constructor(message) {
@@ -83,20 +83,26 @@
       this.maxEntries = maxEntries;
       this.defaultTtlMs = defaultTtlMs;
       this.map = new Map();
+      this.lastPrune = Date.now();
     }
 
     set(key, value, ttlMs = null) {
-      this.evictExpired();
+      const now = Date.now();
+      // [P1-PERF-01] Amortized eviction: avoid full O(N) scan on every single insertion
+      if (this.map.size >= this.maxEntries || (now - this.lastPrune > 15000)) {
+        this.evictExpired();
+        this.lastPrune = now;
+      }
       if (this.map.size >= this.maxEntries) {
         const oldestKey = this.map.keys().next().value;
         if (oldestKey !== undefined) this.map.delete(oldestKey);
       }
       const duration = (typeof ttlMs === 'number' && ttlMs > 0) ? ttlMs : this.defaultTtlMs;
       let expires;
-      if (typeof value === 'number' && value > Date.now()) {
+      if (typeof value === 'number' && value > now) {
         expires = value;
       } else {
-        expires = Date.now() + duration;
+        expires = now + duration;
       }
       this.map.set(key, { value, expires });
       return this;
@@ -253,7 +259,8 @@
 
     testInline(pattern, flags, text) {
       try {
-        const safeText = (typeof text === 'string' && text.length > 512) ? text.slice(0, 512) : (text || '');
+        // [P2-SAND-01] Safe expansion to 4096 characters to prevent dropping trailing customer inquiries
+        const safeText = (typeof text === 'string' && text.length > 4096) ? text.slice(0, 4096) : (text || '');
         const re = new RegExp(pattern, flags);
         return re.test(safeText);
       } catch (_) {
@@ -532,16 +539,19 @@
 
   function normalizeArabicText(text) {
     if (!text || typeof text !== 'string') return '';
+    const easternDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
     return text
       .toLowerCase()
-      .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2')
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '') // 1. حذف التشكيل والتطويل أولاً قبل فواصل الإيموجي
+      .replace(/[٠-٩]/g, d => easternDigits.indexOf(d)) // 2. توحيد الأرقام المشرقية إلى الأرقام القياسية
+      .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2') // 3. فصل الإيموجي والأعلام الملتصقة
       .replace(/([\p{So}\u{1F1E6}-\u{1F1FF}])([\p{L}\p{N}])/gu, '$1 $2')
-      .replace(/[أإآ]/g, 'ا')
+      .replace(/[أإآ]/g, 'ا') // 4. توحيد الألف والتاء المربوطة والياء والهمزات
       .replace(/[ة]/g, 'ه')
       .replace(/[ى]/g, 'ي')
       .replace(/[ؤئ]/g, 'ء')
-      .replace(/[\u0640\u064B-\u065F\u0670]/g, '') // حذف التشكيل والتطويل
-      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}/:.?=&_*-]/gu, ' ')
+      // 5. الحفاظ على الرموز المعتمدة مع ZWJ/ZWNJ (\u200C و \u200D) لسلامة الإيموجي المركب
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u200C\u200D/:.?=&_*-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -709,35 +719,65 @@
   // 3. DOM QUERY ENGINE & SELECTORS
   // ---------------------------------------------------------------------------
   const DOM = {
-    extractTextWithAlt(node) {
-      if (!node) return '';
+    extractTextWithAlt(node, depth = 0) {
+      if (!node || depth > 30) return '';
       if (node.nodeType === 3) return node.nodeValue || '';
       if (node.nodeType === 1) {
-        if (node.tagName === 'IMG') {
-          return node.getAttribute('alt') || node.getAttribute('aria-label') || '';
+        // [P1-DOM-01] Exclude avatar elements, reaction popups, and media players
+        if (node.matches && node.matches(
+          '[aria-label*="Profile" i], [aria-label*="صورة الملف" i], [aria-label*="ملف شخصي" i], ' +
+          '[data-testid*="reaction" i], [role="progressbar"], audio, video, svg'
+        )) {
+          return '';
         }
-        if (node.tagName === 'BR') {
+        const tagName = node.tagName;
+        if (tagName === 'IMG') {
+          const isEmoji = (node.classList && node.classList.contains('emoji')) ||
+            (node.getAttribute('src') || '').includes('emoji.php') ||
+            (node.getAttribute('src') || '').includes('/emoji/') ||
+            (node.getAttribute('alt') && /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(node.getAttribute('alt')));
+          if (isEmoji) {
+            return node.getAttribute('alt') || node.getAttribute('aria-label') || '';
+          }
+          return '';
+        }
+        if (tagName === 'BR') {
           return '\n';
         }
         if (node.getAttribute('role') === 'img' && node.getAttribute('aria-label') && !node.firstChild) {
-          return node.getAttribute('aria-label') || '';
+          const aria = node.getAttribute('aria-label') || '';
+          if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(aria)) {
+            return aria;
+          }
+          return '';
         }
         let out = '';
+        const isBlock = /^(DIV|P|LI|TR|H[1-6])$/.test(tagName);
         for (let child = node.firstChild; child; child = child.nextSibling) {
-          out += (this && typeof this.extractTextWithAlt === 'function') ? this.extractTextWithAlt(child) : DOM.extractTextWithAlt(child);
+          out += (this && typeof this.extractTextWithAlt === 'function')
+            ? this.extractTextWithAlt(child, depth + 1)
+            : DOM.extractTextWithAlt(child, depth + 1);
         }
-        return out;
+        return isBlock ? ` ${out} ` : out;
       }
       return '';
     },
 
     sendEscape() {
       try {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
-        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
-        if (document.activeElement && typeof document.activeElement.blur === 'function') {
-          document.activeElement.blur();
+        // [P1-STATE-01] Dispatch Escape to activeElement, document, and window for React portal dismissal
+        const opts = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true, view: window };
+        if (document.activeElement && document.activeElement !== document.body) {
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', opts));
+          document.activeElement.dispatchEvent(new KeyboardEvent('keyup', opts));
+          if (typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+          }
         }
+        document.dispatchEvent(new KeyboardEvent('keydown', opts));
+        document.dispatchEvent(new KeyboardEvent('keyup', opts));
+        window.dispatchEvent(new KeyboardEvent('keydown', opts));
+        window.dispatchEvent(new KeyboardEvent('keyup', opts));
       } catch (_) {}
     },
 
@@ -2207,28 +2247,26 @@
 
       if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
       let currentContent = (composer.innerText || composer.textContent || '').trim();
-      const isPlaceholder = currentContent.includes('رد في Messenger') || currentContent.includes('رد في Instagram') || currentContent.length === 0;
+      const isPlaceholder = currentContent.includes('رد في Messenger') || currentContent.includes('رد في Instagram') || currentContent.includes('Reply in') || currentContent.length === 0;
 
       if (!isPlaceholder && currentContent.length > 0) {
         logger.log('TYPING', 'الضغط الاحتياطي على زر الإرسال...');
         const sendBtn = DOM.getSendButton();
-        if (sendBtn) {
+        if (sendBtn && sendBtn.getAttribute('aria-disabled') !== 'true' && !sendBtn.disabled) {
           await this.naturalClick(sendBtn);
         }
       }
 
-      // Verification that composer cleared
-      await sleep(400);
+      // [P0-DOM-02] Fail-Closed Delivery Verification: never wipe unsent messages
+      await sleep(600);
       const postContent = (composer.innerText || composer.textContent || '').trim();
-      if (!postContent.includes('رد في') && postContent.length > 0) {
-        logger.log('WARN', 'تم التحقق: المربع يحتوي على نص متبقي، جاري تفريغه...');
-        try {
-          document.execCommand('selectAll', false, null);
-          document.execCommand('delete', false, null);
-        } catch (_) {}
+      const isStillPresent = !postContent.includes('رد في') && !postContent.includes('Reply in') && postContent.length > 0;
+      if (isStillPresent) {
+        logger.log('ERROR', '[DELIVERY FAILED] تعذر إرسال الرسالة عبر Enter أو زر الإرسال. نص الرد لا يزال عالقاً في المحرر.');
+        throw new Error('MESSAGE_DELIVERY_VERIFICATION_FAILED');
       }
 
-      await sleep(400);
+      await sleep(300);
     }
   };
 
@@ -2315,7 +2353,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.8)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.9)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -3912,9 +3950,15 @@
                     try {
                       await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
                     } catch (typeErr) {
-                      if (typeErr instanceof FocusIntegrityError || (typeErr && typeErr.name === 'FocusIntegrityError')) {
-                        this.hud.log('ERROR', `[FOCUS INTEGRITY] إحباط الكتابة لمنع انحراف التركيز: ${typeErr.message}`);
-                        throw typeErr;
+                      // [P0-DOM-01] Focus/delivery failure: restore unread and do not drop message
+                      if (typeErr instanceof FocusIntegrityError || (typeErr && typeErr.name === 'FocusIntegrityError') || (typeErr && typeErr.message === 'MESSAGE_DELIVERY_VERIFICATION_FAILED')) {
+                        this.hud.log('ERROR', `[DELIVERY/FOCUS FAILURE] فشل الإرسال أو انحراف التركيز (${typeErr.message}). استعادة المحادثة كغير مقروءة لمنع فقدان الرسالة...`);
+                        await this.executeBranchB(contactKey, rowFingerprint, targetRow, operationBudget || extendWatchdog);
+                        const cooldownKey = contactKey || targetContactKey;
+                        if (cooldownKey) {
+                          state.chatCooldowns.set(cooldownKey, Date.now() + (3 * 60 * 1000));
+                        }
+                        return { skipLoop: true, cooldown: 1800 };
                       }
                       throw typeErr;
                     }
@@ -3942,6 +3986,8 @@
           try {
             rowResult = await Promise.race([processRowPromise, timeoutPromise]);
           } finally {
+            // [P1-WATCH-01] Guaranteed OperationBudget disposal to prevent dangling timers
+            if (operationBudget) operationBudget.dispose();
             if (rowTimeoutId) clearTimeout(rowTimeoutId);
           }
 
@@ -3955,14 +4001,14 @@
           }
         } catch (err) {
           if (err && err.message === 'ABORT_SIGNAL') throw err;
-          if (err && err.message === 'ROW_TIMEOUT_EXCEEDED') {
-            this.hud.log('WARN', '[WATCHDOG] تم تجاوز مهلة معالجة المحادثة (4 ثوانٍ)، تخطي فوري لمنع التعليق.');
+          if (err && (err.message === 'ROW_TIMEOUT_EXCEEDED' || err.message === 'OPERATION_BUDGET_HARD_MAX_EXCEEDED')) {
+            this.hud.log('WARN', `[WATCHDOG] تم تجاوز مهلة معالجة المحادثة (${err.message})، استعادة كغير مقروءة وتخطي فوري.`);
             try {
-              window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, null);
+            } catch (_) {}
+            try {
+              DOM.sendEscape();
               releaseChatFocus();
-              if (document.activeElement && typeof document.activeElement.blur === 'function') {
-                document.activeElement.blur();
-              }
             } catch (_) {}
             const cooldownKey = contactKey || targetContactKey;
             if (cooldownKey) {
@@ -3978,13 +4024,27 @@
             continue;
           }
 
+          // [P0-DOM-01] Safety Guard: Focus or delivery failure must restore to unread and NOT mark as processed
+          if (err instanceof FocusIntegrityError || (err && err.name === 'FocusIntegrityError') || (err && err.message === 'MESSAGE_DELIVERY_VERIFICATION_FAILED')) {
+            this.hud.log('ERROR', `[SAFETY GUARD] تم رصد خطأ تركيز/إرسال (${err.message}). استعادة كغير مقروءة وتأمين المحادثة.`);
+            try {
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, null);
+            } catch (_) {}
+            try {
+              DOM.sendEscape();
+              releaseChatFocus();
+            } catch (_) {}
+            const cooldownKey = contactKey || targetContactKey;
+            if (cooldownKey) {
+              state.chatCooldowns.set(cooldownKey, Date.now() + (3 * 60 * 1000));
+            }
+            continue;
+          }
+
           this.hud.log('WARN', `تخطي استثنائي للمحادثة الحالية لتفادي التجمد: ${err?.message || err}`);
           try {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            DOM.sendEscape();
             releaseChatFocus();
-            if (document.activeElement && typeof document.activeElement.blur === 'function') {
-              document.activeElement.blur();
-            }
           } catch (_) {}
           if (contactKey) state.processedContacts.add(contactKey);
           if (rowFingerprint) {
@@ -4133,14 +4193,18 @@
           checkAndRehydrateTenant(window.__MBS_AUTOMATOR_HUD__);
         }
         break;
+      case 'RELOAD_CONFIG':
       case 'UPDATE_CONFIG':
         if (payload) {
           try {
             const cfg = typeof payload === 'string' ? JSON.parse(payload) : payload;
             state.config = { ...state.config, ...cfg };
             saveConfig();
-            if (window.__MBS_AUTOMATOR_HUD__ && !window.__MBS_AUTOMATOR_HUD__.isHeadless) {
-              window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
+            if (window.__MBS_AUTOMATOR_HUD__) {
+              if (!window.__MBS_AUTOMATOR_HUD__.isHeadless) {
+                window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
+              }
+              window.__MBS_AUTOMATOR_HUD__.log('CONFIG', 'تم تحديث إعدادات الأتمتة فورياً من لوحة التحكم.');
             }
           } catch (e) {
             console.warn('[MBS Automator] Failed to update config from payload:', e);
@@ -4152,5 +4216,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.3.8] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
+  console.log('[MBS Automator V6.3.9] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
