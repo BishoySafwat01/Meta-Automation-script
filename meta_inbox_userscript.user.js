@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.4.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.5.0)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.4.1
-// @description  V6.4.1-ENTERPRISE: Non-blocking IPC Telemetry (P0-IPC-01), Windows --noconsole Lock Safety (P1-SYS-01), Terminal DOM Hard Cap (P1-GUI-01), Dynamic Composer Remount (P1-DOM-02), Send Button Pointer-Events Check (P2-DOM-03), Extended Alternation ReDoS Shielding (P2-NLP-02), Secure Draft Key Entropy (P2-DOM-04).
+// @version      6.5.0
+// @description  V6.5.0-ENTERPRISE: Scope-Freeze Reconciliation, Simple Rule Import, and Final Delivery Package.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.4.1)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.5.0)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,13 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V650_LOADED__ || window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
+  window.__MBS_AUTOMATOR_V650_LOADED__ = true;
   window.__MBS_AUTOMATOR_V641_LOADED__ = true;
 
   class FocusIntegrityError extends Error {
@@ -3849,7 +3850,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.4.1)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.5.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -6113,5 +6114,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.4.1] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
+  console.log('[MBS Automator V6.5.0] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.4.1)</title>
+  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.0)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="desktop-body">
@@ -17,7 +17,7 @@
           </svg>
           <span>Meta Automation Hub</span>
         </div>
-        <span class="version-pill">V6.4.1</span>
+        <span class="version-pill">V6.5.0</span>
       </div>
 
       <button id="btn-new-profile" class="btn-new-profile">
@@ -124,14 +124,24 @@
             <!-- Sticky Action Bar -->
             <div class="rules-sticky-header">
               <span style="font-size: 13.5px; font-weight: 600; color: #1e293b;">قواعد الرد الآلي للصفحة</span>
-              <button id="btn-save-rules" class="btn-primary" style="padding: 7px 16px; font-size: 11.5px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px;">
-                <svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                  <polyline points="17 21 17 13 7 13 7 21"/>
-                  <polyline points="7 3 7 8 15 8"/>
-                </svg>
-                <span>حفظ القواعد</span>
-              </button>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="btn-import-rules" class="action-btn" style="padding: 7px 14px; font-size: 11.5px; border-radius: 10px; background: rgba(56,189,248,0.12); color: #0284c7; border: 1px solid rgba(56,189,248,0.3); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                  <svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <span>استيراد القواعد</span>
+                </button>
+                <button id="btn-save-rules" class="btn-primary" style="padding: 7px 16px; font-size: 11.5px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg class="sf-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                  </svg>
+                  <span>حفظ القواعد</span>
+                </button>
+              </div>
             </div>
 
             <!-- Add Rule Action Button (Positioned at Top of List) -->
@@ -216,6 +226,36 @@
       <div class="modal-actions">
         <button id="btn-modal-cancel" class="btn-modal-cancel">إلغاء</button>
         <button id="btn-modal-confirm" class="btn-modal-confirm">تأكيد</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Rules Modal -->
+  <div id="modal-import-rules" class="desktop-modal-overlay">
+    <div class="desktop-modal-card" style="max-width: 580px; width: 95%;">
+      <div class="modal-title">استيراد القواعد من بروفايل آخر</div>
+      <div style="margin-bottom: 12px;">
+        <label style="font-size: 11.5px; color: #475569; display: block; margin-bottom: 6px;">اختر البروفايل المصدر:</label>
+        <select id="import-source-profile-select" class="glass-select" style="width: 100%;">
+          <option value="">-- اختر بروفايل مصدر --</option>
+        </select>
+      </div>
+      <div id="import-rules-selection-area" style="display: none; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #334155;">القواعد المتاحة للاستيراد:</span>
+          <button type="button" id="btn-import-select-all" class="action-btn" style="padding: 3px 8px; font-size: 11px;">تحديد الكل</button>
+        </div>
+        <div id="import-rules-list" style="max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; background: #f8fafc;">
+        </div>
+      </div>
+      <div id="import-rules-empty-state" style="display: none; padding: 20px; text-align: center; color: #64748b; font-size: 12px;">
+        لا توجد قواعد متاحة في البروفايل المحدد.
+      </div>
+      <div id="import-rules-error" style="display: none; padding: 8px; background: #fef2f2; color: #dc2626; border-radius: 6px; font-size: 11.5px; margin-bottom: 10px;">
+      </div>
+      <div class="modal-actions">
+        <button id="btn-import-cancel" class="btn-modal-cancel">إلغاء</button>
+        <button id="btn-import-confirm" class="btn-modal-confirm" disabled>استيراد القواعد المحددة</button>
       </div>
     </div>
   </div>

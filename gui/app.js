@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.4.1-ENTERPRISE)
+ * Meta Automation Desktop Control Center (V6.5.0-ENTERPRISE)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -84,6 +84,16 @@
     modalInput: document.getElementById('modal-profile-input'),
     btnModalCancel: document.getElementById('btn-modal-cancel'),
     btnModalConfirm: document.getElementById('btn-modal-confirm'),
+    btnImportRules: document.getElementById('btn-import-rules'),
+    modalImportRules: document.getElementById('modal-import-rules'),
+    importSourceSelect: document.getElementById('import-source-profile-select'),
+    importSelectionArea: document.getElementById('import-rules-selection-area'),
+    btnImportSelectAll: document.getElementById('btn-import-select-all'),
+    importRulesList: document.getElementById('import-rules-list'),
+    importEmptyState: document.getElementById('import-rules-empty-state'),
+    importError: document.getElementById('import-rules-error'),
+    btnImportCancel: document.getElementById('btn-import-cancel'),
+    btnImportConfirm: document.getElementById('btn-import-confirm'),
     tabs: document.querySelectorAll('.tab-btn'),
     tabPanes: document.querySelectorAll('.tab-pane')
   };
@@ -319,13 +329,13 @@
                            (typeof autoState === 'string' && autoState.startsWith('COOLDOWN'));
       if (isLoopActive) {
         // c. Browser Running & Loop Active
-        let label = 'الأتمتة قيد العمل 🟢';
+        let label = 'الأتمتة قيد العمل';
         let dotStyle = '';
         if (autoState === 'MONITORING') {
-          label = 'الأتمتة قيد المراقبة 🟢';
+          label = 'الأتمتة قيد المراقبة';
         } else if (autoState.startsWith('COOLDOWN')) {
           const match = autoState.match(/COOLDOWN\s*\(([^)]+)\)/);
-          label = `تهدئة مؤقتة (${match ? match[1] : 'نشطة'}) ⏳`;
+          label = `تهدئة مؤقتة (${match ? match[1] : 'نشطة'})`;
           dotStyle = 'background: #06b6d4;';
         }
 
@@ -398,7 +408,7 @@
               <input type="checkbox" class="rule-active" ${rule.active !== false ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-            <span class="rule-title">قاعدة #${idx + 1}</span>
+            <span class="rule-title">قاعدة #${idx + 1}${rule.ruleCode ? ` — ${escapeHtml(rule.ruleCode)}` : ''}</span>
           </div>
           <div class="rule-meta-right">
             <select class="glass-select rule-match-type" title="نوع المطابقة">
@@ -898,6 +908,161 @@
       alert('تم حفظ وتحديث القواعد بنجاح');
       await refreshProfiles();
     });
+
+    // -------------------------------------------------------------------------
+    // Import Rules Modal Actions
+    // -------------------------------------------------------------------------
+    let importSourceRules = [];
+
+    function updateImportConfirmState() {
+      if (!elements.importRulesList || !elements.btnImportConfirm) return;
+      const checkedBoxes = elements.importRulesList.querySelectorAll('.import-rule-check:checked');
+      const count = checkedBoxes.length;
+      elements.btnImportConfirm.disabled = (count === 0);
+      elements.btnImportConfirm.textContent = count > 0 ? `استيراد القواعد المحددة (${count})` : 'استيراد القواعد المحددة';
+    }
+
+    function renderImportRulesList(rules) {
+      if (!elements.importRulesList) return;
+      elements.importRulesList.innerHTML = '';
+      rules.forEach((r, rIdx) => {
+        const item = document.createElement('div');
+        item.className = 'import-rule-item';
+        item.style.cssText = 'padding: 8px; margin-bottom: 6px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; gap: 8px; align-items: flex-start;';
+
+        const kwList = Array.isArray(r.keywords) ? r.keywords : (r.keyword ? [r.keyword] : []);
+        const kwText = kwList.join(', ');
+        const replyText = r.reply || '';
+        const codeDisplay = r.ruleCode || '';
+
+        item.innerHTML = `
+          <input type="checkbox" class="import-rule-check" data-rule-id="${escapeHtml(r.id || String(rIdx))}" style="margin-top: 4px; cursor: pointer;">
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-weight: 600; font-size: 11.5px; color: #1e293b;">${escapeHtml(r.name || ('قاعدة #' + (rIdx + 1)))}</span>
+              ${codeDisplay ? `<span style="font-family: monospace; font-size: 10.5px; color: #0284c7; background: rgba(56,189,248,0.1); padding: 1px 5px; border-radius: 4px;">${escapeHtml(codeDisplay)}</span>` : ''}
+            </div>
+            <div style="font-size: 11px; color: #475569; margin-bottom: 3px; word-break: break-word;">
+              <strong>الكلمات:</strong> <span style="font-family: monospace; white-space: pre-wrap;">${escapeHtml(kwText)}</span>
+            </div>
+            <div style="font-size: 11px; color: #64748b; white-space: pre-wrap; max-height: 44px; overflow: hidden; text-overflow: ellipsis; word-break: break-word;">
+              <strong>الرد:</strong> ${escapeHtml(replyText)}
+            </div>
+          </div>
+        `;
+        elements.importRulesList.appendChild(item);
+      });
+
+      elements.importRulesList.querySelectorAll('.import-rule-check').forEach(chk => {
+        chk.addEventListener('change', updateImportConfirmState);
+      });
+    }
+
+    if (elements.btnImportRules) {
+      elements.btnImportRules.addEventListener('click', () => {
+        if (!state.selectedProfile) {
+          alert('يرجى اختيار بروفايل أولاً لاستيراد القواعد إليه.');
+          return;
+        }
+        if (elements.importSourceSelect) {
+          elements.importSourceSelect.innerHTML = '<option value="">-- اختر بروفايل مصدر --</option>';
+          state.profiles.forEach(p => {
+            if (p.name !== state.selectedProfile) {
+              const opt = document.createElement('option');
+              opt.value = p.name;
+              opt.textContent = p.name;
+              elements.importSourceSelect.appendChild(opt);
+            }
+          });
+        }
+        if (elements.importSelectionArea) elements.importSelectionArea.style.display = 'none';
+        if (elements.importEmptyState) elements.importEmptyState.style.display = 'none';
+        if (elements.importError) elements.importError.style.display = 'none';
+        if (elements.btnImportConfirm) {
+          elements.btnImportConfirm.disabled = true;
+          elements.btnImportConfirm.textContent = 'استيراد القواعد المحددة';
+        }
+        importSourceRules = [];
+        if (elements.modalImportRules) elements.modalImportRules.classList.add('active');
+      });
+    }
+
+    if (elements.importSourceSelect) {
+      elements.importSourceSelect.addEventListener('change', async () => {
+        const src = elements.importSourceSelect.value;
+        if (elements.importError) elements.importError.style.display = 'none';
+        if (!src) {
+          if (elements.importSelectionArea) elements.importSelectionArea.style.display = 'none';
+          if (elements.importEmptyState) elements.importEmptyState.style.display = 'none';
+          if (elements.btnImportConfirm) elements.btnImportConfirm.disabled = true;
+          importSourceRules = [];
+          return;
+        }
+
+        const cfg = await callApi('get_profile_config', src);
+        importSourceRules = (cfg && Array.isArray(cfg.rules)) ? cfg.rules : [];
+        if (!importSourceRules.length) {
+          if (elements.importSelectionArea) elements.importSelectionArea.style.display = 'none';
+          if (elements.importEmptyState) elements.importEmptyState.style.display = 'block';
+          if (elements.btnImportConfirm) elements.btnImportConfirm.disabled = true;
+        } else {
+          if (elements.importEmptyState) elements.importEmptyState.style.display = 'none';
+          if (elements.importSelectionArea) elements.importSelectionArea.style.display = 'block';
+          renderImportRulesList(importSourceRules);
+          updateImportConfirmState();
+        }
+      });
+    }
+
+    if (elements.btnImportSelectAll) {
+      elements.btnImportSelectAll.addEventListener('click', () => {
+        if (!elements.importRulesList) return;
+        const boxes = elements.importRulesList.querySelectorAll('.import-rule-check');
+        const allChecked = Array.from(boxes).every(b => b.checked);
+        boxes.forEach(b => { b.checked = !allChecked; });
+        updateImportConfirmState();
+      });
+    }
+
+    if (elements.btnImportCancel) {
+      elements.btnImportCancel.addEventListener('click', () => {
+        if (elements.modalImportRules) elements.modalImportRules.classList.remove('active');
+      });
+    }
+
+    if (elements.btnImportConfirm) {
+      elements.btnImportConfirm.addEventListener('click', async () => {
+        if (!state.selectedProfile) return;
+        const src = elements.importSourceSelect ? elements.importSourceSelect.value : '';
+        if (!src) return;
+
+        const checkedBoxes = elements.importRulesList ? elements.importRulesList.querySelectorAll('.import-rule-check:checked') : [];
+        const ruleIds = Array.from(checkedBoxes).map(b => b.dataset.ruleId);
+        if (!ruleIds.length) return;
+
+        elements.btnImportConfirm.disabled = true;
+        elements.btnImportConfirm.textContent = 'جاري الاستيراد...';
+
+        const res = await callApi('import_rules_from_profile', state.selectedProfile, src, ruleIds);
+        if (res && res.ok) {
+          if (elements.modalImportRules) elements.modalImportRules.classList.remove('active');
+          const updatedCfg = await callApi('get_profile_config', state.selectedProfile);
+          state.currentConfig = updatedCfg || { rules: [], config: {} };
+          renderRulesUI();
+          alert(`تم استيراد ${res.importedCount} قاعدة بنجاح إلى "${state.selectedProfile}"`);
+        } else {
+          const errMsg = (res && res.message) ? res.message : 'فشل استيراد القواعد.';
+          if (elements.importError) {
+            elements.importError.textContent = errMsg;
+            elements.importError.style.display = 'block';
+          } else {
+            alert(errMsg);
+          }
+          elements.btnImportConfirm.disabled = false;
+          updateImportConfirmState();
+        }
+      });
+    }
 
     // Save Config
     elements.btnSaveConfig.addEventListener('click', async () => {

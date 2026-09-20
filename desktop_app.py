@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.4.1-ENTERPRISE)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.5.0-ENTERPRISE)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -116,6 +116,12 @@ class DesktopBridgeApi:
     def save_profile_config(self, profile_name: str, data: Dict[str, Any]) -> bool:
         """Atomically persist configuration for profile."""
         return self.pm.save_profile_config(profile_name, data)
+
+    def import_rules_from_profile(
+        self, target_profile: str, source_profile: str, rule_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Synchronously import/clone selected rules from a source profile into the target profile."""
+        return self.pm.import_rules_from_profile(target_profile, source_profile, rule_ids)
 
     # -------------------------------------------------------------------------
     # Worker Lifecycle Management
@@ -358,7 +364,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.4.1-ENTERPRISE)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.0-ENTERPRISE)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -377,7 +383,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.4.1-ENTERPRISE)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.0-ENTERPRISE)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

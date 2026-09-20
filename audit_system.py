@@ -3,7 +3,7 @@
 """
 =============================================================================
 Meta Business Suite Automation Engine - Enterprise Forensic Audit Suite
-Release: V6.4.1-ENTERPRISE
+Release: V6.5.0-ENTERPRISE
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
 =============================================================================
 Unified Static Diagnostics, Kernel Leases, Arabic NLP, ReDoS, and
@@ -12,7 +12,7 @@ Two-Pass Specificity Behavioral Test Harness.
 """
 
 __author__ = "Bishoy Safwat"
-__version__ = "6.4.1"
+__version__ = "6.5.0"
 
 import os
 import re
@@ -178,8 +178,8 @@ class ForensicAuditEngine:
             p = ROOT_DIR / cvf
             if p.is_file():
                 txt = p.read_text(encoding="utf-8", errors="ignore")
-                if "V6.4.1" not in txt and "6.4.1" not in txt:
-                    self.log_fail("Version Synchronization", f"{cvf} missing V6.4.1 tag")
+                if "V6.5.0" not in txt and "6.5.0" not in txt:
+                    self.log_fail("Version Synchronization", f"{cvf} missing V6.5.0 tag")
                     version_ok = False
             else:
                 self.log_fail("Version Synchronization", f"Missing file: {cvf}")
@@ -187,14 +187,14 @@ class ForensicAuditEngine:
 
         # Verify runtime sentinel in bot script
         js_src = (ROOT_DIR / "bot_script.js").read_text(encoding="utf-8", errors="ignore")
-        if "window.__MBS_AUTOMATOR_V641_LOADED__" in js_src:
+        if "window.__MBS_AUTOMATOR_V650_LOADED__" in js_src:
             pass
         else:
-            self.log_fail("Version Synchronization", "Missing window.__MBS_AUTOMATOR_V641_LOADED__ in bot_script.js")
+            self.log_fail("Version Synchronization", "Missing window.__MBS_AUTOMATOR_V650_LOADED__ in bot_script.js")
             version_ok = False
 
         if version_ok:
-            self.log_pass("Version Synchronization", f"V6.4.1 & runtime sentinels verified across {len(core_version_files)} files")
+            self.log_pass("Version Synchronization", f"V6.5.0 & runtime sentinels verified across {len(core_version_files)} files")
 
     # =========================================================================
     # SUITE 2: KERNEL LEASES & OS CONCURRENCY HARNESS
@@ -697,7 +697,7 @@ eval(ctxObjStr);
 def main():
     engine = ForensicAuditEngine()
     print(f"\n{C_BOLD}{C_CYAN}============================================================================={C_RESET}")
-    print(f"{C_BOLD}{C_CYAN}  MBS INBOX AUTOMATOR - MASTER ENTERPRISE FORENSIC AUDIT (V6.4.1)           {C_RESET}")
+    print(f"{C_BOLD}{C_CYAN}  MBS INBOX AUTOMATOR - MASTER ENTERPRISE FORENSIC AUDIT (V6.5.0)           {C_RESET}")
     print(f"{C_BOLD}{C_CYAN}============================================================================={C_RESET}")
 
     start_time = time.time()
@@ -721,7 +721,7 @@ def main():
     print(f"{C_BOLD}{C_CYAN}-----------------------------------------------------------------------------{C_RESET}")
 
     if engine.failed == 0:
-        print(f"\n{C_BOLD}{C_GREEN}FINAL VERDICT: 100% AUDIT PASS - ENTERPRISE PRODUCTION READY (V6.4.1)!{C_RESET}\n")
+        print(f"\n{C_BOLD}{C_GREEN}FINAL VERDICT: 100% AUDIT PASS - ENTERPRISE PRODUCTION READY (V6.5.0)!{C_RESET}\n")
         sys.exit(0)
     else:
         print(f"\n{C_BOLD}{C_RED}FINAL VERDICT: AUDIT FAILED WITH {engine.failed} CRITICAL DEFECT(S)!{C_RESET}\n")
