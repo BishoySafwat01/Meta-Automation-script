@@ -329,7 +329,17 @@ def run_browser_contracts():
             window.pywebview = {
                 api: {
                     get_profiles: async () => [{ name: 'TestProfile', status: 'STOPPED', rules_count: 0 }],
+                    load_profile_config_result: async (p) => ({ ok: true, read_status: 'OK', rules_count: 0, data: { rules: [], config: {} }, sha256_token: 'dummy_token' }),
                     load_profile_config: async (p) => ({ rules: [], config: {} }),
+                    get_linked_rules_map: async () => ({}),
+                    allocate_rule_metadata: async (p) => ({
+                        id: 'rule_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                        ruleCode: 'MBS-' + Math.random().toString(36).substring(2, 10).toUpperCase()
+                    }),
+                    save_profile_config_coordinated: async (profile, config, sha) => {
+                        window.__CAPTURED_SAVES__.push(JSON.parse(JSON.stringify(config)));
+                        return { ok: true, sha256_token: 'dummy_token_2' };
+                    },
                     save_profile_config: async (profile, config) => {
                         window.__CAPTURED_SAVES__.push(JSON.parse(JSON.stringify(config)));
                         return { status: 'OK' };
@@ -342,74 +352,70 @@ def run_browser_contracts():
         gui_page.goto(f"file://{GUI_HTML_PATH}")
         gui_page.wait_for_load_state("domcontentloaded")
 
-        # Create rules for all 4 modes using the actual editor and literal inputs
+        # Create rules for all 4 modes using the primary multiline keyword editor
         editor_res = gui_page.evaluate("""async () => {
             const btnAdd = document.getElementById('add-rule-btn');
             if (!btnAdd) return { error: 'add-rule-btn not found' };
 
+            let waitRetries = 50;
+            while (waitRetries-- > 0 && btnAdd.disabled) {
+                await new Promise(r => setTimeout(r, 50));
+            }
+
+            async function addNewCard() {
+                const prevCount = document.querySelectorAll('.rule-card').length;
+                btnAdd.click();
+                let retries = 50;
+                while (retries-- > 0 && document.querySelectorAll('.rule-card').length === prevCount) {
+                    await new Promise(r => setTimeout(r, 20));
+                }
+                return document.querySelectorAll('.rule-card')[0];
+            }
+
+            function setCardKeywords(card, kws) {
+                const btnAddKw = card.querySelector('.btn-add-keyword');
+                for (let i = 0; i < kws.length; i++) {
+                    if (i > 0) {
+                        btnAddKw.click();
+                    }
+                    const textareas = card.querySelectorAll('.keyword-row .keyword-textarea');
+                    const ta = textareas[textareas.length - 1];
+                    ta.value = kws[i];
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
             // 1. Add ultra_exact rule with strict keywords containing outer spaces, commas, newlines
-            btnAdd.click();
-            let cards = document.querySelectorAll('.rule-card');
-            let card1 = cards[0];
+            let card1 = await addNewCard();
             card1.querySelector('.rule-match-type').value = 'ultra_exact';
             card1.querySelector('.rule-match-type').dispatchEvent(new Event('change', { bubbles: true }));
 
-            const literalBtn1 = card1.querySelector('.btn-literal-entry');
-            const literalTextarea1 = card1.querySelector('.literal-entry-textarea');
-            const addLiteralBtn1 = card1.querySelector('.btn-add-literal');
-
             // Add literal keywords: " سعر ", "سعر, كام", "سعر\\nالمشد"
-            const strictKeywords = [' سعر ', 'سعر, كام', 'سعر\\nالمشد'];
-            for (const kw of strictKeywords) {
-                literalBtn1.click();
-                literalTextarea1.value = kw;
-                addLiteralBtn1.click();
-            }
+            setCardKeywords(card1, [' سعر ', 'سعر, كام', 'سعر\\nالمشد']);
             card1.querySelector('.rule-reply').value = 'رد حرفي';
             card1.querySelector('.rule-reply').dispatchEvent(new Event('input', { bubbles: true }));
 
             // 2. Add contains rule
-            btnAdd.click();
-            cards = document.querySelectorAll('.rule-card');
-            let card2 = cards[0];
+            let card2 = await addNewCard();
             card2.querySelector('.rule-match-type').value = 'contains';
             card2.querySelector('.rule-match-type').dispatchEvent(new Event('change', { bubbles: true }));
-            const literalBtn2 = card2.querySelector('.btn-literal-entry');
-            const literalTextarea2 = card2.querySelector('.literal-entry-textarea');
-            const addLiteralBtn2 = card2.querySelector('.btn-add-literal');
-            literalBtn2.click();
-            literalTextarea2.value = 'محتوى_فريد';
-            addLiteralBtn2.click();
+            setCardKeywords(card2, ['محتوى_فريد']);
             card2.querySelector('.rule-reply').value = 'رد يحتوي';
             card2.querySelector('.rule-reply').dispatchEvent(new Event('input', { bubbles: true }));
 
             // 3. Add exact rule
-            btnAdd.click();
-            cards = document.querySelectorAll('.rule-card');
-            let card3 = cards[0];
+            let card3 = await addNewCard();
             card3.querySelector('.rule-match-type').value = 'exact';
             card3.querySelector('.rule-match-type').dispatchEvent(new Event('change', { bubbles: true }));
-            const literalBtn3 = card3.querySelector('.btn-literal-entry');
-            const literalTextarea3 = card3.querySelector('.literal-entry-textarea');
-            const addLiteralBtn3 = card3.querySelector('.btn-add-literal');
-            literalBtn3.click();
-            literalTextarea3.value = 'كلمة_دقيقة';
-            addLiteralBtn3.click();
+            setCardKeywords(card3, ['كلمة_دقيقة']);
             card3.querySelector('.rule-reply').value = 'رد بحدود';
             card3.querySelector('.rule-reply').dispatchEvent(new Event('input', { bubbles: true }));
 
             // 4. Add regex rule
-            btnAdd.click();
-            cards = document.querySelectorAll('.rule-card');
-            let card4 = cards[0];
+            let card4 = await addNewCard();
             card4.querySelector('.rule-match-type').value = 'regex';
             card4.querySelector('.rule-match-type').dispatchEvent(new Event('change', { bubbles: true }));
-            const literalBtn4 = card4.querySelector('.btn-literal-entry');
-            const literalTextarea4 = card4.querySelector('.literal-entry-textarea');
-            const addLiteralBtn4 = card4.querySelector('.btn-add-literal');
-            literalBtn4.click();
-            literalTextarea4.value = '^نمط_رقم_[0-9]+$';
-            addLiteralBtn4.click();
+            setCardKeywords(card4, ['^نمط_رقم_[0-9]+$']);
             card4.querySelector('.rule-reply').value = 'رد نمطي';
             card4.querySelector('.rule-reply').dispatchEvent(new Event('input', { bubbles: true }));
 

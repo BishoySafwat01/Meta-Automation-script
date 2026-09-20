@@ -228,6 +228,19 @@
       const isSelected = p.name === state.selectedProfile;
       const card = document.createElement('div');
       card.className = `profile-card ${isSelected ? 'active' : ''}`;
+
+      let rulesTagHtml = '';
+      if (p.read_status === 'MISSING') {
+        rulesTagHtml = `<span class="profile-card-rules-tag error">تهيئة مفقودة</span>`;
+      } else if (p.read_status === 'MALFORMED') {
+        rulesTagHtml = `<span class="profile-card-rules-tag error">تهيئة تالفة</span>`;
+      } else if (p.read_status === 'UNREADABLE') {
+        rulesTagHtml = `<span class="profile-card-rules-tag error">تعذر القراءة</span>`;
+      } else {
+        const countVal = (p.rules_count !== undefined && p.rules_count !== null) ? p.rules_count : 0;
+        rulesTagHtml = `<span class="profile-card-rules-tag">${countVal} قاعدة رد</span>`;
+      }
+
       card.innerHTML = `
         <div class="profile-card-top">
           <div class="profile-card-info">
@@ -240,7 +253,7 @@
           </div>
         </div>
         <div class="profile-card-bottom">
-          <span class="profile-card-rules-tag">${p.rules_count || 0} قاعدة رد</span>
+          ${rulesTagHtml}
           <button class="btn-card-toggle ${isRunning ? 'stop' : 'start'}">
             ${isRunning ? `${ICONS.stop} <span>إغلاق المتصفح</span>` : `${ICONS.play} <span>فتح المتصفح</span>`}
           </button>
@@ -283,6 +296,41 @@
     });
   }
 
+  function enableProfileControls(enabled) {
+    if (elements.btnSaveRules) elements.btnSaveRules.disabled = !enabled;
+    if (elements.btnSaveConfig) elements.btnSaveConfig.disabled = !enabled;
+    if (elements.btnAddRule) elements.btnAddRule.disabled = !enabled;
+    if (elements.btnImportRules) elements.btnImportRules.disabled = !enabled;
+  }
+
+  function renderProfileErrorUI(status, errorMsg) {
+    enableProfileControls(false);
+    let title = 'خطأ في تحميل البروفايل';
+    let desc = errorMsg || 'تعذر قراءة ملف التهيئة.';
+    if (status === 'MISSING') {
+      title = 'ملف التهيئة مفقود (config.json)';
+      desc = 'لم يتم العثور على ملف التهيئة الخاص بهذا البروفايل على القرص.';
+    } else if (status === 'MALFORMED') {
+      title = 'ملف التهيئة تالف (Invalid JSON)';
+      desc = 'محتوى ملف التهيئة تالف ولا يمكن تحليله بأمان. تم قفل التعديل لمنع فقدان البيانات.';
+    } else if (status === 'UNREADABLE') {
+      title = 'تعذر قراءة ملف التهيئة';
+      desc = 'حدث خطأ في صلاحيات القراءة أو الوصول لملف التهيئة.';
+    }
+
+    const bannerHtml = `
+      <div class="profile-error-banner">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(desc)}</span>
+        <small style="opacity: 0.8; margin-top: 4px;">لحماية بياناتك، تم تعطيل أزرار الحفظ والإضافة مؤقتاً.</small>
+      </div>
+    `;
+
+    if (elements.rulesContainer) {
+      elements.rulesContainer.innerHTML = bannerHtml;
+    }
+  }
+
   async function selectProfile(profileName) {
     state.selectedProfile = profileName;
     renderProfilesList();
@@ -300,9 +348,46 @@
       elements.terminal.scrollTop = elements.terminal.scrollHeight;
     }
 
-    // Load Config & Rules
-    const cfg = await callApi('get_profile_config', profileName);
-    state.currentConfig = cfg || { rules: [], config: {} };
+    state.selectSeq = (state.selectSeq || 0) + 1;
+    const currentSeq = state.selectSeq;
+
+    let res = null;
+    try {
+      res = await callApi('load_profile_config_result', profileName);
+    } catch (_) {}
+
+    // Anti-race protection: discard stale response
+    if (state.selectSeq !== currentSeq || state.selectedProfile !== profileName) {
+      return;
+    }
+
+    if (res && res.read_status && res.read_status !== 'OK') {
+      state.currentConfig = null;
+      state.currentConfigSha256 = null;
+      renderProfileErrorUI(res.read_status, res.error);
+      return;
+    }
+
+    try {
+      state.linkedRulesMap = (await callApi('get_linked_rules_map')) || {};
+    } catch (_) {
+      state.linkedRulesMap = {};
+    }
+
+    if (state.selectSeq !== currentSeq || state.selectedProfile !== profileName) {
+      return;
+    }
+
+    if (res && res.ok && res.data) {
+      state.currentConfig = res.data;
+      state.currentConfigSha256 = res.sha256_token;
+    } else {
+      const cfg = await callApi('get_profile_config', profileName);
+      if (state.selectSeq !== currentSeq || state.selectedProfile !== profileName) return;
+      state.currentConfig = cfg || { rules: [], config: {} };
+    }
+
+    enableProfileControls(true);
     renderRulesUI();
     renderConfigUI();
   }
@@ -375,21 +460,22 @@
 
     const rules = (state.currentConfig && state.currentConfig.rules) || [];
     rules.forEach((rule, idx) => {
-      // Ensure backward compatibility: convert rule.keyword string to rule.keywords array if needed
       if (!Array.isArray(rule.keywords)) {
-        if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
+        if (typeof rule.keyword === 'string' && rule.keyword.length > 0) {
           rule.keywords = rule.keyword.split(',').map(s => s.trim()).filter(Boolean);
         } else {
-          rule.keywords = [];
+          rule.keywords = [''];
         }
+      }
+      if (rule.keywords.length === 0) {
+        rule.keywords = [''];
       }
       if (!rule.matchType) {
         rule.matchType = 'ultra_exact';
       }
 
-      // [TASK-2] Ensure backward compatibility: support optional contextKeywords
       if (!Array.isArray(rule.contextKeywords)) {
-        if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.trim()) {
+        if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.length > 0) {
           rule.contextKeywords = rule.contextKeyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
         } else {
           rule.contextKeywords = [];
@@ -399,16 +485,33 @@
         rule.contextMatchType = 'contains';
       }
 
+      const isLinked = state.linkedRulesMap && rule.ruleCode && (state.linkedRulesMap[rule.ruleCode] > 1);
+      const linkedCount = isLinked ? state.linkedRulesMap[rule.ruleCode] : 0;
+
       const card = document.createElement('div');
       card.className = 'rule-card';
       card.innerHTML = `
         <div class="rule-meta-bar">
-          <div class="rule-meta-left">
+          <div class="rule-meta-left" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
             <label class="switch">
               <input type="checkbox" class="rule-active" ${rule.active !== false ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-            <span class="rule-title">قاعدة #${idx + 1}${rule.ruleCode ? ` — ${escapeHtml(rule.ruleCode)}` : ''}</span>
+            <span class="rule-title">قاعدة #${idx + 1}: <span class="rule-name-display">${escapeHtml(rule.name || 'بدون اسم')}</span> — (كود: <bdi dir="ltr">${escapeHtml(rule.ruleCode || 'MBS-XXXXXXXX')}</bdi>)</span>
+            ${rule.ruleCode ? `
+              <button type="button" class="btn-copy-rule-code" data-rule-code="${escapeHtml(rule.ruleCode)}" title="نسخ كود القاعدة">
+                ${ICONS.copy}
+                <span class="copy-code-feedback">نسخ الكود</span>
+              </button>
+            ` : ''}
+            ${isLinked ? `
+              <span class="badge-linked" title="مشتركة بين ${linkedCount} بروفايلات">
+                مرتبطة (Linked — ${linkedCount} بروفايلات)
+              </span>
+              <button type="button" class="btn-unlink-rule" data-rule-id="${escapeHtml(rule.id || '')}" title="فك ارتباط هذه القاعدة">
+                فك الارتباط
+              </button>
+            ` : ''}
           </div>
           <div class="rule-meta-right">
             <select class="glass-select rule-match-type" title="نوع المطابقة">
@@ -421,36 +524,27 @@
           </div>
         </div>
 
+        <div class="rule-field-group" style="margin-bottom: 8px;">
+          <label style="font-size: 11.5px; font-weight: 600; color: #334155; display: block; margin-bottom: 2px;">
+            اسم القاعدة:
+          </label>
+          <input type="text" class="config-input rule-name-input" placeholder="اسم القاعدة (مثال: استفسار عن السعر)..." value="${escapeHtml(rule.name || '')}">
+        </div>
+
         <div class="rule-section">
           <div class="rule-section-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <label class="rule-section-label" style="margin-bottom: 0;">الكلمات المفتاحية:</label>
-              <span class="rule-section-hint">اضغط Enter أو فاصلة (,) لإضافة الكلمة</span>
+              <span class="rule-section-hint">كل مربع نص يحفظ الكلمة أو العبارة بدقة (مع الفواصل والمسافات والأسطر)</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <button type="button" class="btn-literal-entry action-btn" data-rule-id="${rule.id || idx}" style="padding: 2px 8px; font-size: 11px; background: rgba(56,189,248,0.12); color: #0284c7; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer;" title="إدخال كلمات أو عبارات حرفية بدقة (مع حفظ المسافات والأسطر والفواصل)">
-                ${ICONS.pencil}
-                <span>محرر حرفي</span>
-              </button>
-              <button type="button" class="btn-copy-keywords" data-rule-id="${rule.id || idx}" title="نسخ كافة الكلمات">
-                ${ICONS.copy}
-                <span>نسخ الكلمات</span>
-              </button>
-            </div>
+            <button type="button" class="btn-copy-keywords" data-rule-id="${rule.id || idx}" title="نسخ كافة الكلمات">
+              ${ICONS.copy}
+              <span>نسخ الكلمات</span>
+            </button>
           </div>
-          <div class="chip-input-container">
-            <input type="text" class="chip-text-input" placeholder="اكتب كلمة واضغط Enter..." style="border: none; background: transparent; padding: 4px 6px; box-shadow: none; min-width: 140px; flex: 1; text-align: right; outline: none; font-family: inherit; font-size: 11.5px; color: #0f172a;">
-          </div>
-          <div class="literal-entry-panel" style="display: none; margin-top: 6px; padding: 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
-            <div style="font-size: 11px; margin-bottom: 4px; color: #475569; display: flex; justify-content: space-between;">
-              <span>أدخل الكلمة أو العبارة الحرفية (حفظ دقيق للمسافات والأسطر والفواصل):</span>
-              <span style="font-size: 10px; color: #0284c7;">[نص حرفي غير معدّل]</span>
-            </div>
-            <textarea class="literal-entry-textarea config-input" rows="2" placeholder="اكتب أو الصق النص الحرفي هنا..." style="width: 100%; font-family: monospace; font-size: 11.5px; text-align: right;"></textarea>
-            <div style="display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end;">
-              <button type="button" class="btn-add-literal action-btn" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: #fff; border: none; border-radius: 4px; cursor: pointer;">+ إضافة ككلمة حرفية</button>
-              <button type="button" class="btn-close-literal action-btn" style="padding: 4px 10px; font-size: 11px; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer;">إلغاء</button>
-            </div>
+          <div class="keywords-list-container"></div>
+          <div style="margin-top: 6px;">
+            <button type="button" class="btn-add-keyword action-btn">+ إضافة كلمة مفتاحية</button>
           </div>
         </div>
 
@@ -458,10 +552,10 @@
           <label style="font-size: 11px; opacity: 0.8; display: block; margin-bottom: 4px;">
             سياق الإعلان أو الرسالة التلقائية (اختياري - اتركها فارغة للقواعد العامة):
           </label>
-          <input type="text" class="config-input rule-context-input" 
-                 placeholder="مثال: المشد السحري، كود الإعلان" 
-                 value="${escapeHtml(rule.contextKeyword || (rule.contextKeywords || []).join(', '))}" 
-                 data-rule-id="${rule.id || idx}">
+          <div class="context-keywords-list-container"></div>
+          <div style="margin-top: 4px;">
+            <button type="button" class="btn-add-context-keyword action-btn">+ إضافة سياق إعلان</button>
+          </div>
         </div>
 
         <div class="rule-section" style="margin-bottom: 0;">
@@ -476,129 +570,172 @@
         </div>
       `;
 
-      // Helper to keep rule.keyword in sync with rule.keywords
-      const syncKeywords = () => {
-        rule.keyword = rule.keywords.join(', ');
-        if (Array.isArray(rule.contextKeywords)) {
-          rule.contextKeyword = rule.contextKeywords.join(', ');
-        }
-      };
-
-      // Chip Container & Input Logic
-      const chipContainer = card.querySelector('.chip-input-container');
-      const chipInput = card.querySelector('.chip-text-input');
-
-      function renderChips() {
-        chipContainer.querySelectorAll('.keyword-chip').forEach(c => c.remove());
-        rule.keywords.forEach((kw, kwIdx) => {
-          const chip = document.createElement('span');
-          chip.className = 'keyword-chip';
-          const hasLeadingSpace = /^\s/.test(kw);
-          const hasTrailingSpace = /\s$/.test(kw);
-          const hasNewline = kw.includes('\n');
-          const hasComma = kw.includes(',') || kw.includes('،');
-          let spaceBadge = '';
-          if (hasNewline) {
-            spaceBadge += '<span style="font-size:9px; background:rgba(59,130,246,0.18); color:#1d4ed8; padding:0 3px; border-radius:3px; margin:0 2px;">[سطر]</span>';
-          }
-          if (hasComma) {
-            spaceBadge += '<span style="font-size:9px; background:rgba(168,85,247,0.18); color:#7e22ce; padding:0 3px; border-radius:3px; margin:0 2px;">[فاصلة]</span>';
-          }
-          if (hasLeadingSpace || hasTrailingSpace) {
-            spaceBadge += '<span style="font-size:9px; background:rgba(234,179,8,0.18); color:#ca8a04; padding:0 3px; border-radius:3px; margin:0 2px;">[مسافات]</span>';
-          }
-          chip.innerHTML = `
-            <span>${escapeHtml(kw)}</span>${spaceBadge}
-            <span class="chip-remove" title="إزالة">&times;</span>
-          `;
-          chip.querySelector('.chip-remove').addEventListener('click', (e) => {
-            e.stopPropagation();
-            rule.keywords.splice(kwIdx, 1);
-            syncKeywords();
-            renderChips();
-            chipInput.focus();
-          });
-          chipContainer.insertBefore(chip, chipInput);
+      // Name input listener
+      const nameInput = card.querySelector('.rule-name-input');
+      const nameDisplay = card.querySelector('.rule-name-display');
+      if (nameInput && nameDisplay) {
+        nameInput.addEventListener('input', () => {
+          rule.name = nameInput.value;
+          nameDisplay.textContent = rule.name.trim() || 'بدون اسم';
         });
       }
 
-      function addKeywordFromInput() {
-        const rawVal = chipInput.value;
-        if (!rawVal) return;
-        if (rule.matchType === 'ultra_exact') {
-          // Reject only empty or all-whitespace keywords; preserve verbatim whitespace
-          if (rawVal.trim().length > 0) {
-            if (!rule.keywords.includes(rawVal)) {
-              rule.keywords.push(rawVal);
-            }
-            syncKeywords();
-            renderChips();
+      // Copy Rule Code button listener
+      const btnCopyCode = card.querySelector('.btn-copy-rule-code');
+      if (btnCopyCode) {
+        btnCopyCode.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const codeVal = rule.ruleCode;
+          if (!codeVal) return;
+          let copied = false;
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            try {
+              await navigator.clipboard.writeText(codeVal);
+              copied = true;
+            } catch (_) {}
           }
-        } else {
-          const val = rawVal.trim().replace(/^[,\s]+|[,\s]+$/g, '');
-          if (val) {
-            const parts = val.split(',').map(s => s.trim()).filter(Boolean);
-            parts.forEach(p => {
-              if (!rule.keywords.includes(p)) {
-                rule.keywords.push(p);
-              }
-            });
-            syncKeywords();
-            renderChips();
+          if (!copied) {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = codeVal;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.focus();
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              copied = true;
+            } catch (_) {}
           }
-        }
-        chipInput.value = '';
+          if (copied) {
+            const feedbackSpan = btnCopyCode.querySelector('.copy-code-feedback');
+            btnCopyCode.classList.add('copied');
+            if (feedbackSpan) feedbackSpan.textContent = 'تم النسخ!';
+            setTimeout(() => {
+              btnCopyCode.classList.remove('copied');
+              if (feedbackSpan) feedbackSpan.textContent = 'نسخ الكود';
+            }, 1800);
+          }
+        });
       }
 
-      chipContainer.addEventListener('click', (e) => {
-        if (e.target === chipContainer) {
-          chipInput.focus();
-        }
-      });
-
-      chipInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || (e.key === ',' && rule.matchType !== 'ultra_exact')) {
-          e.preventDefault();
-          addKeywordFromInput();
-        } else if (e.key === 'Backspace' && chipInput.value === '' && rule.keywords.length > 0) {
-          rule.keywords.pop();
-          syncKeywords();
-          renderChips();
-        }
-      });
-
-      // Smart Paste Support: automatic splitting into chips (only for non-strict rules)
-      chipInput.addEventListener('paste', (e) => {
-        if (rule.matchType === 'ultra_exact') {
-          return;
-        }
-        const pasteData = (e.clipboardData || window.clipboardData)?.getData('text');
-        if (pasteData && (pasteData.includes(',') || pasteData.includes('،') || pasteData.includes('\n'))) {
-          e.preventDefault();
-          const combined = (chipInput.value + ' ' + pasteData).trim();
-          const tokens = combined.split(/[,،\n]+/).map(s => s.trim().replace(/^[,\s]+|[,\s]+$/g, '')).filter(Boolean);
-          if (tokens.length > 0) {
-            tokens.forEach(t => {
-              if (!rule.keywords.includes(t)) {
-                rule.keywords.push(t);
-              }
-            });
-            syncKeywords();
-            renderChips();
-            chipInput.value = '';
+      // Unlink button listener
+      const btnUnlink = card.querySelector('.btn-unlink-rule');
+      if (btnUnlink) {
+        btnUnlink.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('هل أنت متأكد من فك ارتباط هذه القاعدة؟ سيتم توليد كود جديد مستقل ولن تتأثر البروفايلات الأخرى.')) return;
+          const res = await callApi('unlink_rule', state.selectedProfile, rule.id);
+          if (res && res.ok) {
+            alert('تم فك ارتباط القاعدة بنجاح وتوليد كود جديد مستقل.');
+            await selectProfile(state.selectedProfile);
+            await refreshProfiles();
+          } else {
+            alert('تعذر فك الارتباط: ' + (res ? res.message : 'فشل غير معروف'));
           }
-        }
-      });
+        });
+      }
 
-      // One-Click Copy Button Handler
+      // Primary Multiline Keyword Rows
+      const keywordsContainer = card.querySelector('.keywords-list-container');
+      const btnAddKeyword = card.querySelector('.btn-add-keyword');
+
+      function renderKeywordRows() {
+        keywordsContainer.innerHTML = '';
+        if (!Array.isArray(rule.keywords) || rule.keywords.length === 0) {
+          rule.keywords = [''];
+        }
+        rule.keywords.forEach((kw, kwIdx) => {
+          const row = document.createElement('div');
+          row.className = 'keyword-row';
+          row.innerHTML = `
+            <textarea class="keyword-textarea" rows="1" placeholder="اكتب الكلمة أو العبارة الحرفية...">${escapeHtml(kw)}</textarea>
+            <button type="button" class="btn-remove-keyword" title="حذف الكلمة">&times;</button>
+          `;
+          const ta = row.querySelector('.keyword-textarea');
+          ta.addEventListener('input', () => {
+            rule.keywords[kwIdx] = ta.value;
+            rule.keyword = rule.keywords.join(', ');
+          });
+          row.querySelector('.btn-remove-keyword').addEventListener('click', () => {
+            if (rule.keywords.length > 1) {
+              rule.keywords.splice(kwIdx, 1);
+            } else {
+              rule.keywords[0] = '';
+            }
+            rule.keyword = rule.keywords.join(', ');
+            renderKeywordRows();
+          });
+          keywordsContainer.appendChild(row);
+        });
+      }
+      renderKeywordRows();
+
+      if (btnAddKeyword) {
+        btnAddKeyword.addEventListener('click', () => {
+          if (!Array.isArray(rule.keywords)) rule.keywords = [];
+          rule.keywords.push('');
+          renderKeywordRows();
+          const textareas = keywordsContainer.querySelectorAll('.keyword-textarea');
+          if (textareas.length > 0) {
+            textareas[textareas.length - 1].focus();
+          }
+        });
+      }
+
+      // Primary Multiline Context Keyword Rows
+      const contextContainer = card.querySelector('.context-keywords-list-container');
+      const btnAddContext = card.querySelector('.btn-add-context-keyword');
+
+      function renderContextKeywordRows() {
+        contextContainer.innerHTML = '';
+        if (!Array.isArray(rule.contextKeywords)) {
+          rule.contextKeywords = [];
+        }
+        rule.contextKeywords.forEach((ckw, ckwIdx) => {
+          const row = document.createElement('div');
+          row.className = 'context-keyword-row';
+          row.innerHTML = `
+            <textarea class="context-keyword-textarea" rows="1" placeholder="اكتب سياق الإعلان...">${escapeHtml(ckw)}</textarea>
+            <button type="button" class="btn-remove-context-keyword" title="حذف السياق">&times;</button>
+          `;
+          const ta = row.querySelector('.context-keyword-textarea');
+          ta.addEventListener('input', () => {
+            rule.contextKeywords[ckwIdx] = ta.value;
+            rule.contextKeyword = rule.contextKeywords.join(', ');
+          });
+          row.querySelector('.btn-remove-context-keyword').addEventListener('click', () => {
+            rule.contextKeywords.splice(ckwIdx, 1);
+            rule.contextKeyword = rule.contextKeywords.join(', ');
+            renderContextKeywordRows();
+          });
+          contextContainer.appendChild(row);
+        });
+      }
+      renderContextKeywordRows();
+
+      if (btnAddContext) {
+        btnAddContext.addEventListener('click', () => {
+          if (!Array.isArray(rule.contextKeywords)) rule.contextKeywords = [];
+          rule.contextKeywords.push('');
+          renderContextKeywordRows();
+          const textareas = contextContainer.querySelectorAll('.context-keyword-textarea');
+          if (textareas.length > 0) {
+            textareas[textareas.length - 1].focus();
+          }
+        });
+      }
+
+      // Copy Keywords Button
       const copyBtn = card.querySelector('.btn-copy-keywords');
       if (copyBtn) {
         copyBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const kwList = Array.isArray(rule.keywords) && rule.keywords.length > 0
-            ? rule.keywords
-            : (typeof rule.keyword === 'string' ? rule.keyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean) : []);
-          const textToCopy = kwList.join(', ');
+            ? rule.keywords.filter(k => k.length > 0)
+            : [];
+          const textToCopy = kwList.join('\n');
           if (!textToCopy) return;
 
           let copied = false;
@@ -622,7 +759,6 @@
               copied = true;
             } catch (_) {}
           }
-
           if (copied) {
             const origHtml = copyBtn.innerHTML;
             copyBtn.classList.add('copied');
@@ -638,47 +774,7 @@
         });
       }
 
-      chipInput.addEventListener('blur', () => {
-        addKeywordFromInput();
-      });
-
-      renderChips();
-
-      // Literal Entry Panel Handlers
-      const literalBtn = card.querySelector('.btn-literal-entry');
-      const literalPanel = card.querySelector('.literal-entry-panel');
-      const literalTextarea = card.querySelector('.literal-entry-textarea');
-      const addLiteralBtn = card.querySelector('.btn-add-literal');
-      const closeLiteralBtn = card.querySelector('.btn-close-literal');
-
-      if (literalBtn && literalPanel) {
-        literalBtn.addEventListener('click', () => {
-          literalPanel.style.display = literalPanel.style.display === 'none' ? 'block' : 'none';
-          if (literalPanel.style.display !== 'none' && literalTextarea) {
-            literalTextarea.focus();
-          }
-        });
-      }
-      if (closeLiteralBtn && literalPanel) {
-        closeLiteralBtn.addEventListener('click', () => {
-          literalPanel.style.display = 'none';
-        });
-      }
-      if (addLiteralBtn && literalTextarea) {
-        addLiteralBtn.addEventListener('click', () => {
-          const val = literalTextarea.value;
-          if (val && val.length > 0) {
-            if (!Array.isArray(rule.keywords)) rule.keywords = [];
-            rule.keywords.push(val);
-            syncKeywords();
-            renderChips();
-            literalTextarea.value = '';
-            literalPanel.style.display = 'none';
-          }
-        });
-      }
-
-      // Card Event Handlers
+      // Card Action Handlers
       card.querySelector('.rule-delete-btn').addEventListener('click', () => {
         rules.splice(idx, 1);
         renderRulesUI();
@@ -695,14 +791,6 @@
       card.querySelector('.rule-reply').addEventListener('input', (e) => {
         rule.reply = e.target.value;
       });
-
-      const contextInput = card.querySelector('.rule-context-input');
-      if (contextInput) {
-        contextInput.addEventListener('input', (e) => {
-          rule.contextKeyword = e.target.value;
-          rule.contextKeywords = e.target.value.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
-        });
-      }
 
       elements.rulesContainer.appendChild(card);
     });
@@ -840,13 +928,23 @@
     });
 
     // Add Rule
-    elements.btnAddRule.addEventListener('click', () => {
+    elements.btnAddRule.addEventListener('click', async () => {
       if (!state.currentConfig) state.currentConfig = { rules: [] };
       if (!state.currentConfig.rules) state.currentConfig.rules = [];
 
+      let meta = null;
+      try {
+        meta = await callApi('allocate_rule_metadata', state.selectedProfile);
+      } catch (_) {}
+
+      const newId = (meta && meta.id) ? meta.id : `rule_${Date.now()}`;
+      const newCode = (meta && meta.ruleCode) ? meta.ruleCode : '';
+
       state.currentConfig.rules.unshift({
-        id: `rule_${Date.now()}`,
-        keywords: [],
+        id: newId,
+        ruleCode: newCode,
+        name: '',
+        keywords: [''],
         keyword: '',
         contextKeywords: [],
         contextKeyword: '',
@@ -863,50 +961,67 @@
       }
 
       const firstCard = elements.rulesContainer?.querySelector('.rule-card');
-      const chipInput = firstCard?.querySelector('.chip-text-input');
-      if (chipInput) {
-        setTimeout(() => chipInput.focus(), 60);
+      const kwTa = firstCard?.querySelector('.keyword-textarea');
+      if (kwTa) {
+        setTimeout(() => kwTa.focus(), 60); // chipInput.focus()
       }
     });
 
     // Save Rules
     elements.btnSaveRules.addEventListener('click', async () => {
       if (!state.selectedProfile || !state.currentConfig) return;
-      // Ensure all rules have both keywords array and keyword string synchronized
-      if (Array.isArray(state.currentConfig.rules)) {
-        state.currentConfig.rules.forEach(r => {
-          if (Array.isArray(r.keywords)) {
-            r.keyword = r.keywords.join(', ');
-          } else if (typeof r.keyword === 'string') {
-            r.keywords = r.keyword.split(',').map(s => s.trim()).filter(Boolean);
-          } else {
-            r.keywords = [];
-            r.keyword = '';
-          }
-          if (!r.matchType) r.matchType = 'ultra_exact';
 
-          // [TASK-2] Synchronize context keywords
-          if (Array.isArray(r.contextKeywords)) {
-            r.contextKeyword = r.contextKeywords.join(', ');
-          } else if (typeof r.contextKeyword === 'string') {
-            r.contextKeywords = r.contextKeyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
-          } else {
-            r.contextKeywords = [];
-            r.contextKeyword = '';
-          }
-          if (!r.contextMatchType) r.contextMatchType = 'contains';
+      const cards = elements.rulesContainer ? elements.rulesContainer.querySelectorAll('.rule-card') : [];
+      if (cards.length > 0 && Array.isArray(state.currentConfig.rules)) {
+        cards.forEach((card, idx) => {
+          const rule = state.currentConfig.rules[idx];
+          if (!rule) return;
+
+          const nameInput = card.querySelector('.rule-name-input');
+          if (nameInput) rule.name = nameInput.value;
+
+          const matchSelect = card.querySelector('.rule-match-type');
+          if (matchSelect) rule.matchType = matchSelect.value || 'ultra_exact';
+
+          const activeCheck = card.querySelector('.rule-active');
+          if (activeCheck) rule.active = activeCheck.checked;
+
+          const replyTa = card.querySelector('.rule-reply');
+          if (replyTa) rule.reply = replyTa.value;
+
+          const cardKeywords = [];
+          card.querySelectorAll('.keyword-row .keyword-textarea').forEach(ta => {
+            if (ta.value.length > 0) cardKeywords.push(ta.value);
+          });
+          rule.keywords = cardKeywords;
+          rule.keyword = cardKeywords.join(', ');
+
+          const cardContextKeywords = [];
+          card.querySelectorAll('.context-keyword-row .context-keyword-textarea').forEach(ta => {
+            if (ta.value.length > 0) cardContextKeywords.push(ta.value);
+          });
+          rule.contextKeywords = cardContextKeywords;
+          rule.contextKeyword = cardContextKeywords.join(', ');
         });
       }
-      await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
 
-      const current = state.profiles.find(p => p.name === state.selectedProfile);
-      const isRunning = current && current.status === 'RUNNING';
-      if (isRunning) {
-        await callApi('send_page_command', state.selectedProfile, 'RELOAD_RULES', state.currentConfig.rules);
+      let res = null;
+      try {
+        res = await callApi('save_profile_config_coordinated', state.selectedProfile, state.currentConfig, state.currentConfigSha256);
+      } catch (_) {
+        res = await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
       }
 
-      alert('تم حفظ وتحديث القواعد بنجاح');
-      await refreshProfiles();
+      if (res && (res.ok || res === true)) {
+        if (res.sha256_token) state.currentConfigSha256 = res.sha256_token;
+        alert('تم حفظ وتحديث القواعد بنجاح');
+        await refreshProfiles();
+        await selectProfile(state.selectedProfile);
+      } else if (res && res.code === 'LINK_CONFLICT') {
+        alert('تنبيه تضارب في القاعدة المشتركة: ' + (res.message || 'يوجد تضارب في محتوى القاعدة مع بروفايل آخر.'));
+      } else {
+        alert('حدث خطأ أثناء حفظ القواعد: ' + (res ? res.message || res.error || 'فشل الحفظ' : 'فشل غير معروف'));
+      }
     });
 
     // -------------------------------------------------------------------------
@@ -1040,16 +1155,18 @@
         const ruleIds = Array.from(checkedBoxes).map(b => b.dataset.ruleId);
         if (!ruleIds.length) return;
 
+        const modeInput = document.querySelector('input[name="import-mode"]:checked');
+        const mode = modeInput ? modeInput.value : 'clone';
+
         elements.btnImportConfirm.disabled = true;
         elements.btnImportConfirm.textContent = 'جاري الاستيراد...';
 
-        const res = await callApi('import_rules_from_profile', state.selectedProfile, src, ruleIds);
+        const res = await callApi('import_rules_from_profile', state.selectedProfile, src, ruleIds, mode);
         if (res && res.ok) {
           if (elements.modalImportRules) elements.modalImportRules.classList.remove('active');
-          const updatedCfg = await callApi('get_profile_config', state.selectedProfile);
-          state.currentConfig = updatedCfg || { rules: [], config: {} };
-          renderRulesUI();
-          alert(`تم استيراد ${res.importedCount} قاعدة بنجاح إلى "${state.selectedProfile}"`);
+          await selectProfile(state.selectedProfile);
+          await refreshProfiles();
+          alert(`تم استيراد ${res.importedCount} قاعدة بنجاح إلى "${state.selectedProfile}" (${mode === 'link' ? 'ربط مشترك' : 'نسخ مستقل'})`);
         } else {
           const errMsg = (res && res.message) ? res.message : 'فشل استيراد القواعد.';
           if (elements.importError) {

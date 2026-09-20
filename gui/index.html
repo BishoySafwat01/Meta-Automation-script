@@ -253,6 +253,22 @@
       </div>
       <div id="import-rules-error" style="display: none; padding: 8px; background: #fef2f2; color: #dc2626; border-radius: 6px; font-size: 11.5px; margin-bottom: 10px;">
       </div>
+      <div id="import-mode-container" style="margin-bottom: 12px; padding: 10px 14px; background: rgba(241,245,249,0.7); border: 1px solid #cbd5e1; border-radius: 8px;">
+        <div style="font-size: 11.5px; font-weight: 600; color: #334155; margin-bottom: 6px;">طريقة الاستيراد:</div>
+        <div style="display: flex; gap: 18px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: #1e293b;">
+            <input type="radio" name="import-mode" value="clone" checked>
+            <span>نسخ مستقل (Clone)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: #1e293b;">
+            <input type="radio" name="import-mode" value="link">
+            <span>ربط مشترك (Link)</span>
+          </label>
+        </div>
+        <div style="font-size: 10.5px; color: #64748b; margin-top: 4px;" id="import-mode-hint">
+          النسخ المستقل يولد كوداً جديداً مستقلاً. الربط المشترك يشارك نفس كود القاعدة وتتزامن تعديلاتها تلقائياً.
+        </div>
+      </div>
       <div class="modal-actions">
         <button id="btn-import-cancel" class="btn-modal-cancel">إلغاء</button>
         <button id="btn-import-confirm" class="btn-modal-confirm" disabled>استيراد القواعد المحددة</button>

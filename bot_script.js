@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.5.0)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.5.1)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.5.0
-// @description  V6.5.0-ENTERPRISE: Scope-Freeze Reconciliation, Simple Rule Import, and Final Delivery Package.
+// @version      6.5.1
+// @description  V6.5.1-ENTERPRISE: Production Hardening, Rule Counts, Multiline Editor & Synchronous Linked Rules.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.5.0)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.5.1)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,13 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V650_LOADED__ || window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V651_LOADED__ || window.__MBS_AUTOMATOR_V650_LOADED__ || window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
+  window.__MBS_AUTOMATOR_V651_LOADED__ = true;
   window.__MBS_AUTOMATOR_V650_LOADED__ = true;
   window.__MBS_AUTOMATOR_V641_LOADED__ = true;
 
@@ -6073,6 +6074,23 @@
         return Orchestrator.start();
       case 'STOP':
         return Orchestrator.stop();
+      case 'APPLY_RULE_SNAPSHOT':
+        if (payload) {
+          try {
+            state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            if (!Array.isArray(state.rules)) state.rules = [];
+            window.__INITIAL_RULES__ = state.rules;
+            // NON-PERSISTING: Strictly in-memory & HUD update.
+            // MUST NOT call saveRules(), localStorage.setItem(), or window.pySaveConfig().
+            if (window.__MBS_AUTOMATOR_HUD__) {
+              window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+              window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم استلام وتطبيق لقطة القواعد فورياً (${state.rules.length} قاعدة).`);
+            }
+          } catch (e) {
+            console.warn('[MBS Automator] Failed to apply rule snapshot:', e);
+          }
+        }
+        break;
       case 'RELOAD_RULES':
         if (payload) {
           try {

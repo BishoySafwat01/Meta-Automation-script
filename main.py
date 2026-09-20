@@ -321,7 +321,13 @@ async def setup_page_bridges(
             updated_config = json.loads(config_json_str)
             settings["rules"] = updated_rules
             settings["config"] = updated_config
-            save_config(config_path, settings)
+            if tenant_name and PROFILE_MGR:
+                res = PROFILE_MGR.save_profile_config_coordinated(tenant_name, settings)
+                if not res.get("ok"):
+                    format_log("WARN", f"تعذر تحديث ملف الإعدادات عبر المنسق: {res.get('message')}", prefix=prefix)
+                    return
+            else:
+                save_config(config_path, settings)
             format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.", prefix=prefix)
         except Exception as ex:
             format_log("WARN", f"تعذر تحديث ملف الإعدادات: {ex}", prefix=prefix)

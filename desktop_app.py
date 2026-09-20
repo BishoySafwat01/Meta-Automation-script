@@ -113,15 +113,64 @@ class DesktopBridgeApi:
         """Retrieve isolated config.json for profile."""
         return self.pm.get_profile_config(profile_name)
 
+    def load_profile_config_result(self, profile_name: str) -> Dict[str, Any]:
+        """Retrieve isolated config.json envelope with read_status, rules_count, sha256_token."""
+        return self.pm.load_profile_config_result(profile_name)
+
+    def allocate_rule_metadata(self, profile_name: Optional[str] = None) -> Dict[str, str]:
+        """Allocate unique canonical id and Crockford Base32 ruleCode."""
+        return self.pm.allocate_rule_metadata(profile_name)
+
+    def unlink_rule(self, profile_name: str, rule_id: str) -> Dict[str, Any]:
+        """Unlink a shared rule by assigning a fresh independent ruleCode locally."""
+        return self.pm.unlink_rule(profile_name, rule_id)
+
+    def get_linked_rules_map(self) -> Dict[str, int]:
+        """Return mapping of ruleCode to profile count."""
+        return self.pm.get_linked_rule_counts()
+
     def save_profile_config(self, profile_name: str, data: Dict[str, Any]) -> bool:
-        """Atomically persist configuration for profile."""
-        return self.pm.save_profile_config(profile_name, data)
+        """Atomically persist configuration for profile (backward-compatible bool return)."""
+        res = self.pm.save_profile_config_coordinated(profile_name, data)
+        if res.get("ok"):
+            self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            return True
+        return False
+
+    def save_profile_config_coordinated(
+        self,
+        profile_name: str,
+        data: Dict[str, Any],
+        expected_sha256: Optional[str] = None,
+        link_resolution: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Atomically persist configuration with concurrency check, peer propagation, and snapshot dispatch."""
+        res = self.pm.save_profile_config_coordinated(
+            profile_name, data, expected_sha256=expected_sha256, link_resolution=link_resolution
+        )
+        if res.get("ok"):
+            self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+        return res
+
+    def _dispatch_rule_snapshots(self, modified_profiles: List[str]):
+        """Dispatches non-persisting APPLY_RULE_SNAPSHOT command to active workers of modified profiles."""
+        for prof_name in modified_profiles:
+            if self.is_worker_running(prof_name):
+                try:
+                    cfg = self.pm.get_profile_config(prof_name)
+                    rules = cfg.get("rules", [])
+                    self.send_page_command(prof_name, "APPLY_RULE_SNAPSHOT", rules)
+                except Exception as e:
+                    print(f"[DesktopBridgeApi] Failed to dispatch rule snapshot to '{prof_name}': {e}")
 
     def import_rules_from_profile(
-        self, target_profile: str, source_profile: str, rule_ids: List[str]
+        self, target_profile: str, source_profile: str, rule_ids: List[str], mode: str = "clone"
     ) -> Dict[str, Any]:
-        """Synchronously import/clone selected rules from a source profile into the target profile."""
-        return self.pm.import_rules_from_profile(target_profile, source_profile, rule_ids)
+        """Synchronously import rules into target profile using 'clone' or 'link' mode."""
+        res = self.pm.import_rules_from_profile(target_profile, source_profile, rule_ids, mode=mode)
+        if res.get("ok"):
+            self._dispatch_rule_snapshots([target_profile])
+        return res
 
     # -------------------------------------------------------------------------
     # Worker Lifecycle Management
@@ -360,6 +409,10 @@ def run_desktop_app(dev_tools: bool = False):
         sys.exit(1)
 
     api = DesktopBridgeApi()
+    if not api.pm.ownership_guard.acquire():
+        print(f"❌ ROOT_OWNERSHIP_COLLISION: Another desktop instance is active on profile root: {api.pm.base_dir}")
+        sys.exit(1)
+
     engine = BackgroundEngine(api)
     engine.start()
 
@@ -378,6 +431,7 @@ def run_desktop_app(dev_tools: bool = False):
     try:
         webview.start(debug=dev_tools)
     finally:
+        api.pm.ownership_guard.release()
         engine.stop()
 
 
