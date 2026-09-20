@@ -25,7 +25,7 @@ BOT_SCRIPT_PATH = ROOT_DIR / "bot_script.js"
 GUI_APP_PATH = ROOT_DIR / "gui" / "app.js"
 GUI_HTML_PATH = ROOT_DIR / "gui" / "index.html"
 
-BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.3] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
+BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.4] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
 
 TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   DOM,
@@ -39,7 +39,7 @@ TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   testKeywordsMatch,
   evaluateActiveRules
 };
-console.log('[MBS Automator V6.5.3] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
+console.log('[MBS Automator V6.5.4] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();"""
 
 def run_browser_contracts():

@@ -4,7 +4,7 @@
 =============================================================================
 Milestone 1 — Behavioral Race & Surface Lease Verification Harness
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
-Version: V6.5.3-M1-QA
+Version: V6.5.4-M1-QA
 =============================================================================
 In-memory verification of 14 race conditions and lease contracts against
 actual production code in bot_script.js without modifying files on disk.
@@ -29,7 +29,7 @@ C_BLUE   = "\033[34m"
 ROOT_DIR = Path(__file__).resolve().parent
 BOT_SCRIPT_PATH = ROOT_DIR / "bot_script.js"
 
-BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.3] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
+BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.4] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
 
 TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   DOM,
@@ -40,7 +40,7 @@ TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   OperationBudget,
   RowTransaction
 };
-console.log('[MBS Automator V6.5.3] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
+console.log('[MBS Automator V6.5.4] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();"""
 
 

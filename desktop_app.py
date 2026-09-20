@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.5.3-ENTERPRISE)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.5.4-ENTERPRISE)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -148,9 +148,9 @@ class DesktopBridgeApi:
         expected_sha256: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Deprecated: Use save_profile_config_coordinated instead.
-        In V6.5.3, tokenless saves are strictly prohibited. Callers must supply expected_sha."""
+        In V6.5.4, tokenless saves are strictly prohibited. Callers must supply expected_sha."""
         warnings.warn(
-            "save_profile_config is deprecated in V6.5.3; use save_profile_config_coordinated instead.",
+            "save_profile_config is deprecated in V6.5.4; use save_profile_config_coordinated instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -526,7 +526,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.3-ENTERPRISE)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.4-ENTERPRISE)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -546,7 +546,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.3-ENTERPRISE)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.4-ENTERPRISE)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

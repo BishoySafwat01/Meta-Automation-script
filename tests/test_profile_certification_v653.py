@@ -313,9 +313,9 @@ class TestProfileCertificationV653(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_extracted_package_version_and_cleanliness(self):
         """Verify delivery package ZIP contains exactly 16 allowlisted files and 0 stale version identifiers."""
-        pkg_path = Path(__file__).resolve().parent.parent / "Meta_Automation_V6.5.3_Delivery.zip"
+        pkg_path = Path(__file__).resolve().parent.parent / "Meta_Automation_V6.5.4_Delivery.zip"
         if not pkg_path.is_file():
-            self.skipTest("Meta_Automation_V6.5.3_Delivery.zip has not been built yet.")
+            self.skipTest("Meta_Automation_V6.5.4_Delivery.zip has not been built yet.")
 
         with zipfile.ZipFile(pkg_path, "r") as zf:
             namelist = zf.namelist()
@@ -343,6 +343,7 @@ class TestProfileCertificationV653(unittest.TestCase):
                         self.assertNotIn("V6.5.0", txt, f"Stale 'V6.5.0' found in {item.name}")
                         self.assertNotIn("V6.5.1", txt, f"Stale 'V6.5.1' found in {item.name}")
                         self.assertNotIn("V6.5.2", txt, f"Stale 'V6.5.2' found in {item.name}")
+                        self.assertNotIn("V6.5.3", txt, f"Stale 'V6.5.3' found in {item.name}")
 
     # -------------------------------------------------------------------------
     # Test 11: Tokenless legacy bridge save strictly rejected with 0 disk writes

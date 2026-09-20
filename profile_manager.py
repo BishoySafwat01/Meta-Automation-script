@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.5.3 Enterprise Release)
+Meta Business Suite Profile Manager Module (V6.5.4 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
 Provides thread-safe and process-isolated local sandbox management,
 immutable rule-code metadata allocation, atomic single-profile persistence,
@@ -9,7 +9,7 @@ synchronous linked-rule propagation, and idempotent legacy metadata migration.
 """
 
 __author__ = "Bishoy Safwat"
-__version__ = "6.5.3"
+__version__ = "6.5.4"
 
 import os
 import re
