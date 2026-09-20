@@ -1175,7 +1175,7 @@
         elements.btnImportConfirm.disabled = true;
         elements.btnImportConfirm.textContent = 'جاري الاستيراد...';
 
-        const res = await callApi('import_rules_from_profile', state.selectedProfile, src, ruleIds, mode);
+        const res = await callApi('import_rules_from_profile', state.selectedProfile, src, ruleIds, mode, state.currentConfigSha256);
         if (res && res.ok) {
           if (elements.modalImportRules) elements.modalImportRules.classList.remove('active');
           await selectProfile(state.selectedProfile);

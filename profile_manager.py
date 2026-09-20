@@ -1007,6 +1007,7 @@ class ProfileManager:
         source_profile: str,
         rule_ids: List[str],
         mode: str = "clone",
+        target_sha: Optional[str] = None,
         expected_target_sha256: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronously import rules with explicit Clone vs Link choice:
@@ -1085,14 +1086,22 @@ class ProfileManager:
                     "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': الملف غير موجود.",
                 }
             target_raw_bytes = target_cfg_path.read_bytes()
-            target_sha = hashlib.sha256(target_raw_bytes).hexdigest()
+            initial_target_sha = hashlib.sha256(target_raw_bytes).hexdigest()
 
-            if expected_target_sha256 and target_sha != expected_target_sha256:
+            expected_token = target_sha or expected_target_sha256
+            if not expected_token:
+                return {
+                    "ok": False,
+                    "code": "MISSING_CONCURRENCY_TOKEN",
+                    "message": "رمز التزامن للبروفايل الهدف مطلوب للاستيراد.",
+                }
+
+            if initial_target_sha != expected_token:
                 return {
                     "ok": False,
                     "code": "STALE_CONFIG",
                     "message": f"تم تعديل البروفايل الهدف '{target_safe}' على القرص منذ آخر تحميل.",
-                    "current_sha256": target_sha,
+                    "current_sha256": initial_target_sha,
                 }
 
             try:
@@ -1180,7 +1189,7 @@ class ProfileManager:
             # Re-validate both target SHA and source SHA immediately before file replacement
             cur_target_bytes = target_cfg_path.read_bytes() if target_cfg_path.is_file() else b""
             cur_target_sha = hashlib.sha256(cur_target_bytes).hexdigest() if cur_target_bytes else None
-            if cur_target_sha != target_sha:
+            if cur_target_sha != initial_target_sha:
                 return {
                     "ok": False,
                     "code": "STALE_CONFIG",

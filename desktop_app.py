@@ -144,22 +144,25 @@ class DesktopBridgeApi:
         self,
         profile_name: str,
         data: Dict[str, Any],
+        expected_sha: Optional[str] = None,
         expected_sha256: Optional[str] = None,
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """Deprecated: Use save_profile_config_coordinated instead.
-        In V6.5.3, tokenless saves are deprecated and routed through the coordinator
-        with authoritative token resolution to prevent uncoordinated writes."""
+        In V6.5.3, tokenless saves are strictly prohibited. Callers must supply expected_sha."""
         warnings.warn(
             "save_profile_config is deprecated in V6.5.3; use save_profile_config_coordinated instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        if not expected_sha256:
-            cur_res = self.pm.load_profile_config_result(profile_name)
-            if cur_res.get("ok"):
-                expected_sha256 = cur_res.get("sha256_token")
-        res = self.save_profile_config_coordinated(profile_name, data, expected_sha256=expected_sha256)
-        return bool(res.get("ok") and res.get("disk_ok"))
+        token = expected_sha or expected_sha256
+        if not token:
+            return {
+                "ok": False,
+                "disk_ok": False,
+                "code": "MISSING_CONCURRENCY_TOKEN",
+                "message": "Tokenless save is prohibited",
+            }
+        return self.save_profile_config_coordinated(profile_name, data, expected_sha256=token)
 
     def save_profile_config_coordinated(
         self,
@@ -233,11 +236,20 @@ class DesktopBridgeApi:
         source_profile: str,
         rule_ids: List[str],
         mode: str = "clone",
+        target_sha: Optional[str] = None,
         expected_target_sha256: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronously import rules into target profile using 'clone' or 'link' mode."""
+        token = target_sha or expected_target_sha256
+        if not token:
+            return {
+                "ok": False,
+                "disk_ok": False,
+                "code": "MISSING_CONCURRENCY_TOKEN",
+                "message": "Target concurrency token is required",
+            }
         res = self.pm.import_rules_from_profile(
-            target_profile, source_profile, rule_ids, mode=mode, expected_target_sha256=expected_target_sha256
+            target_profile, source_profile, rule_ids, mode=mode, target_sha=token
         )
         if res.get("ok"):
             res["disk_ok"] = True

@@ -93,9 +93,9 @@ def execute_11_bridge_workflows():
         r_src = {"id": "r_clone_src", "ruleCode": code_src, "name": "Src", "keywords": ["س"], "reply": "ج", "matchType": "ultra_exact", "caseSensitive": False}
         src_path, src_sha = make_prof("W2_Src", [r_src])
         src_bytes_init = src_path.read_bytes()
-        make_prof("W2_Tgt", [])
+        w2_tgt_path, w2_tgt_sha = make_prof("W2_Tgt", [])
 
-        w2_res = bridge.import_rules_from_profile("W2_Tgt", "W2_Src", ["r_clone_src"], mode="clone")
+        w2_res = bridge.import_rules_from_profile("W2_Tgt", "W2_Src", ["r_clone_src"], mode="clone", target_sha=w2_tgt_sha)
         assert w2_res.get("ok") is True
         assert src_path.read_bytes() == src_bytes_init, "Source bytes modified during clone!"
         imported_rule = w2_res["rules"][0]
@@ -105,8 +105,8 @@ def execute_11_bridge_workflows():
         # ---------------------------------------------------------------------
         # Workflow 3: Link — preserved shared ruleCode & 100% source byte parity
         # ---------------------------------------------------------------------
-        make_prof("W3_Tgt", [])
-        w3_res = bridge.import_rules_from_profile("W3_Tgt", "W2_Src", ["r_clone_src"], mode="link")
+        w3_tgt_path, w3_tgt_sha = make_prof("W3_Tgt", [])
+        w3_res = bridge.import_rules_from_profile("W3_Tgt", "W2_Src", ["r_clone_src"], mode="link", target_sha=w3_tgt_sha)
         assert w3_res.get("ok") is True
         assert src_path.read_bytes() == src_bytes_init, "Source bytes modified during link!"
         assert w3_res["rules"][0]["ruleCode"] == code_src, "Link did not preserve shared ruleCode!"
@@ -374,9 +374,9 @@ def generate_delivery_screenshots():
         page2.expose_function("__bridge_get_linked_rules_map", lambda: fixture_bridge.get_linked_rules_map())
         page2.expose_function("__bridge_allocate_rule_metadata", lambda p=None: fixture_bridge.allocate_rule_metadata(p))
         page2.expose_function("__bridge_save_profile_config_coordinated", lambda p, c, s=None: fixture_bridge.save_profile_config_coordinated(p, c, expected_sha256=s))
-        page2.expose_function("__bridge_save_profile_config", lambda p, c: fixture_bridge.save_profile_config(p, c))
+        page2.expose_function("__bridge_save_profile_config", lambda p, c, s=None: fixture_bridge.save_profile_config(p, c, expected_sha=s))
         page2.expose_function("__bridge_unlink_rule", lambda p, rid: fixture_bridge.unlink_rule(p, rid))
-        page2.expose_function("__bridge_import_rules_from_profile", lambda t, s, rids, m="clone": fixture_bridge.import_rules_from_profile(t, s, rids, mode=m))
+        page2.expose_function("__bridge_import_rules_from_profile", lambda t, s, rids, m="clone", target_sha=None: fixture_bridge.import_rules_from_profile(t, s, rids, mode=m, target_sha=target_sha))
         page2.expose_function("__bridge_resolve_link_conflict", lambda c, a, s=None: fixture_bridge.resolve_link_conflict(c, a, expected_shas=s))
         page2.expose_function("__bridge_get_logs", lambda: [])
         page2.expose_function("__bridge_get_stats", lambda: {})
@@ -393,9 +393,9 @@ def generate_delivery_screenshots():
                     get_linked_rules_map: async () => window.__bridge_get_linked_rules_map(),
                     allocate_rule_metadata: async (p) => window.__bridge_allocate_rule_metadata(p),
                     save_profile_config_coordinated: async (p, c, s) => window.__bridge_save_profile_config_coordinated(p, c, s),
-                    save_profile_config: async (p, c) => window.__bridge_save_profile_config(p, c),
+                    save_profile_config: async (p, c, s) => window.__bridge_save_profile_config(p, c, s),
                     unlink_rule: async (p, rid) => window.__bridge_unlink_rule(p, rid),
-                    import_rules_from_profile: async (t, s, rids, m) => window.__bridge_import_rules_from_profile(t, s, rids, m),
+                    import_rules_from_profile: async (t, s, rids, m, target_sha) => window.__bridge_import_rules_from_profile(t, s, rids, m, target_sha),
                     resolve_link_conflict: async (c, a, s) => window.__bridge_resolve_link_conflict(c, a, s),
                     get_logs: async () => window.__bridge_get_logs(),
                     get_stats: async () => window.__bridge_get_stats(),

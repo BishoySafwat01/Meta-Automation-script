@@ -173,11 +173,14 @@ class TestProfileHardeningV651(unittest.TestCase):
         }
         atomic_write_json(src_dir / "config.json", src_data)
         atomic_write_json(tgt_dir / "config.json", {"rules": []})
+        tgt_sha = hashlib.sha256((tgt_dir / "config.json").read_bytes()).hexdigest()
 
         src_bytes_before = (src_dir / "config.json").read_bytes()
 
         # Import in 'clone' mode
-        res = self.manager.import_rules_from_profile("TargetProf", "SourceProf", ["r_src"], mode="clone")
+        res = self.manager.import_rules_from_profile(
+            "TargetProf", "SourceProf", ["r_src"], mode="clone", target_sha=tgt_sha
+        )
         self.assertTrue(res.get("ok"), f"Clone import failed: {res}")
 
         tgt_cfg = json.loads((tgt_dir / "config.json").read_text(encoding="utf-8"))
@@ -206,8 +209,11 @@ class TestProfileHardeningV651(unittest.TestCase):
         }
         atomic_write_json(src_dir / "config.json", src_data)
         atomic_write_json(tgt_dir / "config.json", {"rules": []})
+        tgt_sha = hashlib.sha256((tgt_dir / "config.json").read_bytes()).hexdigest()
 
-        res = self.manager.import_rules_from_profile("TargetProf", "SourceProf", ["r_src"], mode="link")
+        res = self.manager.import_rules_from_profile(
+            "TargetProf", "SourceProf", ["r_src"], mode="link", target_sha=tgt_sha
+        )
         self.assertTrue(res.get("ok"), f"Link import failed: {res}")
 
         tgt_cfg = json.loads((tgt_dir / "config.json").read_text(encoding="utf-8"))

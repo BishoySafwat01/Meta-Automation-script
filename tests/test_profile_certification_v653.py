@@ -15,6 +15,8 @@ Comprehensive Regression Coverage:
 8. Worker RELOAD_CONFIG / snapshot failure cleanly captured in runtime_refresh_failures.
 9. Disk success with runtime refresh failure partial-success contract.
 10. Extracted delivery package validation (16 allowlisted files, 0 stale identifiers).
+11. Tokenless legacy save_profile_config strictly rejected with MISSING_CONCURRENCY_TOKEN and 0 disk writes.
+12. Import/Clone without target concurrency token strictly rejected with MISSING_CONCURRENCY_TOKEN and 0 disk writes.
 =============================================================================
 """
 
@@ -191,17 +193,21 @@ class TestProfileCertificationV653(unittest.TestCase):
         src_file, src_sha = self._create_fixture_profile("Source_P", [rule_src])
         src_bytes_initial = src_file.read_bytes()
 
-        self._create_fixture_profile("Target_Clone", [])
-        self._create_fixture_profile("Target_Link", [])
+        tgt_c_file, tgt_c_sha = self._create_fixture_profile("Target_Clone", [])
+        tgt_l_file, tgt_l_sha = self._create_fixture_profile("Target_Link", [])
 
         # 1. Clone mode
-        res_clone = self.manager.import_rules_from_profile("Target_Clone", "Source_P", ["r1"], mode="clone")
+        res_clone = self.manager.import_rules_from_profile(
+            "Target_Clone", "Source_P", ["r1"], mode="clone", target_sha=tgt_c_sha
+        )
         self.assertTrue(res_clone.get("ok"))
         self.assertEqual(src_file.read_bytes(), src_bytes_initial, "Source file modified during Clone!")
         self.assertEqual(hashlib.sha256(src_file.read_bytes()).hexdigest(), src_sha)
 
         # 2. Link mode
-        res_link = self.manager.import_rules_from_profile("Target_Link", "Source_P", ["r1"], mode="link")
+        res_link = self.manager.import_rules_from_profile(
+            "Target_Link", "Source_P", ["r1"], mode="link", target_sha=tgt_l_sha
+        )
         self.assertTrue(res_link.get("ok"))
         self.assertEqual(src_file.read_bytes(), src_bytes_initial, "Source file modified during Link!")
         self.assertEqual(hashlib.sha256(src_file.read_bytes()).hexdigest(), src_sha)
@@ -337,6 +343,71 @@ class TestProfileCertificationV653(unittest.TestCase):
                         self.assertNotIn("V6.5.0", txt, f"Stale 'V6.5.0' found in {item.name}")
                         self.assertNotIn("V6.5.1", txt, f"Stale 'V6.5.1' found in {item.name}")
                         self.assertNotIn("V6.5.2", txt, f"Stale 'V6.5.2' found in {item.name}")
+
+    # -------------------------------------------------------------------------
+    # Test 11: Tokenless legacy bridge save strictly rejected with 0 disk writes
+    # -------------------------------------------------------------------------
+    def test_tokenless_legacy_bridge_save_rejected(self):
+        """Tokenless save_profile_config returns MISSING_CONCURRENCY_TOKEN with zero disk writes."""
+        f, sha_before = self._create_fixture_profile("P_Tokenless", [])
+        bytes_before = f.read_bytes()
+
+        # 1. Missing expected_sha
+        res = self.bridge.save_profile_config("P_Tokenless", {"rules": [{"id": "r1"}], "config": {}})
+        self.assertFalse(res.get("ok"))
+        self.assertFalse(res.get("disk_ok"))
+        self.assertEqual(res.get("code"), "MISSING_CONCURRENCY_TOKEN")
+        self.assertEqual(f.read_bytes(), bytes_before, "Disk was mutated by tokenless save!")
+
+        # 2. None token
+        res_none = self.bridge.save_profile_config("P_Tokenless", {"rules": []}, expected_sha=None)
+        self.assertFalse(res_none.get("ok"))
+        self.assertFalse(res_none.get("disk_ok"))
+        self.assertEqual(res_none.get("code"), "MISSING_CONCURRENCY_TOKEN")
+        self.assertEqual(f.read_bytes(), bytes_before, "Disk was mutated by None token save!")
+
+        # 3. Empty string token
+        res_empty = self.bridge.save_profile_config("P_Tokenless", {"rules": []}, expected_sha="")
+        self.assertFalse(res_empty.get("ok"))
+        self.assertFalse(res_empty.get("disk_ok"))
+        self.assertEqual(res_empty.get("code"), "MISSING_CONCURRENCY_TOKEN")
+        self.assertEqual(f.read_bytes(), bytes_before, "Disk was mutated by empty string token save!")
+
+    # -------------------------------------------------------------------------
+    # Test 12: Import without target concurrency token strictly rejected
+    # -------------------------------------------------------------------------
+    def test_import_without_target_sha_rejected(self):
+        """import_rules_from_profile without target_sha returns MISSING_CONCURRENCY_TOKEN with zero disk writes."""
+        code = allocate_unique_rule_code(set())
+        rule_src = {
+            "id": "r1",
+            "ruleCode": code,
+            "name": "Source Rule",
+            "keywords": ["test"],
+            "reply": "reply",
+            "matchType": "ultra_exact",
+            "caseSensitive": False,
+        }
+        self._create_fixture_profile("Source_P_Import", [rule_src])
+        tgt_f, tgt_sha = self._create_fixture_profile("Target_P_Import", [])
+        tgt_bytes_before = tgt_f.read_bytes()
+
+        # 1. Call ProfileManager without target token
+        res_pm = self.manager.import_rules_from_profile(
+            "Target_P_Import", "Source_P_Import", ["r1"], mode="clone", target_sha=None
+        )
+        self.assertFalse(res_pm.get("ok"))
+        self.assertEqual(res_pm.get("code"), "MISSING_CONCURRENCY_TOKEN")
+        self.assertEqual(tgt_f.read_bytes(), tgt_bytes_before, "Target disk was mutated without token!")
+
+        # 2. Call Bridge without target token
+        res_bridge = self.bridge.import_rules_from_profile(
+            "Target_P_Import", "Source_P_Import", ["r1"], mode="clone", target_sha=None
+        )
+        self.assertFalse(res_bridge.get("ok"))
+        self.assertFalse(res_bridge.get("disk_ok"))
+        self.assertEqual(res_bridge.get("code"), "MISSING_CONCURRENCY_TOKEN")
+        self.assertEqual(tgt_f.read_bytes(), tgt_bytes_before, "Target disk was mutated via bridge without token!")
 
 
 if __name__ == "__main__":

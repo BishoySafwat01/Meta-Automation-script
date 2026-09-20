@@ -88,6 +88,8 @@ class TestProfileImport(unittest.TestCase):
             }
         ]
         self.manager.save_profile_config("DestProfile", dest_doc)
+        dest_path = self.manager.get_profile_config_path("DestProfile")
+        self.dest_sha = hashlib.sha256(dest_path.read_bytes()).hexdigest()
 
     def tearDown(self):
         self.tmp_dir.cleanup()
@@ -108,6 +110,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_1", "src_rule_2"],
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
         self.assertEqual(res["importedCount"], 2)
@@ -125,6 +128,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_3", "src_rule_1"],  # Requested out of order or in order
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
 
@@ -140,6 +144,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_1", "src_rule_2"],
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
 
@@ -174,6 +179,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_1", "src_rule_2", "src_rule_3"],
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
 
@@ -186,6 +192,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_1"],
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
 
@@ -214,6 +221,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["non_existent_rule_999"],
+            target_sha=self.dest_sha,
         )
         self.assertFalse(res["ok"])
         self.assertEqual(res["code"], "RULES_NOT_FOUND")
@@ -228,6 +236,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="NonExistentProfile",
             rule_ids=["rule_1"],
+            target_sha=self.dest_sha,
         )
         self.assertFalse(res_missing["ok"])
         self.assertEqual(res_missing["code"], "SOURCE_NOT_FOUND")
@@ -238,6 +247,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="EmptyProfile",
             rule_ids=["rule_1"],
+            target_sha=self.dest_sha,
         )
         self.assertFalse(res_empty["ok"])
         self.assertEqual(res_empty["code"], "SOURCE_EMPTY")
@@ -248,6 +258,7 @@ class TestProfileImport(unittest.TestCase):
             target_profile="DestProfile",
             source_profile="SourceProfile",
             rule_ids=["src_rule_1"],
+            target_sha=self.dest_sha,
         )
         self.assertTrue(res["ok"])
 

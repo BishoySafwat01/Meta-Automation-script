@@ -293,7 +293,11 @@ class QAAuditSuite:
             cfg = bridge.get_profile_config("Bridge_QA_Prof")
             assert isinstance(cfg, dict)
             cfg["qa_test"] = True
-            assert bridge.save_profile_config("Bridge_QA_Prof", cfg) is True
+            tokenless_res = bridge.save_profile_config("Bridge_QA_Prof", cfg)
+            assert isinstance(tokenless_res, dict) and tokenless_res.get("code") == "MISSING_CONCURRENCY_TOKEN"
+            prof_res = bridge.pm.load_profile_config_result("Bridge_QA_Prof")
+            save_res = bridge.save_profile_config_coordinated("Bridge_QA_Prof", cfg, expected_sha256=prof_res.get("sha256_token"))
+            assert save_res.get("ok") and save_res.get("disk_ok")
             assert bridge.rename_profile("Bridge_QA_Prof", "Bridge_QA_Renamed") is True
             assert bridge.is_worker_running("Bridge_QA_Renamed") is False
             statuses = bridge.get_worker_statuses()
