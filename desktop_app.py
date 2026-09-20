@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.5.0-ENTERPRISE)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.5.2-ENTERPRISE)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -22,7 +22,7 @@ import asyncio
 import threading
 import argparse
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 try:
     import webview
@@ -123,7 +123,17 @@ class DesktopBridgeApi:
 
     def unlink_rule(self, profile_name: str, rule_id: str) -> Dict[str, Any]:
         """Unlink a shared rule by assigning a fresh independent ruleCode locally."""
-        return self.pm.unlink_rule(profile_name, rule_id)
+        res = self.pm.unlink_rule(profile_name, rule_id)
+        if res.get("ok"):
+            res["disk_ok"] = True
+            succ, fails = self._dispatch_rule_snapshots([profile_name])
+            res["runtime_refresh_successes"] = succ
+            res["runtime_refresh_failures"] = fails
+        else:
+            res["disk_ok"] = False
+            res["runtime_refresh_successes"] = []
+            res["runtime_refresh_failures"] = {}
+        return res
 
     def get_linked_rules_map(self) -> Dict[str, int]:
         """Return mapping of ruleCode to profile count."""
@@ -149,19 +159,38 @@ class DesktopBridgeApi:
             profile_name, data, expected_sha256=expected_sha256, link_resolution=link_resolution
         )
         if res.get("ok"):
-            self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            res["disk_ok"] = True
+            succ, fails = self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            res["runtime_refresh_successes"] = succ
+            res["runtime_refresh_failures"] = fails
+        else:
+            res["disk_ok"] = False
+            res["runtime_refresh_successes"] = []
+            res["runtime_refresh_failures"] = {}
         return res
 
-    def _dispatch_rule_snapshots(self, modified_profiles: List[str]):
-        """Dispatches non-persisting APPLY_RULE_SNAPSHOT command to active workers of modified profiles."""
+    def _dispatch_rule_snapshots(self, modified_profiles: List[str]) -> Tuple[List[str], Dict[str, str]]:
+        """Dispatches non-persisting APPLY_RULE_SNAPSHOT command to active workers of modified profiles.
+        Includes { rules, sha256_token } payload so worker can update in-memory SHA concurrency token.
+        Returns (successes, failures)."""
+        successes: List[str] = []
+        failures: Dict[str, str] = {}
         for prof_name in modified_profiles:
             if self.is_worker_running(prof_name):
                 try:
-                    cfg = self.pm.get_profile_config(prof_name)
-                    rules = cfg.get("rules", [])
-                    self.send_page_command(prof_name, "APPLY_RULE_SNAPSHOT", rules)
+                    cfg_res = self.pm.load_profile_config_result(prof_name)
+                    rules = cfg_res.get("data", {}).get("rules", []) if cfg_res.get("ok") else []
+                    sha = cfg_res.get("sha256_token")
+                    payload = {"rules": rules, "sha256_token": sha}
+                    sent = self.send_page_command(prof_name, "APPLY_RULE_SNAPSHOT", payload)
+                    if sent:
+                        successes.append(prof_name)
+                    else:
+                        failures[prof_name] = "فشل إرسال لقطة القواعد إلى صفحة المتصفح."
                 except Exception as e:
+                    failures[prof_name] = str(e)
                     print(f"[DesktopBridgeApi] Failed to dispatch rule snapshot to '{prof_name}': {e}")
+        return successes, failures
 
     def import_rules_from_profile(
         self, target_profile: str, source_profile: str, rule_ids: List[str], mode: str = "clone"
@@ -169,7 +198,33 @@ class DesktopBridgeApi:
         """Synchronously import rules into target profile using 'clone' or 'link' mode."""
         res = self.pm.import_rules_from_profile(target_profile, source_profile, rule_ids, mode=mode)
         if res.get("ok"):
-            self._dispatch_rule_snapshots([target_profile])
+            res["disk_ok"] = True
+            succ, fails = self._dispatch_rule_snapshots([target_profile])
+            res["runtime_refresh_successes"] = succ
+            res["runtime_refresh_failures"] = fails
+        else:
+            res["disk_ok"] = False
+            res["runtime_refresh_successes"] = []
+            res["runtime_refresh_failures"] = {}
+        return res
+
+    def resolve_link_conflict(
+        self,
+        conflicting_code: str,
+        authoritative_profile: str,
+        expected_shas: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Resolves a link conflict across all participating profiles by adopting the authoritative profile's rule."""
+        res = self.pm.resolve_link_conflict(conflicting_code, authoritative_profile, expected_shas=expected_shas)
+        if res.get("ok"):
+            res["disk_ok"] = True
+            succ, fails = self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            res["runtime_refresh_successes"] = succ
+            res["runtime_refresh_failures"] = fails
+        else:
+            res["disk_ok"] = False
+            res["runtime_refresh_successes"] = []
+            res["runtime_refresh_failures"] = {}
         return res
 
     # -------------------------------------------------------------------------
@@ -417,7 +472,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.0-ENTERPRISE)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.2-ENTERPRISE)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -437,7 +492,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.0-ENTERPRISE)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.2-ENTERPRISE)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

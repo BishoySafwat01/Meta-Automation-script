@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.5.0 Enterprise Release)
+Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.5.2 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation Engineer)
 =============================================================================
 Pure Python Zero-Extension Runner & Native Playwright Injector:
@@ -260,7 +260,7 @@ def format_log(tag: str, msg: str, prefix: str = ""):
 def print_banner():
     banner = f"""{Colors.CYAN}{Colors.BOLD}
 =============================================================================
-  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.5.0 المؤسسي)
+  أتمتة صندوق بريد Meta Business Suite & استعادة غير مقروء (V6.5.2 المؤسسي)
   Meta Business Suite Pure Python Zero-Extension Runner & Playwright Injector
 ============================================================================={Colors.END}
   • مشغل بايثون نقي ومستقل بالكامل بدون الحاجة لأي إضافات (Zero-Extension)
@@ -315,22 +315,28 @@ async def setup_page_bridges(
             except Exception:
                 pass
 
-    async def py_save_config_handler(rules_json_str, config_json_str):
+    async def py_save_config_handler(rules_json_str, config_json_str, client_sha256=None):
         try:
             updated_rules = json.loads(rules_json_str)
             updated_config = json.loads(config_json_str)
             settings["rules"] = updated_rules
             settings["config"] = updated_config
             if tenant_name and PROFILE_MGR:
-                res = PROFILE_MGR.save_profile_config_coordinated(tenant_name, settings)
+                res = PROFILE_MGR.save_profile_config_coordinated(
+                    tenant_name, settings, expected_sha256=client_sha256
+                )
                 if not res.get("ok"):
                     format_log("WARN", f"تعذر تحديث ملف الإعدادات عبر المنسق: {res.get('message')}", prefix=prefix)
-                    return
+                    return {"ok": False, "code": res.get("code"), "message": res.get("message")}
+                format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.", prefix=prefix)
+                return {"ok": True, "sha256_token": res.get("sha256_token")}
             else:
                 save_config(config_path, settings)
-            format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.", prefix=prefix)
+                format_log("INFO", "تم حفظ وتحديث القواعد والإعدادات في config.json بنجاح.", prefix=prefix)
+                return {"ok": True}
         except Exception as ex:
             format_log("WARN", f"تعذر تحديث ملف الإعدادات: {ex}", prefix=prefix)
+            return {"ok": False, "error": str(ex)}
 
     async def py_state_handler(status_text):
         format_log("INFO", f"حالة المحرك تغيرت إلى: {status_text}", prefix=prefix)
@@ -401,12 +407,22 @@ async def inject_hud_and_rules(
             );
         }""")
 
+        initial_sha = None
+        if prefix and PROFILE_MGR:
+            prof_name_clean = prefix.strip("[] ")
+            cfg_res = PROFILE_MGR.load_profile_config_result(prof_name_clean)
+            if cfg_res.get("ok"):
+                initial_sha = cfg_res.get("sha256_token")
+
         if is_already_loaded:
             # Script already mounted: refresh rules & config via in-page command without re-evaluating the full 146KB script
             await page.evaluate("""
-                ({ rules, config, isHeadless }) => {
+                ({ rules, config, isHeadless, sha256_token }) => {
                     window.__INITIAL_RULES__ = rules;
                     window.__INITIAL_CONFIG__ = config;
+                    if (sha256_token) {
+                        window.__CONFIG_SHA256__ = sha256_token;
+                    }
                     if (isHeadless) {
                         window.__MBS_HEADLESS_MODE__ = true;
                     }
@@ -415,7 +431,7 @@ async def inject_hud_and_rules(
                         window.__MBS_EXEC_COMMAND__('UPDATE_CONFIG', config);
                     }
                 }
-            """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent})
+            """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent, "sha256_token": initial_sha})
 
             if headless_agent:
                 format_log("INIT", "✨ تم مزامنة قواعد محرك الأتمتة بنمط الوكيل الرأسي (Headless Agent Mode) بنجاح!", prefix=prefix)
@@ -425,14 +441,17 @@ async def inject_hud_and_rules(
 
         # Fresh injection: set initial configuration and evaluate script
         await page.evaluate("""
-            ({ rules, config, isHeadless }) => {
+            ({ rules, config, isHeadless, sha256_token }) => {
                 window.__INITIAL_RULES__ = rules;
                 window.__INITIAL_CONFIG__ = config;
+                if (sha256_token) {
+                    window.__CONFIG_SHA256__ = sha256_token;
+                }
                 if (isHeadless) {
                     window.__MBS_HEADLESS_MODE__ = true;
                 }
             }
-        """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent})
+        """, {"rules": settings.get("rules", []), "config": settings.get("config", {}), "isHeadless": headless_agent, "sha256_token": initial_sha})
 
         await page.evaluate(bot_js_code)
         if headless_agent:
@@ -667,6 +686,15 @@ async def run_tenant_worker(
         # If headless agent mode is enabled, set flag before scripts load
         if headless_agent:
             await context.add_init_script("window.__MBS_HEADLESS_MODE__ = true;")
+
+        # Inject initial configuration SHA token for optimistic concurrency
+        worker_initial_sha = None
+        if profile_name and PROFILE_MGR:
+            prof_res = PROFILE_MGR.load_profile_config_result(profile_name)
+            if prof_res.get("ok"):
+                worker_initial_sha = prof_res.get("sha256_token")
+        if worker_initial_sha:
+            await context.add_init_script(f"window.__CONFIG_SHA256__ = {json.dumps(worker_initial_sha)};")
 
         # Add native init script for permanent zero-extension execution
         await context.add_init_script(path=str(BOT_SCRIPT_PATH))
@@ -937,7 +965,7 @@ async def perform_graceful_shutdown():
 # ---------------------------------------------------------------------------
 async def main():
     parser = argparse.ArgumentParser(
-        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.5.0)"
+        description="Meta Business Suite Inbox Automator & Unread Restorer (Pure Python Zero-Extension Runner V6.5.2)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

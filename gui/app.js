@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.5.0-ENTERPRISE)
+ * Meta Automation Desktop Control Center (V6.5.2-ENTERPRISE)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -94,6 +94,11 @@
     importError: document.getElementById('import-rules-error'),
     btnImportCancel: document.getElementById('btn-import-cancel'),
     btnImportConfirm: document.getElementById('btn-import-confirm'),
+    modalLinkConflict: document.getElementById('modal-link-conflict'),
+    conflictCodeBadge: document.getElementById('conflict-code-badge'),
+    conflictOptionsList: document.getElementById('conflict-options-list'),
+    btnConflictCancel: document.getElementById('btn-conflict-cancel'),
+    btnConflictResolve: document.getElementById('btn-conflict-resolve'),
     tabs: document.querySelectorAll('.tab-btn'),
     tabPanes: document.querySelectorAll('.tab-pane')
   };
@@ -462,7 +467,7 @@
     rules.forEach((rule, idx) => {
       if (!Array.isArray(rule.keywords)) {
         if (typeof rule.keyword === 'string' && rule.keyword.length > 0) {
-          rule.keywords = rule.keyword.split(',').map(s => s.trim()).filter(Boolean);
+          rule.keywords = [rule.keyword];
         } else {
           rule.keywords = [''];
         }
@@ -476,7 +481,7 @@
 
       if (!Array.isArray(rule.contextKeywords)) {
         if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.length > 0) {
-          rule.contextKeywords = rule.contextKeyword.split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
+          rule.contextKeywords = [rule.contextKeyword];
         } else {
           rule.contextKeywords = [];
         }
@@ -1014,11 +1019,18 @@
 
       if (res && (res.ok || res === true)) {
         if (res.sha256_token) state.currentConfigSha256 = res.sha256_token;
-        alert('تم حفظ وتحديث القواعد بنجاح');
+        if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
+          alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+        } else {
+          alert('تم حفظ وتحديث القواعد بنجاح');
+        }
         await refreshProfiles();
         await selectProfile(state.selectedProfile);
-      } else if (res && res.code === 'LINK_CONFLICT') {
-        alert('تنبيه تضارب في القاعدة المشتركة: ' + (res.message || 'يوجد تضارب في محتوى القاعدة مع بروفايل آخر.'));
+      } else if (res && (res.code === 'LINK_CONFLICT' || res.error === 'LINK_CONFLICT')) {
+        openLinkConflictModal(res);
+      } else if (res && (res.code === 'STALE_CONFIG' || res.error === 'STALE_CONFIG')) {
+        alert(res.message || 'تم تعديل ملف التهيئة بواسطة عملية أخرى منذ آخر تحميل. يرجى إعادة التحميل قبل الحفظ.');
+        await selectProfile(state.selectedProfile);
       } else {
         alert('حدث خطأ أثناء حفظ القواعد: ' + (res ? res.message || res.error || 'فشل الحفظ' : 'فشل غير معروف'));
       }
@@ -1181,6 +1193,122 @@
       });
     }
 
+    // -------------------------------------------------------------------------
+    // Conflict Resolution Modal Actions
+    // -------------------------------------------------------------------------
+    let activeConflictData = null;
+    let selectedAuthoritativeProfile = null;
+
+    function openLinkConflictModal(conflictData) {
+      if (!elements.modalLinkConflict) return;
+      activeConflictData = conflictData;
+      selectedAuthoritativeProfile = null;
+
+      if (elements.conflictCodeBadge) {
+        elements.conflictCodeBadge.textContent = conflictData.conflicting_code ? `كود القاعدة: ${conflictData.conflicting_code}` : '';
+      }
+
+      if (elements.conflictOptionsList) {
+        elements.conflictOptionsList.innerHTML = '';
+        const parts = conflictData.participating_profiles || [];
+        parts.forEach((item) => {
+          const pName = item.profile_name;
+          const r = item.rule || {};
+          const card = document.createElement('div');
+          card.className = 'conflict-option-card';
+          card.dataset.profileName = pName;
+
+          const ruleNameDisplay = (r.name && r.name.trim()) ? r.name : 'بدون اسم';
+          const kwSnippet = Array.isArray(r.keywords) ? r.keywords.join(', ') : (r.keyword || '');
+          const replySnippet = (r.reply || '').slice(0, 70) + ((r.reply && r.reply.length > 70) ? '...' : '');
+
+          card.innerHTML = `
+            <div class="conflict-option-header">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; width: 100%;">
+                <input type="radio" name="conflict-auth-radio" value="${escapeHtml(pName)}">
+                <span class="conflict-profile-badge">بروفايل: ${escapeHtml(pName)}</span>
+                <span style="font-size: 11px; color: #64748b;">(قاعدة: ${escapeHtml(ruleNameDisplay)})</span>
+              </label>
+            </div>
+            <div class="conflict-rule-preview">
+              <div><strong>الكلمات المفتاحية:</strong> ${escapeHtml(kwSnippet || '—')}</div>
+              <div><strong>نص الرد:</strong> ${escapeHtml(replySnippet || '—')}</div>
+            </div>
+          `;
+
+          card.addEventListener('click', () => {
+            const radio = card.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+            elements.conflictOptionsList.querySelectorAll('.conflict-option-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            selectedAuthoritativeProfile = pName;
+            if (elements.btnConflictResolve) elements.btnConflictResolve.disabled = false;
+          });
+
+          elements.conflictOptionsList.appendChild(card);
+        });
+      }
+
+      if (elements.btnConflictResolve) elements.btnConflictResolve.disabled = true;
+      elements.modalLinkConflict.classList.add('active');
+    }
+
+    function closeLinkConflictModal() {
+      if (elements.modalLinkConflict) {
+        elements.modalLinkConflict.classList.remove('active');
+      }
+      activeConflictData = null;
+      selectedAuthoritativeProfile = null;
+    }
+
+    if (elements.btnConflictCancel) {
+      elements.btnConflictCancel.addEventListener('click', async () => {
+        closeLinkConflictModal();
+        if (state.selectedProfile) {
+          await selectProfile(state.selectedProfile);
+        }
+      });
+    }
+
+    if (elements.btnConflictResolve) {
+      elements.btnConflictResolve.addEventListener('click', async () => {
+        if (!activeConflictData || !selectedAuthoritativeProfile) return;
+        const code = activeConflictData.conflicting_code;
+        const expectedShas = {};
+        if (activeConflictData.participating_profiles) {
+          activeConflictData.participating_profiles.forEach(p => {
+            expectedShas[p.profile_name] = p.sha256_token;
+          });
+        }
+
+        elements.btnConflictResolve.disabled = true;
+        let res = null;
+        try {
+          res = await callApi('resolve_link_conflict', code, selectedAuthoritativeProfile, expectedShas);
+        } catch (err) {
+          alert('حدث خطأ أثناء تسوية التضارب: ' + err);
+          elements.btnConflictResolve.disabled = false;
+          return;
+        }
+
+        if (res && res.ok) {
+          closeLinkConflictModal();
+          if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
+            alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+          } else {
+            alert('تمت تسوية تضارب القاعدة المشتركة وتطبيق التحديثات بنجاح');
+          }
+          await refreshProfiles();
+          if (state.selectedProfile) {
+            await selectProfile(state.selectedProfile);
+          }
+        } else {
+          alert('فشل تسوية التضارب: ' + (res ? res.message || res.error || 'خطأ غير معروف' : 'فشل الاتصال'));
+          elements.btnConflictResolve.disabled = false;
+        }
+      });
+    }
+
     // Save Config
     elements.btnSaveConfig.addEventListener('click', async () => {
       if (!state.selectedProfile || !state.currentConfig) return;
@@ -1201,16 +1329,36 @@
       state.currentConfig.config.highlightRows = elements.cfgHighlight.checked;
       state.currentConfig.auto_start = elements.cfgAutoStart.checked;
 
-      await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
-
-      // [P2-GUI-01] Synchronize live runtime configuration with running browser
-      const current = state.profiles.find(p => p.name === state.selectedProfile);
-      const isRunning = current && current.status === 'RUNNING';
-      if (isRunning) {
-        await callApi('send_page_command', state.selectedProfile, 'RELOAD_CONFIG', state.currentConfig.config);
+      let res = null;
+      try {
+        res = await callApi('save_profile_config_coordinated', state.selectedProfile, state.currentConfig, state.currentConfigSha256);
+      } catch (err) {
+        alert('حدث خطأ أثناء حفظ الإعدادات: ' + err);
+        return;
       }
 
-      alert('تم حفظ الإعدادات وتطبيقها بنجاح');
+      if (res && res.ok) {
+        if (res.sha256_token) state.currentConfigSha256 = res.sha256_token;
+        // [P2-GUI-01] Synchronize live runtime configuration with running browser
+        const current = state.profiles.find(p => p.name === state.selectedProfile);
+        const isRunning = current && current.status === 'RUNNING';
+        if (isRunning) {
+          await callApi('send_page_command', state.selectedProfile, 'RELOAD_CONFIG', state.currentConfig.config);
+        }
+        if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
+          alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+        } else {
+          alert('تم حفظ الإعدادات وتطبيقها بنجاح');
+        }
+        await refreshProfiles();
+      } else if (res && (res.code === 'LINK_CONFLICT' || res.error === 'LINK_CONFLICT')) {
+        openLinkConflictModal(res);
+      } else if (res && (res.code === 'STALE_CONFIG' || res.error === 'STALE_CONFIG')) {
+        alert(res.message || 'تم تعديل ملف التهيئة بواسطة عملية أخرى منذ آخر تحميل. يرجى إعادة التحميل قبل الحفظ.');
+        await selectProfile(state.selectedProfile);
+      } else {
+        alert('حدث خطأ أثناء حفظ الإعدادات: ' + (res ? res.message || res.error || 'فشل الحفظ' : 'فشل غير معروف'));
+      }
     });
   }
 

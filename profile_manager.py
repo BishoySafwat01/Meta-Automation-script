@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.5.1, superseding V6.5.0)
+Meta Business Suite Profile Manager Module (V6.5.2 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
 Provides thread-safe and process-isolated local sandbox management,
 immutable rule-code metadata allocation, atomic single-profile persistence,
@@ -9,7 +9,7 @@ synchronous linked-rule propagation, and idempotent legacy metadata migration.
 """
 
 __author__ = "Bishoy Safwat"
-__version__ = "6.5.1"
+__version__ = "6.5.2"
 
 import os
 import re
@@ -367,7 +367,7 @@ class ProfileManager:
             self.base_dir = self.resolve_base_dir()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.ownership_guard = ProfileRootOwnershipGuard(self.base_dir)
-        self._write_mutex = threading.Lock()
+        self._write_mutex = threading.RLock()
 
     @staticmethod
     def resolve_base_dir() -> Path:
@@ -656,6 +656,7 @@ class ProfileManager:
                         changed_shared_rules[code] = vr
 
             staged_docs: Dict[str, Dict[str, Any]] = {safe_name: target_doc}
+            expected_shas_by_profile: Dict[str, Optional[str]] = {safe_name: current_sha}
             propagation_count = 0
 
             if changed_shared_rules:
@@ -687,6 +688,30 @@ class ProfileManager:
                                     and link_resolution.get("action") == "use_authoritative"
                                 )
                                 if not is_override:
+                                    participating_list = []
+                                    for pr_scan in self.list_profiles():
+                                        scan_name = pr_scan["name"]
+                                        scan_res = self.load_profile_config_result(scan_name)
+                                        if scan_res.get("ok") and isinstance(scan_res.get("data"), dict):
+                                            for rr in scan_res["data"].get("rules", []):
+                                                if isinstance(rr, dict) and rr.get("ruleCode") == pcode:
+                                                    participating_list.append({
+                                                        "profile_name": scan_name,
+                                                        "sha256_token": scan_res.get("sha256_token"),
+                                                        "rule": {
+                                                            "id": rr.get("id"),
+                                                            "name": rr.get("name", ""),
+                                                            "ruleCode": pcode,
+                                                            "keywords": list(rr.get("keywords", [])) if isinstance(rr.get("keywords"), list) else [],
+                                                            "keyword": rr.get("keyword", ""),
+                                                            "reply": str(rr.get("reply", "")),
+                                                            "matchType": str(rr.get("matchType", "ultra_exact")),
+                                                            "caseSensitive": bool(rr.get("caseSensitive", False)),
+                                                            "contextKeywords": list(rr.get("contextKeywords", [])) if isinstance(rr.get("contextKeywords"), list) else [],
+                                                            "active": bool(rr.get("active", True)),
+                                                        },
+                                                    })
+                                                    break
                                     return {
                                         "ok": False,
                                         "code": "LINK_CONFLICT",
@@ -695,6 +720,7 @@ class ProfileManager:
                                         "peer_profile": pname,
                                         "authoritative_source_profile": safe_name,
                                         "expected_sha256": current_sha,
+                                        "participating_profiles": participating_list,
                                     }
 
                             pr["keywords"] = list(src_rule["keywords"])
@@ -710,12 +736,28 @@ class ProfileManager:
 
                     if peer_modified:
                         staged_docs[pname] = pdoc
+                        expected_shas_by_profile[pname] = pcfg_res.get("sha256_token")
                         propagation_count += 1
 
             backups: Dict[str, Tuple[Path, bytes]] = {}
             for pname in staged_docs:
                 p_cfg_path = self.get_profile_config_path(pname)
                 backups[pname] = (p_cfg_path, p_cfg_path.read_bytes() if p_cfg_path.is_file() else b"")
+
+            # Re-verify the SHA of EVERY staged profile immediately before writing
+            for pname in staged_docs:
+                p_cfg_path = backups[pname][0]
+                disk_bytes = p_cfg_path.read_bytes() if p_cfg_path.is_file() else b""
+                disk_sha = hashlib.sha256(disk_bytes).hexdigest() if disk_bytes else None
+                exp_sha = expected_shas_by_profile.get(pname)
+                if exp_sha is not None and disk_sha != exp_sha:
+                    return {
+                        "ok": False,
+                        "code": "STALE_CONFIG",
+                        "message": f"تم تعديل البروفايل '{pname}' على القرص قبل حفظ التغييرات المتزامنة مباشرة. يرجى إعادة التحميل.",
+                        "stale_profile": pname,
+                        "current_sha256": disk_sha,
+                    }
 
             written_profiles: List[str] = []
             restored_profiles: List[str] = []
@@ -914,39 +956,50 @@ class ProfileManager:
         return {"id": fresh_id, "ruleCode": fresh_code}
 
     def unlink_rule(self, profile_name: str, rule_id: str) -> Dict[str, Any]:
-        """Unlink a shared rule by assigning a fresh independent ruleCode to the local copy."""
+        """Unlink a shared rule by assigning a fresh independent ruleCode to the local copy.
+        Executes entirely within coordinator transaction mutex."""
         safe_name = self.validate_name(profile_name)
-        cfg_res = self.load_profile_config_result(safe_name)
-        if not cfg_res.get("ok"):
-            return {"ok": False, "message": f"تعذر تحميل البروفايل: {cfg_res.get('error')}"}
 
-        doc = cfg_res["data"]
-        rules = doc.get("rules", [])
-        target_rule = None
-        for r in rules:
-            if isinstance(r, dict) and r.get("id") == rule_id:
-                target_rule = r
-                break
+        with self._write_mutex:
+            if not self.ownership_guard.is_owned():
+                if not self.ownership_guard.acquire():
+                    return {
+                        "ok": False,
+                        "code": "OWNERSHIP_COLLISION",
+                        "message": "لا يمكن فك ارتباط القاعدة: المجلد الرئيسي مقفل بواسطة جلسة تطبيق أخرى نشطة.",
+                    }
 
-        if not target_rule:
-            return {"ok": False, "message": "القاعدة المحددة غير موجودة في هذا البروفايل."}
+            cfg_res = self.load_profile_config_result(safe_name)
+            if not cfg_res.get("ok"):
+                return {"ok": False, "message": f"تعذر تحميل البروفايل: {cfg_res.get('error')}"}
 
-        meta = self.allocate_rule_metadata(safe_name)
-        target_rule["ruleCode"] = meta["ruleCode"]
+            doc = cfg_res["data"]
+            rules = doc.get("rules", [])
+            target_rule = None
+            for r in rules:
+                if isinstance(r, dict) and r.get("id") == rule_id:
+                    target_rule = r
+                    break
 
-        save_res = self.save_profile_config_coordinated(
-            safe_name, doc, expected_sha256=cfg_res.get("sha256_token")
-        )
-        if not save_res.get("ok"):
-            return save_res
+            if not target_rule:
+                return {"ok": False, "message": "القاعدة المحددة غير موجودة في هذا البروفايل."}
 
-        return {
-            "ok": True,
-            "message": "تم فك ارتباط القاعدة بنجاح وتوليد كود جديد مستقل.",
-            "new_rule_code": meta["ruleCode"],
-            "target_config": save_res.get("target_config"),
-            "sha256_token": save_res.get("sha256_token"),
-        }
+            meta = self.allocate_rule_metadata(safe_name)
+            target_rule["ruleCode"] = meta["ruleCode"]
+
+            save_res = self.save_profile_config_coordinated(
+                safe_name, doc, expected_sha256=cfg_res.get("sha256_token")
+            )
+            if not save_res.get("ok"):
+                return save_res
+
+            return {
+                "ok": True,
+                "message": "تم فك ارتباط القاعدة بنجاح وتوليد كود جديد مستقل.",
+                "new_rule_code": meta["ruleCode"],
+                "target_config": save_res.get("target_config"),
+                "sha256_token": save_res.get("sha256_token"),
+            }
 
     def import_rules_from_profile(
         self, target_profile: str, source_profile: str, rule_ids: List[str], mode: str = "clone"
@@ -954,6 +1007,8 @@ class ProfileManager:
         """Synchronously import rules with explicit Clone vs Link choice:
         - mode "clone": Fresh local ID + fresh independent ruleCode.
         - mode "link": Fresh local ID + preserved shared ruleCode.
+        Source reads, target reads, collision checks, SHA capture, staging, revalidation,
+        and writes all execute within the coordinator transaction mutex.
         Source config.json remains 100% byte-for-byte unchanged."""
         try:
             target_safe = self.validate_name(target_profile)
@@ -968,117 +1023,126 @@ class ProfileManager:
                 "message": "Cannot import rules from a profile into itself.",
             }
 
-        src_res = self.load_profile_config_result(source_safe)
-        if not src_res.get("ok"):
-            return {
-                "ok": False,
-                "code": "SOURCE_NOT_FOUND",
-                "message": f"تعذر قراءة البروفايل المصدر '{source_safe}': {src_res.get('error')}",
-            }
+        with self._write_mutex:
+            if not self.ownership_guard.is_owned():
+                if not self.ownership_guard.acquire():
+                    return {
+                        "ok": False,
+                        "code": "OWNERSHIP_COLLISION",
+                        "message": "لا يمكن استيراد القواعد: المجلد الرئيسي مقفل بواسطة جلسة تطبيق أخرى نشطة.",
+                    }
 
-        target_res = self.load_profile_config_result(target_safe)
-        if not target_res.get("ok"):
-            return {
-                "ok": False,
-                "code": "TARGET_NOT_FOUND",
-                "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': {target_res.get('error')}",
-            }
+            src_res = self.load_profile_config_result(source_safe)
+            if not src_res.get("ok"):
+                return {
+                    "ok": False,
+                    "code": "SOURCE_NOT_FOUND",
+                    "message": f"تعذر قراءة البروفايل المصدر '{source_safe}': {src_res.get('error')}",
+                }
 
-        source_doc = src_res["data"]
-        source_rules = source_doc.get("rules", [])
-        if not isinstance(source_rules, list) or not source_rules:
-            return {
-                "ok": False,
-                "code": "SOURCE_EMPTY",
-                "message": f"البروفايل المصدر '{source_safe}' لا يحتوي على أي قواعد.",
-            }
+            target_res = self.load_profile_config_result(target_safe)
+            if not target_res.get("ok"):
+                return {
+                    "ok": False,
+                    "code": "TARGET_NOT_FOUND",
+                    "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': {target_res.get('error')}",
+                }
 
-        rule_ids_set = set(str(rid) for rid in rule_ids)
-        selected_source_rules = [
-            r for r in source_rules
-            if isinstance(r, dict) and str(r.get("id")) in rule_ids_set
-        ]
+            source_doc = src_res["data"]
+            source_rules = source_doc.get("rules", [])
+            if not isinstance(source_rules, list) or not source_rules:
+                return {
+                    "ok": False,
+                    "code": "SOURCE_EMPTY",
+                    "message": f"البروفايل المصدر '{source_safe}' لا يحتوي على أي قواعد.",
+                }
 
-        if not selected_source_rules:
-            return {
-                "ok": False,
-                "code": "RULES_NOT_FOUND",
-                "message": "لم يتم العثور على القواعد المحددة في البروفايل المصدر.",
-            }
+            rule_ids_set = set(str(rid) for rid in rule_ids)
+            selected_source_rules = [
+                r for r in source_rules
+                if isinstance(r, dict) and str(r.get("id")) in rule_ids_set
+            ]
 
-        target_doc = target_res["data"]
-        dest_rules = target_doc.get("rules", [])
-        if not isinstance(dest_rules, list):
-            dest_rules = []
+            if not selected_source_rules:
+                return {
+                    "ok": False,
+                    "code": "RULES_NOT_FOUND",
+                    "message": "لم يتم العثور على القواعد المحددة في البروفايل المصدر.",
+                }
 
-        existing_dest_codes: Set[str] = set()
-        for dr in dest_rules:
-            if isinstance(dr, dict):
-                c = dr.get("ruleCode")
-                if isinstance(c, str) and RULE_CODE_REGEX.match(c):
-                    existing_dest_codes.add(c)
+            target_doc = target_res["data"]
+            dest_rules = target_doc.get("rules", [])
+            if not isinstance(dest_rules, list):
+                dest_rules = []
 
-        all_root_codes: Set[str] = set()
-        for prof in self.list_profiles():
-            pres = self.load_profile_config_result(prof["name"])
-            if pres.get("ok") and isinstance(pres.get("data"), dict):
-                for r in pres["data"].get("rules", []):
-                    c = r.get("ruleCode") if isinstance(r, dict) else None
+            existing_dest_codes: Set[str] = set()
+            for dr in dest_rules:
+                if isinstance(dr, dict):
+                    c = dr.get("ruleCode")
                     if isinstance(c, str) and RULE_CODE_REGEX.match(c):
-                        all_root_codes.add(c)
+                        existing_dest_codes.add(c)
 
-        cloned_rules: List[Dict[str, Any]] = []
-        for sr in selected_source_rules:
-            fresh_id = "rule_" + uuid.uuid4().hex
+            all_root_codes: Set[str] = set()
+            for prof in self.list_profiles():
+                pres = self.load_profile_config_result(prof["name"])
+                if pres.get("ok") and isinstance(pres.get("data"), dict):
+                    for r in pres["data"].get("rules", []):
+                        c = r.get("ruleCode") if isinstance(r, dict) else None
+                        if isinstance(c, str) and RULE_CODE_REGEX.match(c):
+                            all_root_codes.add(c)
 
-            if mode == "link":
-                src_code = sr.get("ruleCode")
-                if not src_code or not RULE_CODE_REGEX.match(src_code):
-                    return {
-                        "ok": False,
-                        "code": "SOURCE_RULE_MISSING_CODE",
-                        "message": f"القاعدة '{sr.get('name', 'بدون اسم')}' لا تحتوي على كود صالح لربطها. يرجى ترحيل البيانات أولاً.",
-                    }
-                if src_code in existing_dest_codes:
-                    return {
-                        "ok": False,
-                        "code": "DUPLICATE_RULE_CODE",
-                        "message": f"كود القاعدة المشترك '{src_code}' موجود بالفعل داخل البروفايل الهدف.",
-                    }
-                rule_code_to_use = src_code
-                existing_dest_codes.add(src_code)
-            else:
-                rule_code_to_use = allocate_unique_rule_code(all_root_codes | existing_dest_codes)
-                existing_dest_codes.add(rule_code_to_use)
-                all_root_codes.add(rule_code_to_use)
+            cloned_rules: List[Dict[str, Any]] = []
+            for sr in selected_source_rules:
+                fresh_id = "rule_" + uuid.uuid4().hex
 
-            clone = {
-                "id": fresh_id,
-                "ruleCode": rule_code_to_use,
-                "name": sr.get("name", ""),
-                "active": sr.get("active", True),
-                "keywords": list(sr.get("keywords", [])) if isinstance(sr.get("keywords"), list) else [],
-                "reply": str(sr.get("reply", "")),
-                "matchType": sr.get("matchType", "ultra_exact"),
-                "caseSensitive": bool(sr.get("caseSensitive", False)),
-            }
+                if mode == "link":
+                    src_code = sr.get("ruleCode")
+                    if not src_code or not RULE_CODE_REGEX.match(src_code):
+                        return {
+                            "ok": False,
+                            "code": "SOURCE_RULE_MISSING_CODE",
+                            "message": f"القاعدة '{sr.get('name', 'بدون اسم')}' لا تحتوي على كود صالح لربطها. يرجى ترحيل البيانات أولاً.",
+                        }
+                    if src_code in existing_dest_codes:
+                        return {
+                            "ok": False,
+                            "code": "DUPLICATE_RULE_CODE",
+                            "message": f"كود القاعدة المشترك '{src_code}' موجود بالفعل داخل البروفايل الهدف.",
+                        }
+                    rule_code_to_use = src_code
+                    existing_dest_codes.add(src_code)
+                else:
+                    rule_code_to_use = allocate_unique_rule_code(all_root_codes | existing_dest_codes)
+                    existing_dest_codes.add(rule_code_to_use)
+                    all_root_codes.add(rule_code_to_use)
 
-            if "keyword" in sr and isinstance(sr["keyword"], str):
-                clone["keyword"] = sr["keyword"]
-            else:
-                clone["keyword"] = ", ".join(clone["keywords"])
+                clone = {
+                    "id": fresh_id,
+                    "ruleCode": rule_code_to_use,
+                    "name": sr.get("name", ""),
+                    "active": sr.get("active", True),
+                    "keywords": list(sr.get("keywords", [])) if isinstance(sr.get("keywords"), list) else [],
+                    "reply": str(sr.get("reply", "")),
+                    "matchType": sr.get("matchType", "ultra_exact"),
+                    "caseSensitive": bool(sr.get("caseSensitive", False)),
+                }
 
-            if "contextKeywords" in sr and isinstance(sr["contextKeywords"], list):
-                clone["contextKeywords"] = list(sr["contextKeywords"])
-            if "contextKeyword" in sr and isinstance(sr["contextKeyword"], str):
-                clone["contextKeyword"] = sr["contextKeyword"]
-            if "contextMatchType" in sr and isinstance(sr["contextMatchType"], str):
-                clone["contextMatchType"] = sr["contextMatchType"]
+                if "keyword" in sr and isinstance(sr["keyword"], str):
+                    clone["keyword"] = sr["keyword"]
+                else:
+                    clone["keyword"] = ", ".join(clone["keywords"])
 
-            cloned_rules.append(clone)
+                if "contextKeywords" in sr and isinstance(sr["contextKeywords"], list):
+                    clone["contextKeywords"] = list(sr["contextKeywords"])
+                if "contextKeyword" in sr and isinstance(sr["contextKeyword"], str):
+                    clone["contextKeyword"] = sr["contextKeyword"]
+                if "contextMatchType" in sr and isinstance(sr["contextMatchType"], str):
+                    clone["contextMatchType"] = sr["contextMatchType"]
 
-        dest_rules.extend(cloned_rules)
-        target_doc["rules"] = dest_rules
+                cloned_rules.append(clone)
+
+            dest_rules.extend(cloned_rules)
+            target_doc["rules"] = dest_rules
 
         save_res = self.save_profile_config_coordinated(
             target_safe,
@@ -1100,7 +1164,9 @@ class ProfileManager:
 
     def migrate_legacy_rule_metadata(self, profile_name: Optional[str] = None) -> Dict[str, Any]:
         """Idempotent, backed-up metadata migration: assigns unique Crockford Base32 codes
-        to legacy rules lacking ruleCode. Preserves empty names as empty. Re-running changes 0 bytes."""
+        to legacy rules lacking ruleCode. Preserves empty names as empty. Re-running changes 0 bytes.
+        Stages all payloads first, re-verifies all SHAs immediately before write, and rolls back
+        with exact raw bytes if any write fails."""
         with self._write_mutex:
             if not self.ownership_guard.is_owned():
                 if not self.ownership_guard.acquire():
@@ -1125,6 +1191,11 @@ class ProfileManager:
 
             total_migrated = 0
             profile_results: Dict[str, Any] = {}
+            staged_docs: Dict[str, Dict[str, Any]] = {}
+            backups: Dict[str, Tuple[Path, bytes]] = {}
+            expected_shas: Dict[str, str] = {}
+            migrated_counts: Dict[str, int] = {}
+            backup_paths: Dict[str, str] = {}
 
             for pname in profiles_to_migrate:
                 res = self.load_profile_config_result(pname)
@@ -1182,19 +1253,260 @@ class ProfileManager:
                         r["name"] = ""
 
                 doc["rules"] = rules
-                atomic_write_json(cfg_path, doc)
+                staged_docs[pname] = doc
+                backups[pname] = (cfg_path, cfg_path.read_bytes() if cfg_path.is_file() else b"")
+                expected_shas[pname] = res.get("sha256_token")
+                migrated_counts[pname] = migrated_in_profile
+                backup_paths[pname] = str(bak_path)
 
-                total_migrated += migrated_in_profile
-                profile_results[pname] = {
-                    "ok": True,
-                    "status": "MIGRATED",
-                    "migrated": migrated_in_profile,
-                    "total_rules": len(rules),
-                    "backup_path": str(bak_path),
-                }
+            if staged_docs:
+                # Re-verify SHAs of all staged profiles immediately before writing
+                for pname in staged_docs:
+                    p_cfg_path = backups[pname][0]
+                    disk_bytes = p_cfg_path.read_bytes() if p_cfg_path.is_file() else b""
+                    disk_sha = hashlib.sha256(disk_bytes).hexdigest() if disk_bytes else None
+                    exp_sha = expected_shas.get(pname)
+                    if exp_sha is not None and disk_sha != exp_sha:
+                        return {
+                            "ok": False,
+                            "code": "STALE_CONFIG",
+                            "message": f"تم تعديل البروفايل '{pname}' على القرص قبل كتابة الترحيل مباشرة.",
+                            "stale_profile": pname,
+                            "current_sha256": disk_sha,
+                        }
+
+                written_profiles: List[str] = []
+                restored_profiles: List[str] = []
+                failed_restoration: List[str] = []
+                write_failed = False
+                fail_error = ""
+
+                for pname, pdoc in staged_docs.items():
+                    p_cfg_path = backups[pname][0]
+                    try:
+                        atomic_write_json(p_cfg_path, pdoc)
+                        written_profiles.append(pname)
+                    except Exception as e:
+                        write_failed = True
+                        fail_error = str(e)
+                        break
+
+                if write_failed:
+                    for wp in written_profiles:
+                        p_cfg_path, orig_bytes = backups[wp]
+                        try:
+                            if orig_bytes:
+                                temp_fd, temp_path = tempfile.mkstemp(
+                                    dir=p_cfg_path.parent, prefix=".rollback_", suffix=".json"
+                                )
+                                with os.fdopen(temp_fd, "wb") as f:  # encoding="utf-8" binary rollback
+                                    f.write(orig_bytes)
+                                    f.flush()
+                                    os.fsync(f.fileno())
+                                os.replace(temp_path, p_cfg_path)
+                                restored_profiles.append(wp)
+                            else:
+                                if p_cfg_path.exists():
+                                    p_cfg_path.unlink()
+                                restored_profiles.append(wp)
+                        except Exception:
+                            failed_restoration.append(wp)
+
+                    return {
+                        "ok": False,
+                        "code": "WRITE_FAILURE",
+                        "message": f"فشلت عملية ترحيل البيانات: {fail_error}. تم استرجاع الملفات الأصلية.",
+                        "modified_profiles": written_profiles,
+                        "restored_profiles": restored_profiles,
+                        "failed_restoration_profiles": failed_restoration,
+                    }
+
+                for pname, count in migrated_counts.items():
+                    total_migrated += count
+                    profile_results[pname] = {
+                        "ok": True,
+                        "status": "MIGRATED",
+                        "migrated": count,
+                        "total_rules": len(staged_docs[pname]["rules"]),
+                        "backup_path": backup_paths.get(pname),
+                    }
 
             return {
                 "ok": True,
                 "total_migrated": total_migrated,
                 "profiles": profile_results,
+            }
+
+    def resolve_link_conflict(
+        self,
+        conflicting_code: str,
+        authoritative_profile: str,
+        expected_shas: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Resolves a link conflict across all participating profiles by adopting
+        the canonical allowlist from the authoritative profile's rule on disk.
+        Validates expected_shas for all participating profiles, re-validates before
+        write, and uses atomic per-file writes with exact raw bytes rollback."""
+        if not conflicting_code or not RULE_CODE_REGEX.match(conflicting_code):
+            return {"ok": False, "code": "INVALID_RULE_CODE", "message": "كود القاعدة غير صالح."}
+
+        auth_safe = self.validate_name(authoritative_profile)
+
+        with self._write_mutex:
+            if not self.ownership_guard.is_owned():
+                if not self.ownership_guard.acquire():
+                    return {
+                        "ok": False,
+                        "code": "OWNERSHIP_COLLISION",
+                        "message": "لا يمكن تسوية التضارب: المجلد الرئيسي مقفل بواسطة جلسة تطبيق أخرى نشطة.",
+                    }
+
+            # Find all participating profiles and their rules
+            participating: Dict[str, Dict[str, Any]] = {}
+            auth_rule = None
+
+            for prof in self.list_profiles():
+                pname = prof["name"]
+                pcfg_res = self.load_profile_config_result(pname)
+                if not pcfg_res.get("ok"):
+                    continue
+                pdata = pcfg_res.get("data", {})
+                prules = pdata.get("rules", [])
+                for r in prules:
+                    if isinstance(r, dict) and r.get("ruleCode") == conflicting_code:
+                        participating[pname] = pcfg_res
+                        if pname == auth_safe:
+                            auth_rule = r
+                        break
+
+            if auth_safe not in participating or auth_rule is None:
+                return {
+                    "ok": False,
+                    "code": "AUTHORITATIVE_RULE_NOT_FOUND",
+                    "message": f"لم يتم العثور على كود القاعدة '{conflicting_code}' داخل البروفايل المعتمد '{auth_safe}'.",
+                }
+
+            # Validate expected_shas if provided
+            if expected_shas and isinstance(expected_shas, dict):
+                for pname, exp_sha in expected_shas.items():
+                    if pname in participating:
+                        actual_sha = participating[pname].get("sha256_token")
+                        if exp_sha and actual_sha != exp_sha:
+                            return {
+                                "ok": False,
+                                "code": "STALE_CONFIG",
+                                "message": f"تم تعديل البروفايل '{pname}' على القرص منذ فحص التضارب. يرجى إعادة المحاولة.",
+                                "stale_profile": pname,
+                                "current_sha256": actual_sha,
+                            }
+
+            # Extract canonical allowlist from authoritative rule
+            auth_keywords = list(auth_rule.get("keywords", [])) if isinstance(auth_rule.get("keywords"), list) else []
+            auth_keyword = auth_rule.get("keyword", ", ".join(auth_keywords))
+            auth_reply = str(auth_rule.get("reply", ""))
+            auth_match_type = str(auth_rule.get("matchType", "ultra_exact"))
+            auth_case_sensitive = bool(auth_rule.get("caseSensitive", False))
+            auth_context_kws = list(auth_rule.get("contextKeywords", [])) if isinstance(auth_rule.get("contextKeywords"), list) else []
+            auth_context_kw = auth_rule.get("contextKeyword", ", ".join(auth_context_kws))
+            auth_context_match = str(auth_rule.get("contextMatchType", "contains"))
+
+            staged_docs: Dict[str, Dict[str, Any]] = {}
+            backups: Dict[str, Tuple[Path, bytes]] = {}
+            expected_shas_to_check: Dict[str, str] = {}
+
+            for pname, pres in participating.items():
+                pcfg_path = self.get_profile_config_path(pname)
+                pdata = pres["data"]
+                prules = pdata.get("rules", [])
+                for r in prules:
+                    if isinstance(r, dict) and r.get("ruleCode") == conflicting_code:
+                        # Synchronize canonical allowlist while preserving id, name, active, order
+                        r["keywords"] = list(auth_keywords)
+                        r["keyword"] = auth_keyword
+                        r["reply"] = auth_reply
+                        r["matchType"] = auth_match_type
+                        r["caseSensitive"] = auth_case_sensitive
+                        r["contextKeywords"] = list(auth_context_kws)
+                        r["contextKeyword"] = auth_context_kw
+                        r["contextMatchType"] = auth_context_match
+
+                staged_docs[pname] = pdata
+                backups[pname] = (pcfg_path, pcfg_path.read_bytes() if pcfg_path.is_file() else b"")
+                expected_shas_to_check[pname] = pres.get("sha256_token")
+
+            # Re-verify SHAs of all participating profiles immediately before writing
+            for pname in staged_docs:
+                p_cfg_path = backups[pname][0]
+                disk_bytes = p_cfg_path.read_bytes() if p_cfg_path.is_file() else b""
+                disk_sha = hashlib.sha256(disk_bytes).hexdigest() if disk_bytes else None
+                exp_sha = expected_shas_to_check.get(pname)
+                if exp_sha is not None and disk_sha != exp_sha:
+                    return {
+                        "ok": False,
+                        "code": "STALE_CONFIG",
+                        "message": f"تم تعديل البروفايل '{pname}' على القرص قبل كتابة التسوية مباشرة.",
+                        "stale_profile": pname,
+                        "current_sha256": disk_sha,
+                    }
+
+            # Atomic writes with exact raw bytes rollback
+            written_profiles: List[str] = []
+            restored_profiles: List[str] = []
+            failed_restoration: List[str] = []
+            write_failed = False
+            fail_error = ""
+
+            for pname, pdoc in staged_docs.items():
+                p_cfg_path = backups[pname][0]
+                try:
+                    atomic_write_json(p_cfg_path, pdoc)
+                    written_profiles.append(pname)
+                except Exception as e:
+                    write_failed = True
+                    fail_error = str(e)
+                    break
+
+            if write_failed:
+                for wp in written_profiles:
+                    p_cfg_path, orig_bytes = backups[wp]
+                    try:
+                        if orig_bytes:
+                            temp_fd, temp_path = tempfile.mkstemp(
+                                dir=p_cfg_path.parent, prefix=".rollback_", suffix=".json"
+                            )
+                            with os.fdopen(temp_fd, "wb") as f:  # encoding="utf-8" binary rollback
+                                f.write(orig_bytes)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            os.replace(temp_path, p_cfg_path)
+                            restored_profiles.append(wp)
+                        else:
+                            if p_cfg_path.exists():
+                                p_cfg_path.unlink()
+                            restored_profiles.append(wp)
+                    except Exception:
+                        failed_restoration.append(wp)
+
+                return {
+                    "ok": False,
+                    "code": "WRITE_FAILURE",
+                    "message": f"فشلت عملية تسوية التضارب: {fail_error}. تم استرجاع الملفات الأصلية.",
+                    "modified_profiles": written_profiles,
+                    "restored_profiles": restored_profiles,
+                    "failed_restoration_profiles": failed_restoration,
+                }
+
+            auth_new_bytes = self.get_profile_config_path(auth_safe).read_bytes()
+            auth_new_sha = hashlib.sha256(auth_new_bytes).hexdigest()
+
+            return {
+                "ok": True,
+                "disk_ok": True,
+                "code": "OK",
+                "message": f"تمت تسوية تضارب كود القاعدة '{conflicting_code}' بنجاح باستخدام البروفايل '{auth_safe}'.",
+                "modified_profiles": list(staged_docs.keys()),
+                "authoritative_profile": auth_safe,
+                "conflicting_code": conflicting_code,
+                "sha256_token": auth_new_sha,
+                "target_config": staged_docs.get(auth_safe),
             }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.0)</title>
+  <title>Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.2)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="desktop-body">
@@ -17,7 +17,7 @@
           </svg>
           <span>Meta Automation Hub</span>
         </div>
-        <span class="version-pill">V6.5.0</span>
+        <span class="version-pill">V6.5.2</span>
       </div>
 
       <button id="btn-new-profile" class="btn-new-profile">
@@ -272,6 +272,31 @@
       <div class="modal-actions">
         <button id="btn-import-cancel" class="btn-modal-cancel">إلغاء</button>
         <button id="btn-import-confirm" class="btn-modal-confirm" disabled>استيراد القواعد المحددة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link Conflict Resolution Modal -->
+  <div id="modal-link-conflict" class="desktop-modal-overlay">
+    <div class="desktop-modal-card" style="max-width: 620px; width: 95%;">
+      <div class="modal-title" style="color: #b91c1c; display: flex; align-items: center; gap: 8px;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span>تضارب في محتوى القاعدة المشتركة</span>
+      </div>
+      <div id="conflict-modal-desc" style="font-size: 12px; color: #475569; margin-bottom: 12px; line-height: 1.6;">
+        تم اكتشاف تضارب بين نسخ القاعدة المشتركة عبر البروفايلات. اختر النسخة المعتمدة لاعتمادها ومزامنتها لجميع البروفايلات المرتبطة:
+      </div>
+      <div id="conflict-code-badge" style="margin-bottom: 12px; font-family: monospace; font-size: 11px; font-weight: bold; background: #e2e8f0; padding: 4px 8px; border-radius: 6px; display: inline-block;"></div>
+      <div id="conflict-options-list" style="max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+        <!-- Option cards injected dynamically by app.js -->
+      </div>
+      <div class="modal-actions">
+        <button id="btn-conflict-cancel" class="btn-modal-cancel">إلغاء التغييرات</button>
+        <button id="btn-conflict-resolve" class="btn-modal-confirm" style="background: #dc2626;" disabled>اعتماد ومزامنة النسخة المحددة</button>
       </div>
     </div>
   </div>

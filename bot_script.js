@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.5.1)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.5.2)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.5.1
-// @description  V6.5.1-ENTERPRISE: Production Hardening, Rule Counts, Multiline Editor & Synchronous Linked Rules.
+// @version      6.5.2
+// @description  V6.5.2-ENTERPRISE: Production Hardening, Concurrency Protection, Multiline Editor & Authoritative Conflict Resolution.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
 // @match        https://business.facebook.com/latest/inbox/all*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.5.1)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.5.2)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,13 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V651_LOADED__ || window.__MBS_AUTOMATOR_V650_LOADED__ || window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V652_LOADED__ || window.__MBS_AUTOMATOR_V651_LOADED__ || window.__MBS_AUTOMATOR_V650_LOADED__ || window.__MBS_AUTOMATOR_V641_LOADED__ || window.__MBS_AUTOMATOR_V640_LOADED__ || window.__MBS_AUTOMATOR_V639_LOADED__ || window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
+  window.__MBS_AUTOMATOR_V652_LOADED__ = true;
   window.__MBS_AUTOMATOR_V651_LOADED__ = true;
   window.__MBS_AUTOMATOR_V650_LOADED__ = true;
   window.__MBS_AUTOMATOR_V641_LOADED__ = true;
@@ -490,7 +491,11 @@
     if (rulesDebounceTimer) clearTimeout(rulesDebounceTimer);
     rulesDebounceTimer = setTimeout(() => {
       if (window.pySaveConfig) {
-        window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
+        window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config), window.__CONFIG_SHA256__ || '').then((res) => {
+          if (res && res.sha256_token) {
+            window.__CONFIG_SHA256__ = res.sha256_token;
+          }
+        }).catch(() => {});
       }
     }, 400);
   }
@@ -538,7 +543,11 @@
     if (configDebounceTimer) clearTimeout(configDebounceTimer);
     configDebounceTimer = setTimeout(() => {
       if (window.pySaveConfig) {
-        window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config)).catch(() => {});
+        window.pySaveConfig(JSON.stringify(state.rules), JSON.stringify(state.config), window.__CONFIG_SHA256__ || '').then((res) => {
+          if (res && res.sha256_token) {
+            window.__CONFIG_SHA256__ = res.sha256_token;
+          }
+        }).catch(() => {});
       }
     }, 400);
   }
@@ -3851,7 +3860,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.5.0)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.5.2)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -6077,8 +6086,15 @@
       case 'APPLY_RULE_SNAPSHOT':
         if (payload) {
           try {
-            state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
-            if (!Array.isArray(state.rules)) state.rules = [];
+            let parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            let rulesList = parsed;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.rules) {
+              rulesList = parsed.rules;
+              if (parsed.sha256_token) {
+                window.__CONFIG_SHA256__ = parsed.sha256_token;
+              }
+            }
+            state.rules = Array.isArray(rulesList) ? rulesList : [];
             window.__INITIAL_RULES__ = state.rules;
             // NON-PERSISTING: Strictly in-memory & HUD update.
             // MUST NOT call saveRules(), localStorage.setItem(), or window.pySaveConfig().
@@ -6132,5 +6148,5 @@
     }
   };
 
-  console.log('[MBS Automator V6.5.0] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
+  console.log('[MBS Automator V6.5.2] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();

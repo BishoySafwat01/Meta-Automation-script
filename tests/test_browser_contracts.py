@@ -10,6 +10,7 @@ Tests:
 3. Isolated Web Worker Regex Execution (Success, Syntax Error, ReDoS Timeout)
 4. Desktop GUI & Embedded HUD creation defaults to 'ultra_exact'
 5. Editor -> Bridge Payload Capture -> Reload -> Production Evaluator
+6. Interactive 3-Profile Conflict Resolution Flow (LINK_CONFLICT handling)
 =============================================================================
 """
 
@@ -24,7 +25,7 @@ BOT_SCRIPT_PATH = ROOT_DIR / "bot_script.js"
 GUI_APP_PATH = ROOT_DIR / "gui" / "app.js"
 GUI_HTML_PATH = ROOT_DIR / "gui" / "index.html"
 
-BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.0] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
+BOOTSTRAP_TARGET = "console.log('[MBS Automator V6.5.2] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');\n})();"
 
 TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   DOM,
@@ -38,7 +39,7 @@ TEST_EXPORT_SNIPPET = """window.__TEST_MBS__ = {
   testKeywordsMatch,
   evaluateActiveRules
 };
-console.log('[MBS Automator V6.5.0] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
+console.log('[MBS Automator V6.5.2] Initialized successfully (Enterprise Hardened Edition — P0/P1/P2 Remediations Applied).');
 })();"""
 
 def run_browser_contracts():
@@ -512,6 +513,177 @@ def run_browser_contracts():
         )
 
         gui_page.close()
+
+        # -----------------------------------------------------------------------
+        # Section 6: Interactive 3-Profile Conflict Resolution Flow
+        # -----------------------------------------------------------------------
+        print("\n--- SECTION 6: Interactive 3-Profile Conflict Resolution Flow ---")
+
+        conflict_page = context.new_page()
+        conflict_page.add_init_script("""
+            window.__CAPTURED_RESOLVES__ = [];
+            window.alert = () => {};
+            window.confirm = () => true;
+            window.pywebview = {
+                api: {
+                    get_profiles: async () => [
+                        { name: 'ProfileA', status: 'STOPPED', rules_count: 1 },
+                        { name: 'ProfileB', status: 'STOPPED', rules_count: 1 },
+                        { name: 'ProfileC', status: 'STOPPED', rules_count: 1 }
+                    ],
+                    load_profile_config_result: async (p) => ({
+                        ok: true,
+                        read_status: 'OK',
+                        rules_count: 1,
+                        data: {
+                            rules: [{ id: 'rA', name: 'قاعدة أ', ruleCode: 'MBS-SHARED-100', keywords: ['عرض_خاص'], reply: 'سعر العرض 100 ج', matchType: 'ultra_exact', active: true }],
+                            config: {}
+                        },
+                        sha256_token: 'sha_token_A'
+                    }),
+                    load_profile_config: async (p) => ({
+                        rules: [{ id: 'rA', name: 'قاعدة أ', ruleCode: 'MBS-SHARED-100', keywords: ['عرض_خاص'], reply: 'سعر العرض 100 ج', matchType: 'ultra_exact', active: true }],
+                        config: {}
+                    }),
+                    get_linked_rules_map: async () => ({
+                        'MBS-SHARED-100': ['ProfileA', 'ProfileB', 'ProfileC']
+                    }),
+                    save_profile_config_coordinated: async (profile, config, sha) => {
+                        return {
+                            ok: false,
+                            code: 'LINK_CONFLICT',
+                            error: 'LINK_CONFLICT',
+                            conflicting_code: 'MBS-SHARED-100',
+                            message: 'قاعدة مشتركة متضاربة في المحتوى',
+                            participating_profiles: [
+                                {
+                                    profile_name: 'ProfileA',
+                                    sha256_token: 'sha_token_A',
+                                    rule: { id: 'rA', name: 'قاعدة أ', ruleCode: 'MBS-SHARED-100', keywords: ['عرض_خاص'], reply: 'سعر العرض 100 ج', matchType: 'ultra_exact', active: true }
+                                },
+                                {
+                                    profile_name: 'ProfileB',
+                                    sha256_token: 'sha_token_B',
+                                    rule: { id: 'rB', name: 'قاعدة ب', ruleCode: 'MBS-SHARED-100', keywords: ['عرض_خاص'], reply: 'سعر العرض 150 ج', matchType: 'ultra_exact', active: true }
+                                },
+                                {
+                                    profile_name: 'ProfileC',
+                                    sha256_token: 'sha_token_C',
+                                    rule: { id: 'rC', name: 'قاعدة ج', ruleCode: 'MBS-SHARED-100', keywords: ['عرض_خاص'], reply: 'سعر العرض 200 ج', matchType: 'ultra_exact', active: true }
+                                }
+                            ]
+                        };
+                    },
+                    resolve_link_conflict: async (code, authProfile, expectedShas) => {
+                        window.__CAPTURED_RESOLVES__.push({ code, authProfile, expectedShas });
+                        return {
+                            ok: true,
+                            disk_ok: true,
+                            modified_profiles: ['ProfileA', 'ProfileB', 'ProfileC'],
+                            runtime_refresh_successes: ['ProfileA'],
+                            runtime_refresh_failures: {}
+                        };
+                    },
+                    get_logs: async () => [],
+                    get_stats: async () => ({})
+                }
+            };
+        """)
+        conflict_page.goto(f"file://{GUI_HTML_PATH}")
+        conflict_page.wait_for_load_state("domcontentloaded")
+
+        # Select ProfileA and trigger Save Rules which will return LINK_CONFLICT
+        conflict_flow_res = conflict_page.evaluate("""async () => {
+            const btnSave = document.getElementById('btn-save-rules');
+            const modal = document.getElementById('modal-link-conflict');
+
+            // Wait for profile selection to load and save button to be enabled
+            let retries = 50;
+            while (retries-- > 0 && (!document.querySelector('.rule-card') || (btnSave && btnSave.disabled))) {
+                await new Promise(r => setTimeout(r, 50));
+            }
+
+            // Click save rules to trigger coordinated save and LINK_CONFLICT
+            btnSave.click();
+            let modalRetries = 50;
+            while (modalRetries-- > 0 && modal && !modal.classList.contains('active')) {
+                await new Promise(r => setTimeout(r, 30));
+            }
+
+            const modalActiveBefore = modal && modal.classList.contains('active');
+            const options = document.querySelectorAll('#conflict-options-list .conflict-option-card');
+            const btnResolve = document.getElementById('btn-conflict-resolve');
+            const resolveDisabledInitially = btnResolve ? btnResolve.disabled : false;
+
+            // Click the second option (ProfileB)
+            if (options.length >= 2) {
+                options[1].click();
+            }
+            await new Promise(r => setTimeout(r, 50));
+
+            const resolveEnabledAfterSelect = btnResolve ? !btnResolve.disabled : false;
+            const optionBSelected = options[1] ? options[1].classList.contains('selected') : false;
+
+            // Click Resolve
+            btnResolve.click();
+            let closeRetries = 50;
+            while (closeRetries-- > 0 && modal && modal.classList.contains('active')) {
+                await new Promise(r => setTimeout(r, 30));
+            }
+
+            const modalActiveAfter = modal && modal.classList.contains('active');
+            const capturedResolves = window.__CAPTURED_RESOLVES__ || [];
+
+            return {
+                modalActiveBefore,
+                optionsCount: options.length,
+                resolveDisabledInitially,
+                resolveEnabledAfterSelect,
+                optionBSelected,
+                modalActiveAfter,
+                capturedResolves
+            };
+        }""")
+
+        assert_test(
+            "Conflict UI: LINK_CONFLICT opens modal with 3 participating profiles",
+            conflict_flow_res.get("modalActiveBefore") is True and conflict_flow_res.get("optionsCount") == 3,
+            f"activeBefore={conflict_flow_res.get('modalActiveBefore')}, count={conflict_flow_res.get('optionsCount')}"
+        )
+        assert_test(
+            "Conflict UI: Resolve button disabled until authoritative candidate selected",
+            conflict_flow_res.get("resolveDisabledInitially") is True and conflict_flow_res.get("resolveEnabledAfterSelect") is True,
+            f"initiallyDisabled={conflict_flow_res.get('resolveDisabledInitially')}, enabledAfter={conflict_flow_res.get('resolveEnabledAfterSelect')}"
+        )
+        assert_test(
+            "Conflict UI: Selected candidate card highlights properly",
+            conflict_flow_res.get("optionBSelected") is True,
+            f"optionBSelected={conflict_flow_res.get('optionBSelected')}"
+        )
+
+        captured_resolves = conflict_flow_res.get("capturedResolves", [])
+        has_correct_resolve = (
+            len(captured_resolves) == 1 and
+            captured_resolves[0].get("code") == "MBS-SHARED-100" and
+            captured_resolves[0].get("authProfile") == "ProfileB" and
+            captured_resolves[0].get("expectedShas") == {
+                "ProfileA": "sha_token_A",
+                "ProfileB": "sha_token_B",
+                "ProfileC": "sha_token_C"
+            }
+        )
+        assert_test(
+            "Conflict UI: resolve_link_conflict dispatched with code, authoritative profile, and all expected SHAs",
+            has_correct_resolve,
+            f"capturedResolves={captured_resolves}"
+        )
+        assert_test(
+            "Conflict UI: Modal closed upon successful resolution",
+            conflict_flow_res.get("modalActiveAfter") is False,
+            f"modalActiveAfter={conflict_flow_res.get('modalActiveAfter')}"
+        )
+
+        conflict_page.close()
         browser.close()
 
     print("\n-----------------------------------------------------------------------------")
