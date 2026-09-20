@@ -2,7 +2,7 @@
 """
 Meta Business Suite Inbox Automator & Desktop Hub
 ===============================================================================
-Apple Prismatic Glass Desktop Hub via pywebview (V6.5.2-ENTERPRISE)
+Apple Prismatic Glass Desktop Hub via pywebview (V6.5.3-ENTERPRISE)
 Architecture:
 - Native desktop shell hosting Apple Prismatic Glass GUI (gui/index.html)
 - DesktopBridgeApi exposed to JavaScript
@@ -21,6 +21,7 @@ import time
 import asyncio
 import threading
 import argparse
+import warnings
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -139,13 +140,26 @@ class DesktopBridgeApi:
         """Return mapping of ruleCode to profile count."""
         return self.pm.get_linked_rule_counts()
 
-    def save_profile_config(self, profile_name: str, data: Dict[str, Any]) -> bool:
-        """Atomically persist configuration for profile (backward-compatible bool return)."""
-        res = self.pm.save_profile_config_coordinated(profile_name, data)
-        if res.get("ok"):
-            self._dispatch_rule_snapshots(res.get("modified_profiles", []))
-            return True
-        return False
+    def save_profile_config(
+        self,
+        profile_name: str,
+        data: Dict[str, Any],
+        expected_sha256: Optional[str] = None,
+    ) -> bool:
+        """Deprecated: Use save_profile_config_coordinated instead.
+        In V6.5.3, tokenless saves are deprecated and routed through the coordinator
+        with authoritative token resolution to prevent uncoordinated writes."""
+        warnings.warn(
+            "save_profile_config is deprecated in V6.5.3; use save_profile_config_coordinated instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if not expected_sha256:
+            cur_res = self.pm.load_profile_config_result(profile_name)
+            if cur_res.get("ok"):
+                expected_sha256 = cur_res.get("sha256_token")
+        res = self.save_profile_config_coordinated(profile_name, data, expected_sha256=expected_sha256)
+        return bool(res.get("ok") and res.get("disk_ok"))
 
     def save_profile_config_coordinated(
         self,
@@ -160,7 +174,11 @@ class DesktopBridgeApi:
         )
         if res.get("ok"):
             res["disk_ok"] = True
-            succ, fails = self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            succ, fails = self._dispatch_runtime_refresh(
+                res.get("modified_profiles", []),
+                target_profile=profile_name,
+                config_payload=data.get("config"),
+            )
             res["runtime_refresh_successes"] = succ
             res["runtime_refresh_failures"] = fails
         else:
@@ -169,9 +187,15 @@ class DesktopBridgeApi:
             res["runtime_refresh_failures"] = {}
         return res
 
-    def _dispatch_rule_snapshots(self, modified_profiles: List[str]) -> Tuple[List[str], Dict[str, str]]:
-        """Dispatches non-persisting APPLY_RULE_SNAPSHOT command to active workers of modified profiles.
-        Includes { rules, sha256_token } payload so worker can update in-memory SHA concurrency token.
+    def _dispatch_runtime_refresh(
+        self,
+        modified_profiles: List[str],
+        target_profile: Optional[str] = None,
+        config_payload: Optional[Any] = None,
+    ) -> Tuple[List[str], Dict[str, str]]:
+        """Dispatches runtime refresh commands to active workers of modified profiles.
+        - APPLY_RULE_SNAPSHOT is dispatched to all active workers of modified profiles with { rules, sha256_token }.
+        - RELOAD_CONFIG is dispatched to target_profile if config_payload is provided.
         Returns (successes, failures)."""
         successes: List[str] = []
         failures: Dict[str, str] = {}
@@ -182,24 +206,42 @@ class DesktopBridgeApi:
                     rules = cfg_res.get("data", {}).get("rules", []) if cfg_res.get("ok") else []
                     sha = cfg_res.get("sha256_token")
                     payload = {"rules": rules, "sha256_token": sha}
-                    sent = self.send_page_command(prof_name, "APPLY_RULE_SNAPSHOT", payload)
-                    if sent:
-                        successes.append(prof_name)
-                    else:
+                    sent_snap = self.send_page_command(prof_name, "APPLY_RULE_SNAPSHOT", payload)
+                    if not sent_snap:
                         failures[prof_name] = "فشل إرسال لقطة القواعد إلى صفحة المتصفح."
+                        continue
+
+                    if prof_name == target_profile and config_payload is not None:
+                        sent_cfg = self.send_page_command(prof_name, "RELOAD_CONFIG", config_payload)
+                        if not sent_cfg:
+                            failures[prof_name] = "فشل تحديث إعدادات الأتمتة في صفحة المتصفح."
+                            continue
+
+                    successes.append(prof_name)
                 except Exception as e:
                     failures[prof_name] = str(e)
-                    print(f"[DesktopBridgeApi] Failed to dispatch rule snapshot to '{prof_name}': {e}")
+                    print(f"[DesktopBridgeApi] Failed to dispatch runtime refresh to '{prof_name}': {e}")
         return successes, failures
 
+    def _dispatch_rule_snapshots(self, modified_profiles: List[str]) -> Tuple[List[str], Dict[str, str]]:
+        """Backward-compatible wrapper for runtime refresh dispatch."""
+        return self._dispatch_runtime_refresh(modified_profiles)
+
     def import_rules_from_profile(
-        self, target_profile: str, source_profile: str, rule_ids: List[str], mode: str = "clone"
+        self,
+        target_profile: str,
+        source_profile: str,
+        rule_ids: List[str],
+        mode: str = "clone",
+        expected_target_sha256: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronously import rules into target profile using 'clone' or 'link' mode."""
-        res = self.pm.import_rules_from_profile(target_profile, source_profile, rule_ids, mode=mode)
+        res = self.pm.import_rules_from_profile(
+            target_profile, source_profile, rule_ids, mode=mode, expected_target_sha256=expected_target_sha256
+        )
         if res.get("ok"):
             res["disk_ok"] = True
-            succ, fails = self._dispatch_rule_snapshots([target_profile])
+            succ, fails = self._dispatch_runtime_refresh([target_profile])
             res["runtime_refresh_successes"] = succ
             res["runtime_refresh_failures"] = fails
         else:
@@ -218,7 +260,7 @@ class DesktopBridgeApi:
         res = self.pm.resolve_link_conflict(conflicting_code, authoritative_profile, expected_shas=expected_shas)
         if res.get("ok"):
             res["disk_ok"] = True
-            succ, fails = self._dispatch_rule_snapshots(res.get("modified_profiles", []))
+            succ, fails = self._dispatch_runtime_refresh(res.get("modified_profiles", []))
             res["runtime_refresh_successes"] = succ
             res["runtime_refresh_failures"] = fails
         else:
@@ -472,7 +514,7 @@ def run_desktop_app(dev_tools: bool = False):
     engine.start()
 
     window = webview.create_window(
-        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.2-ENTERPRISE)",
+        title="Meta Automation Hub - Apple Prismatic Glass Edition (V6.5.3-ENTERPRISE)",
         url=str(INDEX_HTML.resolve()),
         js_api=api,
         width=1180,
@@ -492,7 +534,7 @@ def run_desktop_app(dev_tools: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.2-ENTERPRISE)"
+        description="Meta Automation Hub - Apple Prismatic Glass Edition Desktop (V6.5.3-ENTERPRISE)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable webview developer tools / inspect")
     parser.add_argument("--test-api", action="store_true", help="Run self-diagnostic test on API bridge without opening window")

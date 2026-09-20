@@ -1,5 +1,5 @@
 /**
- * Meta Automation Desktop Control Center (V6.5.2-ENTERPRISE)
+ * Meta Automation Desktop Control Center (V6.5.3-ENTERPRISE)
  * Apple Prismatic Liquid Glass Client Application
  * Cupertino / SF Symbols Vector SVG Integration
  */
@@ -1013,14 +1013,16 @@
       let res = null;
       try {
         res = await callApi('save_profile_config_coordinated', state.selectedProfile, state.currentConfig, state.currentConfigSha256);
-      } catch (_) {
-        res = await callApi('save_profile_config', state.selectedProfile, state.currentConfig);
+      } catch (err) {
+        alert('حدث خطأ في الاتصال أثناء حفظ القواعد: ' + (err && err.message ? err.message : err));
+        return;
       }
 
-      if (res && (res.ok || res === true)) {
+      if (res && res.ok && res.disk_ok) {
         if (res.sha256_token) state.currentConfigSha256 = res.sha256_token;
         if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
-          alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+          const failNames = Object.keys(res.runtime_refresh_failures).join(', ');
+          alert(`تم حفظ القواعد على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً للبروفايل: ${failNames}`);
         } else {
           alert('تم حفظ وتحديث القواعد بنجاح');
         }
@@ -1032,7 +1034,7 @@
         alert(res.message || 'تم تعديل ملف التهيئة بواسطة عملية أخرى منذ آخر تحميل. يرجى إعادة التحميل قبل الحفظ.');
         await selectProfile(state.selectedProfile);
       } else {
-        alert('حدث خطأ أثناء حفظ القواعد: ' + (res ? res.message || res.error || 'فشل الحفظ' : 'فشل غير معروف'));
+        alert('حدث خطأ أثناء حفظ القواعد: ' + (res ? res.message || res.error || 'فشل الحفظ' : 'استجابة غير صالحة من النظام'));
       }
     });
 
@@ -1291,10 +1293,11 @@
           return;
         }
 
-        if (res && res.ok) {
+        if (res && res.ok && res.disk_ok) {
           closeLinkConflictModal();
           if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
-            alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+            const failNames = Object.keys(res.runtime_refresh_failures).join(', ');
+            alert(`تم حفظ التسوية على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً للبروفايل: ${failNames}`);
           } else {
             alert('تمت تسوية تضارب القاعدة المشتركة وتطبيق التحديثات بنجاح');
           }
@@ -1337,16 +1340,11 @@
         return;
       }
 
-      if (res && res.ok) {
+      if (res && res.ok && res.disk_ok) {
         if (res.sha256_token) state.currentConfigSha256 = res.sha256_token;
-        // [P2-GUI-01] Synchronize live runtime configuration with running browser
-        const current = state.profiles.find(p => p.name === state.selectedProfile);
-        const isRunning = current && current.status === 'RUNNING';
-        if (isRunning) {
-          await callApi('send_page_command', state.selectedProfile, 'RELOAD_CONFIG', state.currentConfig.config);
-        }
         if (res.runtime_refresh_failures && Object.keys(res.runtime_refresh_failures).length > 0) {
-          alert('تم الحفظ على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً');
+          const failNames = Object.keys(res.runtime_refresh_failures).join(', ');
+          alert(`تم حفظ الإعدادات على القرص، ولكن تعذر تحديث المتصفح النشط تلقائياً للبروفايل: ${failNames}`);
         } else {
           alert('تم حفظ الإعدادات وتطبيقها بنجاح');
         }

@@ -1,11 +1,11 @@
-# دليل النشر والتشغيل المؤسسي لمنظومة أتمتة Meta Business Suite (V6.5.2)
+# دليل النشر والتشغيل المؤسسي لمنظومة أتمتة Meta Business Suite (V6.5.3)
 ## وثيقة إجراءات التشغيل القياسية والجاهزية المؤسسية (Standard Operating Procedure - SOP)
 
 ---
 
 ## 1. الملخص التنفيذي (Executive Summary)
 
-تمثل منظومة **Meta Business Suite Inbox Automator (الإصدار المؤسسي V6.5.2 - Apple Prismatic Liquid Glass Edition)** بنية برمجية متطورة ومصممة هندسياً لإدارة وتدقيق محادثات العملاء على منصات Meta (Facebook Pages & Instagram Direct). يهدف النظام إلى تحقيق أعلى درجات الجاهزية التشغيلية ومعدل استمرارية خدمة (99.9% High Availability) من خلال الرد الفوري الموجه، وحماية طابور الرسائل غير المقروءة، وضمان التشغيل المستقل والمستمر دون انقطاع (24/7 Unattended Operation).
+تمثل منظومة **Meta Business Suite Inbox Automator (الإصدار المؤسسي V6.5.3 - Apple Prismatic Liquid Glass Edition)** بنية برمجية متطورة ومصممة هندسياً لإدارة وتدقيق محادثات العملاء على منصات Meta (Facebook Pages & Instagram Direct). يهدف النظام إلى تحقيق أعلى درجات الجاهزية التشغيلية ومعدل استمرارية خدمة (99.9% High Availability) من خلال الرد الفوري الموجه، وحماية طابور الرسائل غير المقروءة، وضمان التشغيل المستقل والمستمر دون انقطاع (24/7 Unattended Operation).
 
 ### الركائز الهندسية والقيمة التشغيلية (V5.0.0):
 - **بنية استعادة غير مقروء الحصينة وفك مصيدة التركيز (Bulletproof Unread Restoration):** فك تركيز محرر الرسائل ومحتوى الشات تلقائياً عبر `releaseChatFocus`، ونقر كامل لكافة أحداث المؤشر والماوس عبر `dispatchFullClick`، مع حلقة تحقق تفاعلية متزامنة تنتظر حتى 1500ms لتأكيد ظهور العلامات البصرية غير المقروءة وإعادة محاولة تلقائية في حال عدم التأكيد.
@@ -192,5 +192,5 @@
 
 **الجهة المعتمدة:** فريق تطوير النظم وهندسة الأتمتة المؤسسية
 **المسؤول التقني:** Bishoy Safwat (Senior Automation Engineer)
-**الإصدار:** V6.5.2 Enterprise Production Release
+**الإصدار:** V6.5.3 Enterprise Production Release
 **تاريخ الاعتماد:** سبتمبر 2026

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Suite Profile Manager Module (V6.5.2 Enterprise Release)
+Meta Business Suite Profile Manager Module (V6.5.3 Enterprise Release)
 Author: Bishoy Safwat (Senior Automation & Systems Engineer)
 Provides thread-safe and process-isolated local sandbox management,
 immutable rule-code metadata allocation, atomic single-profile persistence,
@@ -9,7 +9,7 @@ synchronous linked-rule propagation, and idempotent legacy metadata migration.
 """
 
 __author__ = "Bishoy Safwat"
-__version__ = "6.5.2"
+__version__ = "6.5.3"
 
 import os
 import re
@@ -1002,13 +1002,18 @@ class ProfileManager:
             }
 
     def import_rules_from_profile(
-        self, target_profile: str, source_profile: str, rule_ids: List[str], mode: str = "clone"
+        self,
+        target_profile: str,
+        source_profile: str,
+        rule_ids: List[str],
+        mode: str = "clone",
+        expected_target_sha256: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronously import rules with explicit Clone vs Link choice:
         - mode "clone": Fresh local ID + fresh independent ruleCode.
         - mode "link": Fresh local ID + preserved shared ruleCode.
         Source reads, target reads, collision checks, SHA capture, staging, revalidation,
-        and writes all execute within the coordinator transaction mutex.
+        and writes all execute within a single coordinator transaction mutex.
         Source config.json remains 100% byte-for-byte unchanged."""
         try:
             target_safe = self.validate_name(target_profile)
@@ -1032,23 +1037,25 @@ class ProfileManager:
                         "message": "لا يمكن استيراد القواعد: المجلد الرئيسي مقفل بواسطة جلسة تطبيق أخرى نشطة.",
                     }
 
-            src_res = self.load_profile_config_result(source_safe)
-            if not src_res.get("ok"):
+            source_cfg_path = self.get_profile_config_path(source_safe)
+            if not source_cfg_path.is_file():
                 return {
                     "ok": False,
                     "code": "SOURCE_NOT_FOUND",
-                    "message": f"تعذر قراءة البروفايل المصدر '{source_safe}': {src_res.get('error')}",
+                    "message": f"تعذر قراءة البروفايل المصدر '{source_safe}': الملف غير موجود.",
                 }
+            source_raw_bytes = source_cfg_path.read_bytes()
+            source_sha = hashlib.sha256(source_raw_bytes).hexdigest()
 
-            target_res = self.load_profile_config_result(target_safe)
-            if not target_res.get("ok"):
+            try:
+                source_doc = json.loads(source_raw_bytes.decode("utf-8"))
+            except Exception as e:
                 return {
                     "ok": False,
-                    "code": "TARGET_NOT_FOUND",
-                    "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': {target_res.get('error')}",
+                    "code": "SOURCE_PARSE_ERROR",
+                    "message": f"تعذر قراءة البروفايل المصدر '{source_safe}': {e}",
                 }
 
-            source_doc = src_res["data"]
             source_rules = source_doc.get("rules", [])
             if not isinstance(source_rules, list) or not source_rules:
                 return {
@@ -1070,7 +1077,33 @@ class ProfileManager:
                     "message": "لم يتم العثور على القواعد المحددة في البروفايل المصدر.",
                 }
 
-            target_doc = target_res["data"]
+            target_cfg_path = self.get_profile_config_path(target_safe)
+            if not target_cfg_path.is_file():
+                return {
+                    "ok": False,
+                    "code": "TARGET_NOT_FOUND",
+                    "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': الملف غير موجود.",
+                }
+            target_raw_bytes = target_cfg_path.read_bytes()
+            target_sha = hashlib.sha256(target_raw_bytes).hexdigest()
+
+            if expected_target_sha256 and target_sha != expected_target_sha256:
+                return {
+                    "ok": False,
+                    "code": "STALE_CONFIG",
+                    "message": f"تم تعديل البروفايل الهدف '{target_safe}' على القرص منذ آخر تحميل.",
+                    "current_sha256": target_sha,
+                }
+
+            try:
+                target_doc = json.loads(target_raw_bytes.decode("utf-8"))
+            except Exception as e:
+                return {
+                    "ok": False,
+                    "code": "TARGET_PARSE_ERROR",
+                    "message": f"تعذر قراءة البروفايل الهدف '{target_safe}': {e}",
+                }
+
             dest_rules = target_doc.get("rules", [])
             if not isinstance(dest_rules, list):
                 dest_rules = []
@@ -1144,23 +1177,64 @@ class ProfileManager:
             dest_rules.extend(cloned_rules)
             target_doc["rules"] = dest_rules
 
-        save_res = self.save_profile_config_coordinated(
-            target_safe,
-            target_doc,
-            expected_sha256=target_res.get("sha256_token"),
-            allowed_linked_codes=set(r["ruleCode"] for r in cloned_rules if mode == "link"),
-        )
-        if not save_res.get("ok"):
-            return save_res
+            # Re-validate both target SHA and source SHA immediately before file replacement
+            cur_target_bytes = target_cfg_path.read_bytes() if target_cfg_path.is_file() else b""
+            cur_target_sha = hashlib.sha256(cur_target_bytes).hexdigest() if cur_target_bytes else None
+            if cur_target_sha != target_sha:
+                return {
+                    "ok": False,
+                    "code": "STALE_CONFIG",
+                    "message": f"تم تعديل البروفايل الهدف '{target_safe}' على القرص أثناء إعداد الاستيراد. تم إلغاء العملية.",
+                    "current_sha256": cur_target_sha,
+                }
 
-        return {
-            "ok": True,
-            "code": "SUCCESS",
-            "importedCount": len(cloned_rules),
-            "rules": cloned_rules,
-            "target_config": save_res.get("target_config"),
-            "sha256_token": save_res.get("sha256_token"),
-        }
+            cur_source_bytes = source_cfg_path.read_bytes() if source_cfg_path.is_file() else b""
+            cur_source_sha = hashlib.sha256(cur_source_bytes).hexdigest() if cur_source_bytes else None
+            if cur_source_sha != source_sha:
+                return {
+                    "ok": False,
+                    "code": "STALE_SOURCE_CONFIG",
+                    "message": f"تم تعديل البروفايل المصدر '{source_safe}' أثناء إعداد الاستيراد. تم إلغاء العملية دون تعديل البروفايل الهدف.",
+                    "current_source_sha256": cur_source_sha,
+                }
+
+            # Atomic write to target file with binary rollback on failure
+            try:
+                atomic_write_json(target_cfg_path, target_doc)
+            except Exception as e:
+                # Rollback target file
+                try:
+                    if target_raw_bytes:
+                        temp_fd, temp_path = tempfile.mkstemp(
+                            dir=target_cfg_path.parent, prefix=".rollback_", suffix=".json"
+                        )
+                        with os.fdopen(temp_fd, "wb") as f:  # encoding="utf-8" binary rollback
+                            f.write(target_raw_bytes)
+                            f.flush()
+                            os.fsync(f.fileno())
+                        os.replace(temp_path, target_cfg_path)
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "code": "WRITE_FAILURE",
+                    "message": f"فشلت كتابة ملف البروفايل الهدف: {e}",
+                }
+
+            new_target_bytes = target_cfg_path.read_bytes()
+            new_target_sha = hashlib.sha256(new_target_bytes).hexdigest()
+
+            # Ensure source raw bytes remained 100% bit-identical
+            assert source_cfg_path.read_bytes() == source_raw_bytes, "Source profile was unexpectedly modified"
+
+            return {
+                "ok": True,
+                "code": "SUCCESS",
+                "importedCount": len(cloned_rules),
+                "rules": cloned_rules,
+                "target_config": target_doc,
+                "sha256_token": new_target_sha,
+            }
 
     def migrate_legacy_rule_metadata(self, profile_name: Optional[str] = None) -> Dict[str, Any]:
         """Idempotent, backed-up metadata migration: assigns unique Crockford Base32 codes
@@ -1386,19 +1460,35 @@ class ProfileManager:
                     "message": f"لم يتم العثور على كود القاعدة '{conflicting_code}' داخل البروفايل المعتمد '{auth_safe}'.",
                 }
 
-            # Validate expected_shas if provided
-            if expected_shas and isinstance(expected_shas, dict):
-                for pname, exp_sha in expected_shas.items():
-                    if pname in participating:
-                        actual_sha = participating[pname].get("sha256_token")
-                        if exp_sha and actual_sha != exp_sha:
-                            return {
-                                "ok": False,
-                                "code": "STALE_CONFIG",
-                                "message": f"تم تعديل البروفايل '{pname}' على القرص منذ فحص التضارب. يرجى إعادة المحاولة.",
-                                "stale_profile": pname,
-                                "current_sha256": actual_sha,
-                            }
+            # Require valid tokens for every participating profile determined from authoritative disk state
+            if not isinstance(expected_shas, dict):
+                return {
+                    "ok": False,
+                    "code": "MISSING_CONCURRENCY_TOKEN",
+                    "message": "يجب تقديم رموز التزامن لكافة البروفايلات المشاركة في التسوية.",
+                    "missing_profiles": sorted(list(participating.keys())),
+                }
+
+            missing_profiles = [pname for pname in participating if not expected_shas.get(pname)]
+            if missing_profiles:
+                return {
+                    "ok": False,
+                    "code": "MISSING_CONCURRENCY_TOKEN",
+                    "message": f"رموز التزامن مفقودة للبروفايلات المشاركة في التسوية: {', '.join(sorted(missing_profiles))}.",
+                    "missing_profiles": sorted(missing_profiles),
+                }
+
+            for pname, pres in participating.items():
+                exp_sha = expected_shas.get(pname)
+                actual_sha = pres.get("sha256_token")
+                if exp_sha != actual_sha:
+                    return {
+                        "ok": False,
+                        "code": "STALE_CONFIG",
+                        "message": f"تم تعديل البروفايل '{pname}' على القرص منذ فحص التضارب. يرجى إعادة المحاولة.",
+                        "stale_profile": pname,
+                        "current_sha256": actual_sha,
+                    }
 
             # Extract canonical allowlist from authoritative rule
             auth_keywords = list(auth_rule.get("keywords", [])) if isinstance(auth_rule.get("keywords"), list) else []

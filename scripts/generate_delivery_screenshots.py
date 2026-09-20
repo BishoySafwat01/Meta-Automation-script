@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meta Business Automator — V6.5.2 Delivery Screenshot Generator (Playwright)
-Generates 5 real bridge-driven visual verification screenshots directly into the artifact directory:
-1. screenshot_sidebar_counts.png: Real production profile counts via ProfileManager.list_profiles()
-2. screenshot_rule_card_and_multiline_editor.png: Real rule card with Crockford code, name, and multiline textareas
-3. screenshot_linked_rule_badge.png: Linked rule badge with 'مرتبطة' and 'فك الارتباط' button
-4. screenshot_import_modal_link_options.png: Import modal with Clone vs Link radio options
-5. screenshot_conflict_resolution_modal.png: 3-Profile conflict resolution modal
+Meta Business Automator — V6.5.3 Delivery Screenshot Generator & Real Bridge Workflows (Playwright)
+Executes and asserts all 11 real bridge workflows on isolated fixtures:
+ 1. Save (coordinated persistence, token increment, peer isolation)
+ 2. Clone (fresh ruleCode, 100% source byte parity)
+ 3. Link (shared ruleCode, 100% source byte parity)
+ 4. Linked propagation (synchronized updates across linked peers)
+ 5. Unlink (fresh unique ruleCode, peer unchanged)
+ 6. Stale target rejection (STALE_CONFIG, 0 disk mutation)
+ 7. Stale source rejection (STALE_SOURCE_CONFIG, 0 target mutation)
+ 8. 3-profile conflict detection (LINK_CONFLICT with participating list)
+ 9. Missing-token conflict rejection (MISSING_CONCURRENCY_TOKEN)
+10. Explicit resolution with complete tokens (atomic multi-profile synchronization)
+11. Runtime-refresh failure reporting (disk_ok=True, named failures in runtime_refresh_failures)
+
+Then captures 5 real visual verification screenshots directly into the artifact directory:
+ 1. screenshot_sidebar_counts.png: Real production profile counts via ProfileManager.list_profiles()
+ 2. screenshot_rule_card_and_multiline_editor.png: Real rule card with Crockford code, name, and multiline textareas
+ 3. screenshot_linked_rule_badge.png: Linked rule badge with 'مرتبطة' and 'فك الارتباط' button
+ 4. screenshot_import_modal_link_options.png: Import modal with Clone vs Link radio options
+ 5. screenshot_conflict_resolution_modal.png: 3-Profile conflict resolution modal
 """
 
 import json
@@ -17,6 +30,7 @@ import time
 import tempfile
 import hashlib
 from pathlib import Path
+from unittest.mock import MagicMock
 from playwright.sync_api import sync_playwright
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -36,8 +50,196 @@ def find_chrome_executable():
     return None
 
 
+def execute_11_bridge_workflows():
+    print("\n=============================================================================")
+    print("  EXECUTING ALL 11 REAL BRIDGE WORKFLOWS ON ISOLATED FIXTURES (V6.5.3)")
+    print("=============================================================================")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        base_dir = Path(tmp_dir)
+        pm = ProfileManager(base_dir=base_dir)
+        pm.ownership_guard.acquire()
+        bridge = DesktopBridgeApi(pm, controller=None, loop=None)
+
+        def make_prof(name, rules, cfg=None):
+            pdir = base_dir / name
+            pdir.mkdir(parents=True, exist_ok=True)
+            cpath = pdir / "config.json"
+            data = {"rules": rules, "config": cfg or {"active": True, "cooldown_seconds": 1.5}}
+            raw = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            cpath.write_bytes(raw)
+            return cpath, hashlib.sha256(raw).hexdigest()
+
+        # ---------------------------------------------------------------------
+        # Workflow 1: Save — save_profile_config_coordinated persists target & increments token
+        # ---------------------------------------------------------------------
+        code_solo = allocate_unique_rule_code(set())
+        r_solo = {"id": "r_s1", "ruleCode": code_solo, "name": "Solo", "keywords": ["أ"], "reply": "رد", "matchType": "ultra_exact", "caseSensitive": False}
+        p_solo_path, s_sha = make_prof("W1_Solo", [r_solo])
+        p_peer_path, peer_sha = make_prof("W1_Peer", [])
+
+        w1_data = {"rules": [{**r_solo, "name": "Solo Updated"}], "config": {"active": True}}
+        w1_res = bridge.save_profile_config_coordinated("W1_Solo", w1_data, expected_sha256=s_sha)
+        assert w1_res.get("ok") is True, f"Workflow 1 failed: {w1_res}"
+        assert w1_res.get("disk_ok") is True
+        assert w1_res.get("sha256_token") != s_sha
+        assert p_peer_path.read_bytes() == json.dumps({"rules": [], "config": {"active": True, "cooldown_seconds": 1.5}}, ensure_ascii=False, indent=2).encode("utf-8"), "Peer was modified!"
+        print(" [PASS] Workflow 01: Save coordinated persistence & token increment verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 2: Clone — fresh ruleCode & 100% source byte parity
+        # ---------------------------------------------------------------------
+        code_src = allocate_unique_rule_code(set())
+        r_src = {"id": "r_clone_src", "ruleCode": code_src, "name": "Src", "keywords": ["س"], "reply": "ج", "matchType": "ultra_exact", "caseSensitive": False}
+        src_path, src_sha = make_prof("W2_Src", [r_src])
+        src_bytes_init = src_path.read_bytes()
+        make_prof("W2_Tgt", [])
+
+        w2_res = bridge.import_rules_from_profile("W2_Tgt", "W2_Src", ["r_clone_src"], mode="clone")
+        assert w2_res.get("ok") is True
+        assert src_path.read_bytes() == src_bytes_init, "Source bytes modified during clone!"
+        imported_rule = w2_res["rules"][0]
+        assert imported_rule["ruleCode"] != code_src, "Clone did not assign fresh ruleCode!"
+        print(" [PASS] Workflow 02: Clone fresh ruleCode & 100% source byte parity verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 3: Link — preserved shared ruleCode & 100% source byte parity
+        # ---------------------------------------------------------------------
+        make_prof("W3_Tgt", [])
+        w3_res = bridge.import_rules_from_profile("W3_Tgt", "W2_Src", ["r_clone_src"], mode="link")
+        assert w3_res.get("ok") is True
+        assert src_path.read_bytes() == src_bytes_init, "Source bytes modified during link!"
+        assert w3_res["rules"][0]["ruleCode"] == code_src, "Link did not preserve shared ruleCode!"
+        print(" [PASS] Workflow 03: Link shared ruleCode & 100% source byte parity verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 4: Linked propagation — saving modified linked rule updates target & propagates to peer
+        # ---------------------------------------------------------------------
+        tgt3_res = pm.load_profile_config_result("W3_Tgt")
+        tgt3_sha = tgt3_res.get("sha256_token")
+        tgt3_data = tgt3_res["data"]
+        tgt3_data["rules"][0]["reply"] = "رد مشترك محدث عبر الربط"
+
+        w4_res = bridge.save_profile_config_coordinated("W3_Tgt", tgt3_data, expected_sha256=tgt3_sha)
+        assert w4_res.get("ok") is True
+        assert "W2_Src" in w4_res.get("modified_profiles", [])
+        # Assert peer got updated reply
+        src_reloaded = pm.load_profile_config_result("W2_Src")
+        assert src_reloaded["data"]["rules"][0]["reply"] == "رد مشترك محدث عبر الربط"
+        print(" [PASS] Workflow 04: Linked propagation synchronized across profiles verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 5: Unlink — fresh unique ruleCode, preserves rule body, leaves other profiles linked
+        # ---------------------------------------------------------------------
+        w5_res = pm.unlink_rule("W3_Tgt", tgt3_data["rules"][0]["id"])
+        assert w5_res.get("ok") is True
+        assert w5_res["new_rule_code"] != code_src
+        # Verify source still has original code
+        src_after_unlink = pm.load_profile_config_result("W2_Src")
+        assert src_after_unlink["data"]["rules"][0]["ruleCode"] == code_src
+        print(" [PASS] Workflow 05: Unlink independent code generation & isolation verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 6: Stale target rejection — returns STALE_CONFIG & 0 disk mutation
+        # ---------------------------------------------------------------------
+        stale_sha = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        w6_tgt_bytes_before = p_solo_path.read_bytes()
+        w6_res = bridge.save_profile_config_coordinated("W1_Solo", w1_data, expected_sha256=stale_sha)
+        assert w6_res.get("ok") is False
+        assert w6_res.get("code") == "STALE_CONFIG"
+        assert p_solo_path.read_bytes() == w6_tgt_bytes_before
+        print(" [PASS] Workflow 06: Stale target rejection (STALE_CONFIG) & zero mutation verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 7: Stale source rejection — returns STALE_SOURCE_CONFIG & 0 target mutation
+        # ---------------------------------------------------------------------
+        code_w7 = allocate_unique_rule_code(set())
+        r_w7 = {"id": "r_w7_1", "ruleCode": code_w7, "name": "W7", "keywords": ["م"], "reply": "ن", "matchType": "ultra_exact", "caseSensitive": False}
+        src_w7_path, _ = make_prof("W7_Src", [r_w7])
+        tgt_w7_path, tgt_w7_sha = make_prof("W7_Tgt", [])
+        tgt_w7_bytes_before = tgt_w7_path.read_bytes()
+
+        orig_loads = json.loads
+        def sim_source_change_loads(s, *args, **kwargs):
+            res = orig_loads(s, *args, **kwargs)
+            if isinstance(res, dict) and "rules" in res and res.get("rules") and res["rules"][0].get("id") == "r_w7_1":
+                src_w7_path.write_bytes(json.dumps({"rules": [{**r_w7, "reply": "متحول"}], "config": {"active": True}}).encode("utf-8"))
+            return res
+
+        import unittest.mock
+        with unittest.mock.patch("json.loads", side_effect=sim_source_change_loads):
+            w7_res = bridge.import_rules_from_profile("W7_Tgt", "W7_Src", ["r_w7_1"], mode="clone", expected_target_sha256=tgt_w7_sha)
+
+        assert w7_res.get("ok") is False
+        assert w7_res.get("code") == "STALE_SOURCE_CONFIG"
+        assert tgt_w7_path.read_bytes() == tgt_w7_bytes_before
+        print(" [PASS] Workflow 07: Stale source rejection (STALE_SOURCE_CONFIG) & zero target mutation verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 8: 3-profile conflict detection — LINK_CONFLICT with participating list
+        # ---------------------------------------------------------------------
+        shared_3 = allocate_unique_rule_code(set())
+        r_3a = {"id": "r3a", "ruleCode": shared_3, "name": "R", "keywords": ["ك"], "reply": "رد أ", "matchType": "ultra_exact", "caseSensitive": False}
+        r_3b = {"id": "r3b", "ruleCode": shared_3, "name": "R", "keywords": ["ك"], "reply": "رد أ", "matchType": "ultra_exact", "caseSensitive": False}
+        r_3c = {"id": "r3c", "ruleCode": shared_3, "name": "R", "keywords": ["ك"], "reply": "رد ج مختلف", "matchType": "ultra_exact", "caseSensitive": False}
+
+        _, sha3a = make_prof("W8_P1", [r_3a])
+        _, sha3b = make_prof("W8_P2", [r_3b])
+        _, sha3c = make_prof("W8_P3", [r_3c])
+
+        # Saving P1 modifying reply causes conflict because P3 has divergent reply on disk
+        w8_data = {"rules": [{**r_3a, "reply": "رد جديد"}], "config": {"active": True}}
+        w8_res = bridge.save_profile_config_coordinated("W8_P1", w8_data, expected_sha256=sha3a)
+        assert w8_res.get("ok") is False
+        assert w8_res.get("code") == "LINK_CONFLICT"
+        assert len(w8_res.get("participating_profiles", [])) == 3
+        print(" [PASS] Workflow 08: 3-Profile conflict detection (LINK_CONFLICT) verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 9: Missing-token conflict rejection — returns MISSING_CONCURRENCY_TOKEN
+        # ---------------------------------------------------------------------
+        w9_res_none = bridge.resolve_link_conflict(shared_3, "W8_P1", expected_shas=None)
+        assert w9_res_none.get("ok") is False
+        assert w9_res_none.get("code") == "MISSING_CONCURRENCY_TOKEN"
+
+        w9_res_part = bridge.resolve_link_conflict(shared_3, "W8_P1", expected_shas={"W8_P1": sha3a})
+        assert w9_res_part.get("ok") is False
+        assert w9_res_part.get("code") == "MISSING_CONCURRENCY_TOKEN"
+        print(" [PASS] Workflow 09: Missing-token conflict rejection (MISSING_CONCURRENCY_TOKEN) verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 10: Explicit resolution with complete tokens — synchronizes all 3 profiles
+        # ---------------------------------------------------------------------
+        complete_tokens = {"W8_P1": sha3a, "W8_P2": sha3b, "W8_P3": sha3c}
+        w10_res = bridge.resolve_link_conflict(shared_3, "W8_P1", expected_shas=complete_tokens)
+        assert w10_res.get("ok") is True
+        assert w10_res.get("disk_ok") is True
+        # Verify P3 now has P1's reply
+        p3_res = pm.load_profile_config_result("W8_P3")
+        assert p3_res["data"]["rules"][0]["reply"] == "رد أ"
+        print(" [PASS] Workflow 10: Explicit resolution with complete tokens synchronized all profiles verified")
+
+        # ---------------------------------------------------------------------
+        # Workflow 11: Runtime-refresh failure reporting — disk_ok=True and runtime_refresh_failures
+        # ---------------------------------------------------------------------
+        p11_path, sha11 = make_prof("W11_Prof", [])
+        bridge.is_worker_running = MagicMock(return_value=True)
+        bridge.send_page_command = MagicMock(return_value=False)
+
+        w11_data = {"rules": [], "config": {"active": True, "cooldown_seconds": 4.0}}
+        w11_res = bridge.save_profile_config_coordinated("W11_Prof", w11_data, expected_sha256=sha11)
+        assert w11_res.get("ok") is True
+        assert w11_res.get("disk_ok") is True
+        assert "W11_Prof" in w11_res.get("runtime_refresh_failures", {})
+        print(" [PASS] Workflow 11: Runtime-refresh failure reporting with disk_ok=True verified")
+
+        pm.ownership_guard.release()
+
+    print("\nALL 11 REAL BRIDGE WORKFLOWS VERIFIED SUCCESSFULLY (100% PASS)!\n")
+
+
 def generate_delivery_screenshots():
-    print("=== Generating V6.5.2 Delivery Screenshots via Real Bridge ===")
+    print("=== Generating V6.5.3 Delivery Screenshots via Real Bridge ===")
 
     chrome_exec = find_chrome_executable()
 
@@ -246,7 +448,6 @@ def generate_delivery_screenshots():
 
         # Screenshot 5: Conflict Resolution Modal (Divergent Catalog C vs Catalog A)
         # Trigger save rules on Catalog A (modifying a keyword to trigger coordinated save)
-        # Because Catalog C has divergent reply on disk, LINK_CONFLICT is returned!
         page2.evaluate("""async () => {
             const card = document.querySelector('.rule-card');
             if (card) {
@@ -280,4 +481,5 @@ def generate_delivery_screenshots():
 
 
 if __name__ == "__main__":
+    execute_11_bridge_workflows()
     generate_delivery_screenshots()

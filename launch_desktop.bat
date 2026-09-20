@@ -1,6 +1,6 @@
 @echo off
 REM ==============================================================================
-REM Meta Automation Hub (Apple Prismatic Glass Edition V6.5.2)
+REM Meta Automation Hub (Apple Prismatic Glass Edition V6.5.3)
 REM Windows Desktop Launcher
 REM ==============================================================================
 
@@ -8,7 +8,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==============================================================================
-echo   ⚡ Meta Business Suite Automation - Desktop Control Center V6.5.2
+echo   ⚡ Meta Business Suite Automation - Desktop Control Center V6.5.3
 echo   Apple Prismatic Glass Edition (Windows Launcher)
 echo ==============================================================================
 
