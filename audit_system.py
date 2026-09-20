@@ -392,11 +392,84 @@ eval(ctxObjStr);
   const normZwj = normalizeArabicText("مرحبا 👩‍💻 مهندسة");
   res.zwj = normZwj.includes("\u200D") && normZwj.includes(zwjEmoji);
 
-  // 5. ReDoS Alternation Shielding
-  const blockedA = regexSandbox.testInline("(a|a)+", "i", "aaaaaaaaaaaaaaaaaaaaaaaaaaaa!");
-  const blockedB = regexSandbox.testInline("(a|b)+", "i", "aaaaaaaaaaaaaaaaaaaaaaaaaaaa!");
-  const safeRegex = regexSandbox.testInline("السعر.*(500|600)", "iu", "السعر 500 جنيه");
-  res.redos = (blockedA === false) && (blockedB === false) && (safeRegex === true);
+  // 5. Worker Regex Isolation & Failure Path Benchmarks
+  global.window = global;
+  global.Blob = class Blob { constructor(parts) { this.parts = parts; } };
+  global.URL = { createObjectURL: () => 'blob:mock', revokeObjectURL: () => {} };
+
+  function makeSandbox(workerFactory) {
+    global.Worker = workerFactory;
+    return new global.RegexSandbox();
+  }
+
+  // 5.1 Constructor failure
+  const sbConstructFail = makeSandbox(function() { throw new Error('CSP blocked worker'); });
+  const rConstruct = await sbConstructFail.test('pattern', 'u', 'text');
+
+  // 5.2 postMessage failure
+  const sbPostFail = makeSandbox(function() {
+    this.postMessage = function() { throw new Error('postMessage failed'); };
+    this.terminate = function() {};
+  });
+  const rPost = await sbPostFail.test('pattern', 'u', 'text');
+
+  // 5.3 onerror failure
+  const sbOnError = makeSandbox(function() {
+    this.postMessage = (msg) => {
+      setTimeout(() => { if (this.onerror) this.onerror(new Error('Worker error')); }, 5);
+    };
+    this.terminate = function() {};
+  });
+  const rOnError = await sbOnError.test('pattern', 'u', 'text');
+
+  // 5.4 Invalid pattern syntax
+  const sbInvalid = makeSandbox(function() {
+    this.postMessage = (msg) => {
+      setTimeout(() => {
+        try { new RegExp(msg.pattern, msg.flags); } catch (e) {
+          if (this.onmessage) this.onmessage({ data: { id: msg.id, success: false, error: e.message } });
+        }
+      }, 5);
+    };
+    this.terminate = function() {};
+  });
+  const rInvalid = await sbInvalid.test('[a-', 'u', 'text');
+
+  // 5.5 Timeout (30ms limit)
+  const sbTimeout = makeSandbox(function() {
+    this.postMessage = () => {};
+    this.terminate = function() {};
+  });
+  const rTimeout = await sbTimeout.test('(a|a)+', 'u', 'aaaaaaaaaaaa!', 15);
+
+  // 5.6 Concurrent pending cleanup on timeout
+  const sbConcurrent = makeSandbox(function() {
+    this.postMessage = () => {};
+    this.terminate = function() {};
+  });
+  const p1 = sbConcurrent.test('p1', 'u', 't1', 15);
+  const p2 = sbConcurrent.test('p2', 'u', 't2', 15);
+  const [rC1, rC2] = await Promise.all([p1, p2]);
+
+  // 5.7 Valid worker match
+  const sbValid = makeSandbox(function() {
+    this.postMessage = (msg) => {
+      setTimeout(() => {
+        try {
+          const re = new RegExp(msg.pattern, msg.flags);
+          if (this.onmessage) this.onmessage({ data: { id: msg.id, success: true, matched: re.test(msg.text) } });
+        } catch (e) {
+          if (this.onmessage) this.onmessage({ data: { id: msg.id, success: false } });
+        }
+      }, 5);
+    };
+    this.terminate = function() {};
+  });
+  const rValidMatch = await sbValid.test('السعر.*500', 'u', 'السعر 500 جنيه');
+
+  res.redos = (rConstruct === false) && (rPost === false) && (rOnError === false) &&
+              (rInvalid === false) && (rTimeout === false) && (rC1 === false) &&
+              (rC2 === false) && (rValidMatch === true);
 
   // 6. Suite 4: Compound Two-Pass Specificity Benchmark
   const testRules = [
@@ -474,9 +547,9 @@ eval(ctxObjStr);
                 self.log_fail("ZWJ Composite Emoji Preservation", "ZWJ stripped during whitelist filtering")
 
             if results.get("redos"):
-                self.log_pass("ReDoS Alternation Shielding", "RegexSandbox traps and blocks catastrophic (a|a)+ & (a|b)+")
+                self.log_pass("Worker Regex Isolation & Failure Hardening", "All 6 failure paths (constructor, postMessage, onerror, syntax, timeout, cleanup) verified")
             else:
-                self.log_fail("ReDoS Alternation Shielding", "Catastrophic pattern slipped through inline regex sandbox")
+                self.log_fail("Worker Regex Isolation & Failure Hardening", "Worker-based regex sandbox failed failure-path hardening")
 
             # Suite 4 Assertions
             if results.get("compoundPass1"):

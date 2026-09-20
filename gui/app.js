@@ -374,7 +374,7 @@
         }
       }
       if (!rule.matchType) {
-        rule.matchType = 'contains';
+        rule.matchType = 'ultra_exact';
       }
 
       // [TASK-2] Ensure backward compatibility: support optional contextKeywords
@@ -402,8 +402,9 @@
           </div>
           <div class="rule-meta-right">
             <select class="glass-select rule-match-type" title="نوع المطابقة">
+              <option value="ultra_exact" ${rule.matchType === 'ultra_exact' ? 'selected' : ''}>تطابق حرفي صارم (Ultra Exact)</option>
               <option value="contains" ${rule.matchType === 'contains' ? 'selected' : ''}>يحتوي (Contains)</option>
-              <option value="exact" ${rule.matchType === 'exact' ? 'selected' : ''}>تطابق تام (Exact)</option>
+              <option value="exact" ${(rule.matchType === 'exact' || rule.matchType === 'word') ? 'selected' : ''}>تطابق كلمة / عبارة بحدود (Exact)</option>
               <option value="regex" ${rule.matchType === 'regex' ? 'selected' : ''}>تعبير نمطي (Regex)</option>
             </select>
             <button class="icon-action-btn rule-delete-btn" style="color: #dc2626;" title="حذف القاعدة">${ICONS.trash}</button>
@@ -416,13 +417,30 @@
               <label class="rule-section-label" style="margin-bottom: 0;">الكلمات المفتاحية:</label>
               <span class="rule-section-hint">اضغط Enter أو فاصلة (,) لإضافة الكلمة</span>
             </div>
-            <button type="button" class="btn-copy-keywords" data-rule-id="${rule.id || idx}" title="نسخ كافة الكلمات">
-              ${ICONS.copy}
-              <span>نسخ الكلمات</span>
-            </button>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button type="button" class="btn-literal-entry action-btn" data-rule-id="${rule.id || idx}" style="padding: 2px 8px; font-size: 11px; background: rgba(56,189,248,0.12); color: #0284c7; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer;" title="إدخال كلمات أو عبارات حرفية بدقة (مع حفظ المسافات والأسطر والفواصل)">
+                ${ICONS.pencil}
+                <span>محرر حرفي</span>
+              </button>
+              <button type="button" class="btn-copy-keywords" data-rule-id="${rule.id || idx}" title="نسخ كافة الكلمات">
+                ${ICONS.copy}
+                <span>نسخ الكلمات</span>
+              </button>
+            </div>
           </div>
           <div class="chip-input-container">
             <input type="text" class="chip-text-input" placeholder="اكتب كلمة واضغط Enter..." style="border: none; background: transparent; padding: 4px 6px; box-shadow: none; min-width: 140px; flex: 1; text-align: right; outline: none; font-family: inherit; font-size: 11.5px; color: #0f172a;">
+          </div>
+          <div class="literal-entry-panel" style="display: none; margin-top: 6px; padding: 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
+            <div style="font-size: 11px; margin-bottom: 4px; color: #475569; display: flex; justify-content: space-between;">
+              <span>أدخل الكلمة أو العبارة الحرفية (حفظ دقيق للمسافات والأسطر والفواصل):</span>
+              <span style="font-size: 10px; color: #0284c7;">[نص حرفي غير معدّل]</span>
+            </div>
+            <textarea class="literal-entry-textarea config-input" rows="2" placeholder="اكتب أو الصق النص الحرفي هنا..." style="width: 100%; font-family: monospace; font-size: 11.5px; text-align: right;"></textarea>
+            <div style="display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end;">
+              <button type="button" class="btn-add-literal action-btn" style="padding: 4px 10px; font-size: 11px; background: #0284c7; color: #fff; border: none; border-radius: 4px; cursor: pointer;">+ إضافة ككلمة حرفية</button>
+              <button type="button" class="btn-close-literal action-btn" style="padding: 4px 10px; font-size: 11px; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer;">إلغاء</button>
+            </div>
           </div>
         </div>
 
@@ -465,8 +483,22 @@
         rule.keywords.forEach((kw, kwIdx) => {
           const chip = document.createElement('span');
           chip.className = 'keyword-chip';
+          const hasLeadingSpace = /^\s/.test(kw);
+          const hasTrailingSpace = /\s$/.test(kw);
+          const hasNewline = kw.includes('\n');
+          const hasComma = kw.includes(',') || kw.includes('،');
+          let spaceBadge = '';
+          if (hasNewline) {
+            spaceBadge += '<span style="font-size:9px; background:rgba(59,130,246,0.18); color:#1d4ed8; padding:0 3px; border-radius:3px; margin:0 2px;">[سطر]</span>';
+          }
+          if (hasComma) {
+            spaceBadge += '<span style="font-size:9px; background:rgba(168,85,247,0.18); color:#7e22ce; padding:0 3px; border-radius:3px; margin:0 2px;">[فاصلة]</span>';
+          }
+          if (hasLeadingSpace || hasTrailingSpace) {
+            spaceBadge += '<span style="font-size:9px; background:rgba(234,179,8,0.18); color:#ca8a04; padding:0 3px; border-radius:3px; margin:0 2px;">[مسافات]</span>';
+          }
           chip.innerHTML = `
-            <span>${escapeHtml(kw)}</span>
+            <span>${escapeHtml(kw)}</span>${spaceBadge}
             <span class="chip-remove" title="إزالة">&times;</span>
           `;
           chip.querySelector('.chip-remove').addEventListener('click', (e) => {
@@ -481,16 +513,29 @@
       }
 
       function addKeywordFromInput() {
-        const val = chipInput.value.trim().replace(/^[,\s]+|[,\s]+$/g, '');
-        if (val) {
-          const parts = val.split(',').map(s => s.trim()).filter(Boolean);
-          parts.forEach(p => {
-            if (!rule.keywords.includes(p)) {
-              rule.keywords.push(p);
+        const rawVal = chipInput.value;
+        if (!rawVal) return;
+        if (rule.matchType === 'ultra_exact') {
+          // Reject only empty or all-whitespace keywords; preserve verbatim whitespace
+          if (rawVal.trim().length > 0) {
+            if (!rule.keywords.includes(rawVal)) {
+              rule.keywords.push(rawVal);
             }
-          });
-          syncKeywords();
-          renderChips();
+            syncKeywords();
+            renderChips();
+          }
+        } else {
+          const val = rawVal.trim().replace(/^[,\s]+|[,\s]+$/g, '');
+          if (val) {
+            const parts = val.split(',').map(s => s.trim()).filter(Boolean);
+            parts.forEach(p => {
+              if (!rule.keywords.includes(p)) {
+                rule.keywords.push(p);
+              }
+            });
+            syncKeywords();
+            renderChips();
+          }
         }
         chipInput.value = '';
       }
@@ -502,7 +547,7 @@
       });
 
       chipInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ',') {
+        if (e.key === 'Enter' || (e.key === ',' && rule.matchType !== 'ultra_exact')) {
           e.preventDefault();
           addKeywordFromInput();
         } else if (e.key === 'Backspace' && chipInput.value === '' && rule.keywords.length > 0) {
@@ -512,8 +557,11 @@
         }
       });
 
-      // Smart Paste Support: automatic splitting into chips
+      // Smart Paste Support: automatic splitting into chips (only for non-strict rules)
       chipInput.addEventListener('paste', (e) => {
+        if (rule.matchType === 'ultra_exact') {
+          return;
+        }
         const pasteData = (e.clipboardData || window.clipboardData)?.getData('text');
         if (pasteData && (pasteData.includes(',') || pasteData.includes('،') || pasteData.includes('\n'))) {
           e.preventDefault();
@@ -585,6 +633,40 @@
       });
 
       renderChips();
+
+      // Literal Entry Panel Handlers
+      const literalBtn = card.querySelector('.btn-literal-entry');
+      const literalPanel = card.querySelector('.literal-entry-panel');
+      const literalTextarea = card.querySelector('.literal-entry-textarea');
+      const addLiteralBtn = card.querySelector('.btn-add-literal');
+      const closeLiteralBtn = card.querySelector('.btn-close-literal');
+
+      if (literalBtn && literalPanel) {
+        literalBtn.addEventListener('click', () => {
+          literalPanel.style.display = literalPanel.style.display === 'none' ? 'block' : 'none';
+          if (literalPanel.style.display !== 'none' && literalTextarea) {
+            literalTextarea.focus();
+          }
+        });
+      }
+      if (closeLiteralBtn && literalPanel) {
+        closeLiteralBtn.addEventListener('click', () => {
+          literalPanel.style.display = 'none';
+        });
+      }
+      if (addLiteralBtn && literalTextarea) {
+        addLiteralBtn.addEventListener('click', () => {
+          const val = literalTextarea.value;
+          if (val && val.length > 0) {
+            if (!Array.isArray(rule.keywords)) rule.keywords = [];
+            rule.keywords.push(val);
+            syncKeywords();
+            renderChips();
+            literalTextarea.value = '';
+            literalPanel.style.display = 'none';
+          }
+        });
+      }
 
       // Card Event Handlers
       card.querySelector('.rule-delete-btn').addEventListener('click', () => {
@@ -760,7 +842,7 @@
         contextKeyword: '',
         contextMatchType: 'contains',
         reply: '',
-        matchType: 'contains',
+        matchType: 'ultra_exact',
         active: true
       });
 
@@ -791,7 +873,7 @@
             r.keywords = [];
             r.keyword = '';
           }
-          if (!r.matchType) r.matchType = 'contains';
+          if (!r.matchType) r.matchType = 'ultra_exact';
 
           // [TASK-2] Synchronize context keywords
           if (Array.isArray(r.contextKeywords)) {

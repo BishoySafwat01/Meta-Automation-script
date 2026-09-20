@@ -485,10 +485,27 @@ class QAAuditSuite:
             self.record_fail("UI & Documentation Attribution", f"gui_attr={gui_attr}, readme_attr={readme_attr}")
 
     # =========================================================================
-    # 7. TEARDOWN, CLEANUP & ZERO TEST RESIDUE
+    # 7. MILESTONE 1 BEHAVIORAL RACES & SURFACE LEASE (PLAYWRIGHT HARNESS)
+    # =========================================================================
+    def audit_m1_behavioral_races(self):
+        print(f"\n{C_BOLD}{C_BLUE}--- SECTION 7: Milestone 1 Behavioral Races & Lease Harness ---{C_RESET}")
+        runner_path = ROOT_DIR / "qa_m1_focus_runner.py"
+        if not runner_path.is_file():
+            self.record_fail("M1 Focus Runner File", f"File not found: {runner_path}")
+            return
+
+        cmd = [sys.executable, str(runner_path)]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=str(ROOT_DIR))
+        if res.returncode == 0:
+            self.record_pass("M1 Behavioral Races (14/14)", "All 14 race conditions and lease contracts verified")
+        else:
+            self.record_fail("M1 Behavioral Races (14/14)", f"qa_m1_focus_runner.py failed (exit {res.returncode}):\n{res.stdout}")
+
+    # =========================================================================
+    # 8. TEARDOWN, CLEANUP & ZERO TEST RESIDUE
     # =========================================================================
     def teardown_and_verify_clean(self):
-        print(f"\n{C_BOLD}{C_BLUE}--- SECTION 7: Teardown, Cleanup & Zero Test Residue ---{C_RESET}")
+        print(f"\n{C_BOLD}{C_BLUE}--- SECTION 8: Teardown, Cleanup & Zero Test Residue ---{C_RESET}")
         
         cleaned_count = 0
         for p in self.cleanup_paths:
@@ -539,6 +556,7 @@ class QAAuditSuite:
             self.audit_engine_and_userscript()
             self.audit_desktop_gui()
             self.audit_attribution()
+            self.audit_m1_behavioral_races()
         finally:
             self.teardown_and_verify_clean()
 

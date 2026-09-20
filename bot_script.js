@@ -245,35 +245,39 @@
           if (req) {
             this.pending.delete(id);
             clearTimeout(req.timer);
-            if (success) req.resolve(Boolean(matched));
-            else req.reject(new Error(error || 'REGEX_EVAL_ERROR'));
+            if (success) {
+              req.resolve(Boolean(matched));
+            } else {
+              req.resolve(false);
+            }
           }
         };
 
         this.worker.onerror = (err) => {
-          console.warn('[MBS Automator] Regex Worker error/CSP denial. Falling back to inline.', err);
+          console.warn('[MBS Automator] Regex Worker error/CSP denial. Regex match failed closed.', err);
           try { if (this.worker) this.worker.terminate(); } catch (_) {}
           this.worker = null;
-          this.terminatePending(new Error('WORKER_ERROR'));
+          this.terminatePending();
         };
       } catch (e) {
-        console.warn('[MBS Automator] CSP prevented Worker creation. Using safe inline evaluation.', e);
+        console.warn('[MBS Automator] CSP prevented Worker creation. Regex match failed closed.', e);
         this.worker = null;
       }
     }
 
-    terminatePending(err) {
+    terminatePending() {
       for (const req of this.pending.values()) {
         clearTimeout(req.timer);
-        req.reject(err);
+        if (typeof req.resolve === 'function') {
+          req.resolve(false);
+        }
       }
       this.pending.clear();
     }
 
     async test(pattern, flags, text, timeoutMs = null) {
-      // [P1-REGEX-01] If no worker (CSP-blocked), use safe inline evaluation only
       if (!this.worker) {
-        return this.testInline(pattern, flags, text);
+        return false;
       }
 
       const id = ++this.seq;
@@ -286,11 +290,10 @@
             if (this.worker) this.worker.terminate();
           } catch (_) {}
           this.worker = null;
+          this.terminatePending();
           try {
             this.#spawn();
           } catch (_) {}
-          // [P1-REGEX-01] DO NOT fall back to testInline on timeout — the pattern caused the timeout.
-          // Returning false is the safe fail-closed choice to prevent ReDoS on the main thread.
           console.warn('[MBS RegexSandbox] تجاوز التعبير النمطي مهلة Worker (30ms). الإبلاغ الآمن بعدم التطابق (false). [REGEX HAZARD]');
           resolve(false);
         }, timeout);
@@ -302,29 +305,13 @@
         } catch (_) {
           clearTimeout(timer);
           this.pending.delete(id);
+          try { if (this.worker) this.worker.terminate(); } catch (_) {}
           this.worker = null;
-          resolve(this.testInline(pattern, flags, text));
+          this.terminatePending();
+          try { this.#spawn(); } catch (_) {}
+          resolve(false);
         }
       });
-    }
-
-    testInline(pattern, flags, text) {
-      try {
-        // [P1-REGEX-01] Pre-check: reject catastrophic nested-quantifier / alternation-explosion patterns
-        // before running them on the main JS thread (no timeout safety here unlike the Worker).
-        // [P2-NLP-02] Extended alternation check traps nested alternation groups (e.g., (a|b)+)
-        const catastrophicPattern = /(\.\+|\.\*|\[.*\][+*]|\([^)]*\)[+*]){2,}|(\|[^|]*){8,}|(\([^)]*\|[^)]*\)[+*]+)/;
-        if (catastrophicPattern.test(pattern)) {
-          console.warn('[MBS RegexSandbox] Catastrophic backtracking pattern blocked from main-thread inline eval:', pattern.slice(0, 80));
-          return false;
-        }
-        // [P2-SAND-01] Safe expansion to 4096 characters to prevent dropping trailing customer inquiries
-        const safeText = (typeof text === 'string' && text.length > 4096) ? text.slice(0, 4096) : (text || '');
-        const re = new RegExp(pattern, flags);
-        return re.test(safeText);
-      } catch (_) {
-        return false;
-      }
     }
   }
 
@@ -397,23 +384,26 @@
   const defaultRules = [
     {
       id: 'rule_price',
+      keywords: ['سعر', 'كام', 'بكام', 'اسعار', 'تكلفة', 'تفاصيل', 'التفاصيل'],
       keyword: 'سعر,كام,بكام,اسعار,تكلفة,تفاصيل,التفاصيل',
       reply: 'أهلاً بك! تفاصيل الأسعار والعروض متاحة لدينا الآن، يسعدنا تواصلك وسنوافيك بالتفاصيل فوراً.',
-      matchType: 'contains',
+      matchType: 'ultra_exact',
       active: true
     },
     {
       id: 'rule_location',
+      keywords: ['مكان', 'عنوان', 'الفرع', 'لوكيشن', 'موقع', 'فين', 'عناوين'],
       keyword: 'مكان,عنوان,الفرع,لوكيشن,موقع,فين,عناوين',
       reply: 'أهلاً بك! فرعنا متاح لخدمتك دائماً. يمكنك معرفة أقرب موقع والتواصل عبر الرابط أو الرسائل هنا.',
-      matchType: 'contains',
+      matchType: 'ultra_exact',
       active: true
     },
     {
       id: 'rule_phone',
+      keywords: ['فون', 'تليفون', 'رقم', 'واتس', 'واتساب', 'موبايل'],
       keyword: 'فون,تليفون,رقم,واتس,واتساب,موبايل',
       reply: 'أهلاً بك! رقم خدمة العملاء والواتساب متاح لمساعدتك على مدار الساعة، تفضل بالاستفسار في أي وقت.',
-      matchType: 'contains',
+      matchType: 'ultra_exact',
       active: true
     }
   ];
@@ -591,24 +581,39 @@
   // ---------------------------------------------------------------------------
   // 2. ARABIC TEXT NORMALIZATION & KEYWORD MATCHING
   // ---------------------------------------------------------------------------
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function escapeRegExp(string) {
     if (!string || typeof string !== 'string') return '';
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   function normalizeArabicText(text) {
+    const caseFold = arguments.length > 1 ? Boolean(arguments[1]) : true;
     if (!text || typeof text !== 'string') return '';
     const easternDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-    return text
+    let res = text
       // [P2-NLP-01] Step 1: Strip Tashkeel & Tatweel BEFORE toLowerCase to avoid casing ops on diacritic positions
       .replace(/[\u0640\u064B-\u065F\u0670]/g, '')
       // Step 2: Normalize eastern digits
       .replace(/[٠-٩]/g, d => easternDigits.indexOf(d))
       // [P2-NLP-01] Step 3: Separate emoji/flags BEFORE toLowerCase to preserve Regional Indicator surrogate pairs
       .replace(/([\p{L}\p{N}])([\p{So}\u{1F1E6}-\u{1F1FF}])/gu, '$1 $2')
-      .replace(/([\p{So}\u{1F1E6}-\u{1F1FF}])([\p{L}\p{N}])/gu, '$1 $2')
-      // [P2-NLP-01] Step 4: toLowerCase AFTER emoji boundary split — surrogate pairs are now safely separated
-      .toLowerCase()
+      .replace(/([\p{So}\u{1F1E6}-\u{1F1FF}])([\p{L}\p{N}])/gu, '$1 $2');
+
+    if (caseFold) {
+      res = res.toLowerCase();
+    }
+
+    return res
       // Step 5: Unify Arabic character variants
       .replace(/[أإآ]/g, 'ا')
       .replace(/[ة]/g, 'ه')
@@ -620,93 +625,129 @@
       .trim();
   }
 
+  let lastInvalidModeWarningTime = 0;
+  function warnInvalidMode(mode) {
+    const now = Date.now();
+    if (now - lastInvalidModeWarningTime > 15000) {
+      lastInvalidModeWarningTime = now;
+      console.warn(`[MBS Automator] Unsupported matchType '${mode}'. Rule evaluation failed closed.`);
+    }
+  }
+
   async function testKeywordsMatch(text, normText, rawKeywords, matchType, caseSensitive = false) {
-    if (!text || !Array.isArray(rawKeywords) || rawKeywords.length === 0) return null;
-    const mType = matchType || 'contains';
+    if (!text || typeof text !== 'string' || !Array.isArray(rawKeywords) || rawKeywords.length === 0) return null;
+    const mType = (matchType === undefined || matchType === null) ? 'ultra_exact' : matchType;
 
-    for (const kw of rawKeywords) {
-      if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
-      const cleanKw = kw.trim();
+    switch (mType) {
+      case 'ultra_exact': {
+        for (const kw of rawKeywords) {
+          if (typeof kw !== 'string' || kw.length === 0 || kw.trim().length === 0) continue;
+          if (text === kw) {
+            return { matched: true, matchedKeyword: kw };
+          }
+        }
+        return null;
+      }
 
-      if (mType === 'regex') {
-        try {
-          const flags = caseSensitive ? 'u' : 'iu';
-          let matched = false;
-          try {
-            matched = await regexSandbox.test(cleanKw, flags, text, 30);
-            if (!matched && normText) {
-              matched = await regexSandbox.test(cleanKw, flags, normText, 30);
+      case 'contains': {
+        const caseFold = !caseSensitive;
+        const effectiveNormText = (normText && !caseSensitive) ? normText : normalizeArabicText(text, caseFold);
+        for (const kw of rawKeywords) {
+          if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
+          const cleanKw = kw.trim();
+          const normKw = normalizeArabicText(cleanKw, caseFold);
+          if (!normKw && !cleanKw) continue;
+
+          if (caseSensitive) {
+            if (normKw && effectiveNormText && effectiveNormText.includes(normKw)) {
+              return { matched: true, matchedKeyword: kw };
             }
-          } catch (_) {
-            continue;
-          }
-          if (matched) {
-            return { matched: true, matchedKeyword: kw };
-          }
-        } catch (_) {
-          continue;
-        }
-      } else if (mType === 'exact' || mType === 'word') {
-        const normKw = normalizeArabicText(cleanKw);
-        if (!normKw && !cleanKw) continue;
-
-        // 1. Direct equality against normalized or raw message (including case-insensitive Latin check)
-        if (normText && normKw && normText === normKw) {
-          return { matched: true, matchedKeyword: kw };
-        }
-        if (text.trim() === cleanKw || text.trim().toLowerCase() === cleanKw.toLowerCase()) {
-          return { matched: true, matchedKeyword: kw };
-        }
-
-        // Direct equality with optional definite article "ال"
-        if (normText && normKw) {
-          const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
-          const baseMsg = (normText.startsWith('ال') && normText.length > 2) ? normText.slice(2) : normText;
-          if (baseKw && baseMsg && baseMsg === baseKw) {
-            return { matched: true, matchedKeyword: kw };
-          }
-        }
-
-        // 2. Unicode word boundary check (with dynamic optional definite article "ال")
-        if (normText && normKw) {
-          const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
-          if (baseKw) {
-            const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-            if (boundaryRegex.test(normText)) {
+            if (cleanKw && text.includes(cleanKw)) {
+              return { matched: true, matchedKeyword: kw };
+            }
+          } else {
+            if (normKw && effectiveNormText && effectiveNormText.toLowerCase().includes(normKw.toLowerCase())) {
+              return { matched: true, matchedKeyword: kw };
+            }
+            if (cleanKw && text.toLowerCase().includes(cleanKw.toLowerCase())) {
               return { matched: true, matchedKeyword: kw };
             }
           }
         }
+        return null;
+      }
 
-        // 3. Raw boundary check (essential for emoji / flag sequences)
-        const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-        if (rawBoundaryRegex.test(text)) {
-          return { matched: true, matchedKeyword: kw };
-        }
-      } else {
-        // 'contains' (default substring match with case-insensitive Latin resilience)
-        const normKw = normalizeArabicText(cleanKw);
-        if (!normKw && !cleanKw) continue;
+      case 'exact':
+      case 'word': {
+        const caseFold = !caseSensitive;
+        const effectiveNormText = (normText && !caseSensitive) ? normText : normalizeArabicText(text, caseFold);
+        const flags = caseSensitive ? 'u' : 'iu';
+        for (const kw of rawKeywords) {
+          if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
+          const cleanKw = kw.trim();
+          const normKw = normalizeArabicText(cleanKw, caseFold);
+          if (!normKw && !cleanKw) continue;
 
-        if (normText && normKw && normText.includes(normKw)) {
-          return { matched: true, matchedKeyword: kw };
+          // 1. Unicode word boundary check against normalized text (without optional "ال" fuzziness)
+          if (normKw && effectiveNormText) {
+            const boundaryRegex = new RegExp(
+              '(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(normKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])',
+              flags
+            );
+            if (boundaryRegex.test(effectiveNormText)) {
+              return { matched: true, matchedKeyword: kw };
+            }
+          }
+
+          // 2. Raw boundary check (essential for emoji / flag sequences or raw symbols)
+          const rawBoundaryRegex = new RegExp(
+            '(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])',
+            flags
+          );
+          if (rawBoundaryRegex.test(text)) {
+            return { matched: true, matchedKeyword: kw };
+          }
         }
-        if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) {
-          return { matched: true, matchedKeyword: kw };
+        return null;
+      }
+
+      case 'regex': {
+        const flags = caseSensitive ? 'u' : 'iu';
+        for (const kw of rawKeywords) {
+          if (!kw || typeof kw !== 'string' || kw.length === 0) continue;
+          try {
+            const matched = await regexSandbox.test(kw, flags, text, 30);
+            if (matched) {
+              return { matched: true, matchedKeyword: kw };
+            }
+          } catch (_) {
+            continue;
+          }
         }
+        return null;
+      }
+
+      default: {
+        try {
+          if (typeof warnInvalidMode === 'function') {
+            warnInvalidMode(mType);
+          } else {
+            console.warn(`[MBS Automator] Unsupported matchType '${mType}'. Rule evaluation failed closed.`);
+          }
+        } catch (_) {}
+        return null;
       }
     }
-    return null;
   }
 
   async function evaluateActiveRules(text, rules, contextText = '') {
-    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
+    if (!text || typeof text !== 'string' || !Array.isArray(rules) || rules.length === 0) return null;
     const normMsg = normalizeArabicText(text);
     const normContext = contextText ? normalizeArabicText(contextText) : '';
 
     const getRuleKeywords = (rule) => {
-      if (Array.isArray(rule.keywords) && rule.keywords.length > 0) {
-        return rule.keywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      if (Array.isArray(rule.keywords)) {
+        return rule.keywords.filter(k => typeof k === 'string' && k.length > 0);
       } else if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
         return rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
       }
@@ -714,8 +755,8 @@
     };
 
     const getRuleContextKeywords = (rule) => {
-      if (Array.isArray(rule.contextKeywords) && rule.contextKeywords.length > 0) {
-        return rule.contextKeywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      if (Array.isArray(rule.contextKeywords)) {
+        return rule.contextKeywords.filter(k => typeof k === 'string' && k.length > 0);
       } else if (typeof rule.contextKeyword === 'string' && rule.contextKeyword.trim()) {
         return rule.contextKeyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
       }
@@ -759,7 +800,7 @@
           text,
           normMsg,
           rawKeywords,
-          rule.matchType || 'contains',
+          rule.matchType,
           rule.caseSensitive
         );
         if (keywordMatch) {
@@ -786,7 +827,7 @@
         text,
         normMsg,
         rawKeywords,
-        rule.matchType || 'contains',
+        rule.matchType,
         rule.caseSensitive
       );
       if (keywordMatch) {
@@ -818,6 +859,46 @@
         activeSleepRejectors.delete(rejector);
         resolve();
       }, ms);
+      activeSleepRejectors.add(rejector);
+    });
+  }
+
+  function cancellableSleep(ms, cancellationToken = null) {
+    if (state.emergencyAbort) {
+      return Promise.reject(new Error('ABORT_SIGNAL'));
+    }
+    if (cancellationToken?.cancelled) {
+      return Promise.reject(new Error('ROW_PROCESSING_CANCELLED'));
+    }
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      let checkInterval = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (checkInterval) clearInterval(checkInterval);
+        activeSleepRejectors.delete(rejector);
+      };
+
+      const rejector = (err) => {
+        cleanup();
+        reject(err || new Error('ABORT_SIGNAL'));
+      };
+
+      if (cancellationToken) {
+        checkInterval = setInterval(() => {
+          if (cancellationToken.cancelled) {
+            cleanup();
+            reject(new Error('ROW_PROCESSING_CANCELLED'));
+          }
+        }, 20);
+      }
+
+      timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, ms);
+
       activeSleepRejectors.add(rejector);
     });
   }
@@ -918,6 +999,53 @@
       return '';
     },
 
+    extractMessageTextVerbatim(node, depth = 0) {
+      if (!node) return '';
+      if (depth > 50) return null;
+      if (node.nodeType === 3) return node.nodeValue || '';
+      if (node.nodeType === 1) {
+        if (node.matches && node.matches(
+          '[aria-label*="Profile" i], [aria-label*="صورة الملف" i], [aria-label*="ملف شخصي" i], ' +
+          '[data-testid*="reaction" i], [role="progressbar"], audio, video, svg, ' +
+          '[data-testid*="link_preview" i], [data-testid*="messenger_link_preview" i], ' +
+          'a[role="link"] > div, div[role="article"], .preview-card, [role="button"]'
+        )) {
+          return '';
+        }
+        const tagName = node.tagName;
+        if (tagName === 'IMG') {
+          const isEmoji = (node.classList && node.classList.contains('emoji')) ||
+            (node.getAttribute('src') || '').includes('emoji.php') ||
+            (node.getAttribute('src') || '').includes('/emoji/') ||
+            (node.getAttribute('alt') && /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(node.getAttribute('alt')));
+          if (isEmoji) {
+            return node.getAttribute('alt') || node.getAttribute('aria-label') || '';
+          }
+          return '';
+        }
+        if (tagName === 'BR') {
+          return '\n';
+        }
+        if (node.getAttribute('role') === 'img' && node.getAttribute('aria-label') && !node.firstChild) {
+          const aria = node.getAttribute('aria-label') || '';
+          if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(aria)) {
+            return aria;
+          }
+          return '';
+        }
+        let out = '';
+        for (let child = node.firstChild; child; child = child.nextSibling) {
+          const cText = (this && typeof this.extractMessageTextVerbatim === 'function')
+            ? this.extractMessageTextVerbatim(child, depth + 1)
+            : DOM.extractMessageTextVerbatim(child, depth + 1);
+          if (cText === null) return null;
+          out += cText;
+        }
+        return out;
+      }
+      return '';
+    },
+
     sendEscape() {
       try {
         // [P1-STATE-01] Dispatch Escape to activeElement, document, and window for React portal dismissal
@@ -965,82 +1093,812 @@
       return null;
     },
 
-    resolveComposer() {
-      const isSearchOrTop = (el) => {
-        if (!el) return true;
-        if (el.matches && (el.matches('#inbox-search-input, [role="searchbox"], [role="search"], input[type="search"]') || el.closest('#inbox-search-input, [role="searchbox"], [role="search"]'))) {
-          return true;
-        }
-        const r = el.getBoundingClientRect();
-        if (r.top < window.innerHeight * 0.45) {
-          return true;
-        }
-        return false;
-      };
+    extractConversationIdFromHref(href) {
+      if (!href || typeof href !== 'string') return null;
 
-      const selectors = [
-        'div[role="textbox"][contenteditable="true"]',
-        'div[contenteditable="true"][data-lexical-editor="true"]',
-        'div[contenteditable="true"][aria-label*="رسالة" i]',
-        'div[contenteditable="true"][aria-label*="message" i]',
-        'div[role="textbox"]',
-        'div[contenteditable="true"]',
-        'textarea'
-      ];
+      try {
+        const url = new URL(href, window.location.href);
+        const selectedId = url.searchParams.get('selected_item_id');
+        if (selectedId) return selectedId;
 
-      for (const sel of selectors) {
-        const elements = Array.from(document.querySelectorAll(sel));
-        for (const el of elements) {
-          if (el.offsetParent === null || el.closest('#mbs-inbox-automator-root')) continue;
-          if (isSearchOrTop(el)) continue;
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 180 && rect.height > 15) {
-            return el;
-          }
-        }
+        const threadId = url.searchParams.get('thread_id');
+        if (threadId) return threadId;
+      } catch (_) {}
+
+      const selectedMatch = href.match(
+        /(?:selected_item_id|thread_id)=([0-9a-zA-Z_-]+)/
+      );
+      if (selectedMatch) return selectedMatch[1];
+
+      const pathMatch = href.match(
+        /\/inbox\/(?:all\/|messenger\/|instagram\/|whatsapp\/)?([0-9a-zA-Z_-]+)/
+      );
+      if (pathMatch && !['all', 'messenger', 'instagram', 'whatsapp'].includes(pathMatch[1])) {
+        return pathMatch[1];
       }
       return null;
     },
 
-    acquireComposerLease() {
-      const threadKey = this.getActiveThreadKey();
-      const composer = this.resolveComposer();
-      if (!composer || !composer.isConnected) {
-        throw new FocusIntegrityError('COMPOSER_NOT_RESOLVED');
+    detectChannel(target) {
+      if (!target) return null;
+      let text = '';
+      if (typeof target === 'string') {
+        text = target;
+      } else if (target instanceof Element || target?.nodeType === 1) {
+        text = [
+          target.getAttribute('data-platform') || '',
+          target.getAttribute('data-channel') || '',
+          target.getAttribute('href') || '',
+          target.getAttribute('aria-label') || '',
+          target.className || '',
+          target.innerText || target.textContent || ''
+        ].join(' ');
       }
+      const lower = text.toLowerCase();
+      if (lower.includes('whatsapp') || lower.includes('واتساب') || lower.includes('واتس')) return 'whatsapp';
+      if (lower.includes('instagram') || lower.includes('إنستغرام') || lower.includes('انستغرام') || lower.includes('انستقرام')) return 'instagram';
+      if (lower.includes('messenger') || lower.includes('ماسينجر') || lower.includes('مسنجر')) return 'messenger';
+      return null;
+    },
+
+    getSurfaceFingerprint(canvas) {
+      if (!canvas) return '';
+      const childCount = canvas.querySelectorAll('*').length;
+      const scrollHeight = canvas.scrollHeight || 0;
+      const textSample = (canvas.innerText || canvas.textContent || '').slice(0, 120).replace(/\s+/g, ' ').trim();
+      return `${childCount}_${scrollHeight}_${textSample}`;
+    },
+
+    captureExpectedConversation(targetRow, contactName = null) {
+      if (!targetRow || !targetRow.isConnected) {
+        return Object.freeze({
+          valid: false,
+          reason: targetRow ? 'TARGET_ROW_NOT_CONNECTED' : 'TARGET_ROW_MISSING',
+          targetRow: null,
+          strongId: null,
+          selectedAttributeId: null,
+          selectedHrefId: null,
+          selectedRowKey: null,
+          rowKey: null,
+          cleanName: '',
+          normalizedName: '',
+          digits: '',
+          channel: null,
+          ambiguousName: false,
+          leaseKey: null
+        });
+      }
+
+      const cleanName = this.sanitizeName(
+        contactName || this.getRowCustomerName(targetRow) || ''
+      );
+      const normalizedName = normalizeArabicText(cleanName);
+      const rawDigits = cleanName.replace(/\D/g, '');
+      const digits = rawDigits.length >= 6 ? rawDigits : '';
+
+      const href =
+        targetRow.getAttribute('href') ||
+        targetRow.querySelector('a[href]')?.getAttribute('href') ||
+        '';
+
+      const selectedAttributeId =
+        targetRow.getAttribute('data-thread-id') ||
+        targetRow.querySelector('[data-thread-id]')?.getAttribute('data-thread-id') ||
+        null;
+
+      const selectedHrefId = this.extractConversationIdFromHref(href);
+
+      const strongId =
+        selectedAttributeId ||
+        selectedHrefId ||
+        null;
+
+      const selectedRowKey = this.getStableRowKey(targetRow);
+      const rowKey = selectedRowKey;
+      const channel = this.detectChannel(targetRow) || this.detectChannel(href);
+
+      const matchingNameRows = normalizedName
+        ? this.getConversationRows().filter(row => {
+            const rowName = this.sanitizeName(
+              this.getRowCustomerName(row) || ''
+            );
+            return normalizeArabicText(rowName) === normalizedName;
+          }).length
+        : 0;
+
+      const ambiguousName = !strongId && matchingNameRows > 1;
+      const valid = Boolean(
+        strongId ||
+        (
+          rowKey &&
+          normalizedName &&
+          !ambiguousName
+        ) ||
+        (
+          rowKey &&
+          digits &&
+          !ambiguousName
+        )
+      );
+
+      const leaseKey = strongId
+        ? `thread_${strongId}`
+        : rowKey || (
+            normalizedName
+              ? `contact_${normalizedName}`
+              : null
+          );
+
+      return Object.freeze({
+        valid,
+        reason: valid
+          ? null
+          : (
+              ambiguousName
+                ? 'AMBIGUOUS_CONTACT_NAME_WITHOUT_THREAD_ID'
+                : 'TARGET_IDENTITY_INSUFFICIENT'
+            ),
+        targetRow,
+        strongId,
+        selectedAttributeId,
+        selectedHrefId,
+        selectedRowKey,
+        rowKey,
+        cleanName,
+        normalizedName,
+        digits,
+        channel,
+        ambiguousName,
+        leaseKey
+      });
+    },
+
+    getActiveConversationIdentity() {
+      const conversationRows = this.getConversationRows();
+      let selectedRow = conversationRows.find(row => (
+        row.getAttribute('aria-selected') === 'true' ||
+        row.getAttribute('data-selected') === 'true' ||
+        Boolean(row.querySelector('[aria-selected="true"]'))
+      )) || null;
+
+      if (!selectedRow) {
+        const candidate = document.querySelector('[aria-selected="true"], [data-selected="true"]');
+        if (candidate && !candidate.closest('#mbs-inbox-automator-root')) {
+          selectedRow = candidate.closest('[role="row"], [role="listitem"], a[href*="/inbox/"], a[href*="/latest/inbox/"]') || candidate;
+        }
+      }
+
+      const selectedHref = selectedRow
+        ? (
+            selectedRow.getAttribute('href') ||
+            selectedRow.querySelector('a[href]')?.getAttribute('href') ||
+            ''
+          )
+        : '';
+
+      const selectedAttributeId = selectedRow
+        ? (
+            selectedRow.getAttribute('data-thread-id') ||
+            selectedRow.querySelector('[data-thread-id]')?.getAttribute('data-thread-id') ||
+            null
+          )
+        : null;
+
+      const selectedHrefId = selectedRow
+        ? this.extractConversationIdFromHref(selectedHref)
+        : null;
+
+      let urlThreadId = null;
+      try {
+        const url = new URL(window.location.href);
+        urlThreadId =
+          url.searchParams.get('selected_item_id') ||
+          url.searchParams.get('thread_id') ||
+          this.extractConversationIdFromHref(window.location.pathname) ||
+          null;
+      } catch (_) {}
+
+      const selectedRowKey = selectedRow
+        ? this.getStableRowKey(selectedRow)
+        : null;
+
+      const root = this.getConversationRoot();
+
+      const headerName = this.sanitizeName(
+        this.getActiveChatContactName(root) || ''
+      );
+      const normalizedName = normalizeArabicText(headerName);
+      const rawDigits = headerName.replace(/\D/g, '');
+      const digits = rawDigits.length >= 6 ? rawDigits : '';
+
+      const channel =
+        this.detectChannel(window.location.href) ||
+        (selectedRow ? this.detectChannel(selectedRow) : null) ||
+        this.detectChannel(headerName) ||
+        null;
+
+      let canvasLocalId = null;
+      try {
+        if (root) {
+          const canvasCandidate = root.matches?.('div[data-testid*="chat-canvas" i], div[data-testid*="message-list" i]')
+            ? root
+            : root.querySelector('div[data-testid*="chat-canvas" i], div[data-testid*="message-list" i], div[aria-label*="محادثة" i], div[aria-label*="Conversation" i]');
+          if (canvasCandidate) {
+            canvasLocalId =
+              canvasCandidate.getAttribute('data-thread-id') ||
+              canvasCandidate.getAttribute('data-canvas-id') ||
+              canvasCandidate.querySelector('[data-thread-id]')?.getAttribute('data-thread-id') ||
+              null;
+          }
+        }
+      } catch (_) {}
+
+      const strongId =
+        selectedAttributeId ||
+        selectedHrefId ||
+        urlThreadId ||
+        canvasLocalId ||
+        null;
+
       return {
-        threadKey,
-        composer,
-        timestamp: Date.now()
+        selectedAttributeId,
+        selectedHrefId,
+        urlThreadId,
+        selectedRowKey,
+        headerName,
+        normalizedName,
+        digits,
+        channel,
+        canvasLocalId,
+        selectedRow,
+        rowKey: selectedRowKey,
+        cleanName: headerName,
+        strongId
       };
     },
 
+    conversationIdentityMatches(expected, actual) {
+      if (!expected?.valid || !actual) return false;
+
+      // 1. Conflict check among actual's own available ID sources:
+      // Comparable available sources: selectedAttributeId, selectedHrefId, urlThreadId, canvasLocalId
+      const actualIds = [
+        { name: 'selectedAttributeId', val: actual.selectedAttributeId },
+        { name: 'selectedHrefId', val: actual.selectedHrefId },
+        { name: 'urlThreadId', val: actual.urlThreadId },
+        { name: 'canvasLocalId', val: actual.canvasLocalId }
+      ].filter(item => Boolean(item.val));
+
+      for (let i = 0; i < actualIds.length; i++) {
+        for (let j = i + 1; j < actualIds.length; j++) {
+          if (actualIds[i].val !== actualIds[j].val) {
+            // Conflict among actual available sources (e.g. Selected B + URL A)! Reject immediately!
+            return false;
+          }
+        }
+      }
+
+      // 2. Channel / platform agreement:
+      if (expected.channel && actual.channel) {
+        if (expected.channel !== actual.channel) {
+          return false;
+        }
+      }
+
+      // 3. Expected strong ID comparison:
+      const expectedId =
+        expected.strongId ||
+        expected.selectedAttributeId ||
+        expected.selectedHrefId;
+
+      if (expectedId) {
+        // A matching selected row must NEVER mask a conflicting URL:
+        if (actual.urlThreadId && actual.urlThreadId !== expectedId) {
+          return false;
+        }
+        if (actual.selectedAttributeId && actual.selectedAttributeId !== expectedId) {
+          return false;
+        }
+        if (actual.selectedHrefId && actual.selectedHrefId !== expectedId) {
+          return false;
+        }
+        if (actual.canvasLocalId && actual.canvasLocalId !== expectedId) {
+          return false;
+        }
+
+        // At least one ID source in actual must agree with expectedId
+        const hasMatchingId = actualIds.some(item => item.val === expectedId);
+        if (!hasMatchingId) {
+          return false;
+        }
+
+        // Corroborate header name / digits if specified
+        if (expected.normalizedName || expected.digits) {
+          const exactNameMatch = Boolean(
+            expected.normalizedName &&
+            actual.normalizedName &&
+            expected.normalizedName === actual.normalizedName
+          );
+          const exactPhoneMatch = Boolean(
+            expected.digits &&
+            actual.digits &&
+            expected.digits === actual.digits
+          );
+          if (!exactNameMatch && !exactPhoneMatch) {
+            return false;
+          }
+        }
+
+        return true;
+      }
+
+      // 4. Fallback when expected has no strongId:
+      if (expected.ambiguousName) return false;
+
+      const expRowKey = expected.selectedRowKey || expected.rowKey;
+      const actRowKey = actual.selectedRowKey || actual.rowKey;
+      if (!expRowKey || !actRowKey || expRowKey !== actRowKey) {
+        return false;
+      }
+
+      const exactNameMatch = Boolean(
+        expected.normalizedName &&
+        actual.normalizedName &&
+        expected.normalizedName === actual.normalizedName
+      );
+      const exactPhoneMatch = Boolean(
+        expected.digits &&
+        actual.digits &&
+        expected.digits === actual.digits
+      );
+
+      return exactNameMatch || exactPhoneMatch;
+    },
+
+    assertConversationIdentity(expected) {
+      const actual = this.getActiveConversationIdentity();
+
+      if (!this.conversationIdentityMatches(expected, actual)) {
+        throw new FocusIntegrityError(
+          `TARGET_CONVERSATION_IDENTITY_MISMATCH:` +
+          `expected=${expected?.leaseKey || 'unknown'}:` +
+          `actual=${actual?.strongId || actual?.selectedRowKey || actual?.urlThreadId || 'unknown'}`
+        );
+      }
+
+      return actual;
+    },
+
+    getCanvasLocalThreadId(canvas) {
+      if (!canvas || !(canvas instanceof Element)) return null;
+      const attr =
+        canvas.getAttribute('data-thread-id') ||
+        canvas.getAttribute('data-canvas-id') ||
+        canvas.getAttribute('data-conversation-id') ||
+        canvas.getAttribute('data-item-id') ||
+        canvas.getAttribute('data-selected-item-id') ||
+        null;
+      if (attr) return attr;
+
+      const child = canvas.querySelector(
+        '[data-thread-id], [data-canvas-id], [data-conversation-id], [data-item-id], [data-selected-item-id]'
+      );
+      if (child) {
+        return (
+          child.getAttribute('data-thread-id') ||
+          child.getAttribute('data-canvas-id') ||
+          child.getAttribute('data-conversation-id') ||
+          child.getAttribute('data-item-id') ||
+          child.getAttribute('data-selected-item-id') ||
+          null
+        );
+      }
+      return null;
+    },
+
+    verifySurfaceTargetIdentity(canvas, expected) {
+      if (!canvas || !(canvas instanceof Element) || !canvas.isConnected) {
+        return false;
+      }
+      if (!expected?.valid) {
+        return false;
+      }
+
+      const canvasLocalId = this.getCanvasLocalThreadId(canvas);
+      const cleanExpectedId = expected.strongId ? String(expected.strongId).replace(/^id_/, '') : '';
+      const cleanCanvasId = canvasLocalId ? String(canvasLocalId).replace(/^id_/, '') : '';
+
+      const hasConflictingId = Boolean(
+        cleanCanvasId &&
+        cleanExpectedId &&
+        cleanCanvasId !== cleanExpectedId
+      );
+
+      if (hasConflictingId) {
+        return false;
+      }
+
+      const hasAnchoredTargetId = Boolean(
+        cleanExpectedId &&
+        cleanCanvasId &&
+        cleanCanvasId === cleanExpectedId
+      );
+
+      if (hasAnchoredTargetId) {
+        const localChannel = this.detectChannel(canvas);
+        if (expected.channel && localChannel && localChannel !== expected.channel) {
+          return false;
+        }
+        return true;
+      }
+
+      // Check for a target header physically contained by the candidate surface itself
+      const localHeader = canvas.querySelector(
+        '[data-testid*="header" i], [data-testid*="chat_header" i], header, [role="banner"]'
+      );
+      if (localHeader && canvas.contains(localHeader)) {
+        const headingEl = localHeader.querySelector('[role="heading"], h1, h2, h3, span[dir="auto"]') || localHeader;
+        const headerText = (headingEl.innerText || headingEl.textContent || '').trim();
+        const normText = normalizeArabicText(headerText);
+        const nameMatched = Boolean(
+          (expected.normalizedName && normText === expected.normalizedName) ||
+          (expected.cleanName && headerText === expected.cleanName)
+        );
+        const rawHeaderDigits = headerText.replace(/\D/g, '');
+        const phoneMatched = Boolean(
+          expected.digits &&
+          rawHeaderDigits.length >= 6 &&
+          (rawHeaderDigits.includes(expected.digits) || expected.digits.includes(rawHeaderDigits))
+        );
+
+        const headerChannel = this.detectChannel(localHeader) || this.detectChannel(canvas);
+        const channelMatched = !expected.channel || !headerChannel || (headerChannel === expected.channel);
+
+        if ((nameMatched || phoneMatched) && channelMatched) {
+          return true;
+        }
+      }
+
+      // When target-local evidence is unavailable, fail closed
+      return false;
+    },
+
+    getVerifiedConversationCanvas(expected = null) {
+      if (expected) {
+        const actual = this.getActiveConversationIdentity();
+        if (!this.conversationIdentityMatches(expected, actual)) {
+          return null;
+        }
+
+        // Corroborate selected row alignment
+        const conversationRows = this.getConversationRows();
+        let rowConfirmed = conversationRows.some(row => {
+          const isSelected = row.getAttribute('aria-selected') === 'true' ||
+                             row.getAttribute('data-selected') === 'true' ||
+                             Boolean(row.querySelector('[aria-selected="true"]'));
+          if (!isSelected) return false;
+          if (expected.strongId) {
+            const rowId = row.getAttribute('data-thread-id') ||
+                          row.querySelector('[data-thread-id]')?.getAttribute('data-thread-id') ||
+                          this.extractConversationIdFromHref(row.getAttribute('href') || row.querySelector('a[href]')?.getAttribute('href'));
+            return rowId === expected.strongId;
+          }
+          return this.getStableRowKey(row) === (expected.selectedRowKey || expected.rowKey);
+        });
+
+        if (!rowConfirmed) {
+          const directRow = (expected.targetRow && expected.targetRow.isConnected)
+            ? expected.targetRow
+            : document.querySelector('[aria-selected="true"], [data-selected="true"]');
+          if (directRow && !directRow.closest('#mbs-inbox-automator-root')) {
+            const rowElem = directRow.closest('[role="row"], [role="listitem"], a[href*="/inbox/"], a[href*="/latest/inbox/"]') || directRow;
+            const isSelected = rowElem.getAttribute('aria-selected') === 'true' ||
+                               rowElem.getAttribute('data-selected') === 'true' ||
+                               Boolean(rowElem.querySelector('[aria-selected="true"]'));
+            if (isSelected) {
+              if (expected.strongId) {
+                const rowId = rowElem.getAttribute('data-thread-id') ||
+                              rowElem.querySelector('[data-thread-id]')?.getAttribute('data-thread-id') ||
+                              this.extractConversationIdFromHref(rowElem.getAttribute('href') || rowElem.querySelector('a[href]')?.getAttribute('href'));
+                rowConfirmed = (rowId === expected.strongId);
+              } else {
+                rowConfirmed = (this.getStableRowKey(rowElem) === (expected.selectedRowKey || expected.rowKey));
+              }
+            }
+          }
+        }
+
+        if (!rowConfirmed) {
+          return null;
+        }
+      }
+
+      const rootSelectors = [
+        'div[data-testid*="chat-canvas" i]',
+        'div[data-testid*="message-list" i]',
+        'div[aria-label*="حاوية قائمة الرسائل" i]',
+        'div[aria-label*="محادثة" i]',
+        'div[aria-label*="Conversation" i]',
+        'div[role="main"]',
+        'main'
+      ];
+
+      const composerSelectors = [
+        'div[data-lexical-editor="true"][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+        'div[contenteditable="true"][aria-label*="رسالة" i]',
+        'div[contenteditable="true"][aria-label*="message" i]',
+        'textarea[aria-label*="رسالة" i]',
+        'textarea[aria-label*="message" i]'
+      ];
+
+      const roots = [];
+      for (const selector of rootSelectors) {
+        for (const root of document.querySelectorAll(selector)) {
+          if (
+            roots.includes(root) ||
+            root.offsetParent === null ||
+            root.closest('#mbs-inbox-automator-root')
+          ) {
+            continue;
+          }
+
+          const rootRect = root.getBoundingClientRect();
+          if (rootRect.width < 280 || rootRect.height < 220) {
+            continue;
+          }
+
+          const containsComposer = composerSelectors.some(composerSelector => (
+            Array.from(root.querySelectorAll(composerSelector)).some(element => {
+              if (
+                element.offsetParent === null ||
+                element.closest('#mbs-inbox-automator-root') ||
+                element.closest(
+                  '#inbox-search-input, [role="search"], [role="searchbox"]'
+                )
+              ) {
+                return false;
+              }
+
+              const rect = element.getBoundingClientRect();
+              return (
+                rect.width >= 180 &&
+                rect.height >= 15 &&
+                (rect.top >= rootRect.top + rootRect.height * 0.45 || (root.contains(element) && rect.bottom <= rootRect.bottom + 2))
+              );
+            })
+          ));
+
+          if (containsComposer) roots.push(root);
+        }
+      }
+
+      roots.sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        return (
+          leftRect.width * leftRect.height -
+          rightRect.width * rightRect.height
+        );
+      });
+
+      if (expected) {
+        const matchingRoot = roots.find(r => this.verifySurfaceTargetIdentity(r, expected));
+        if (matchingRoot) return matchingRoot;
+      }
+
+      return roots[0] || null;
+    },
+
+    getConversationRoot(scopedTarget = null) {
+      const target = scopedTarget?.surface || (scopedTarget instanceof Element ? scopedTarget : null);
+      if (target && target.isConnected) {
+        let root = target.closest('[role="main"], main, #mbs-fixture') || target.parentElement;
+        while (root && root !== document.body && root !== document.documentElement) {
+          if (root.querySelector('[role="textbox"], [contenteditable="true"]')) {
+            return root;
+          }
+          root = root.parentElement;
+        }
+        return target;
+      }
+
+      const canvas = this.getVerifiedConversationCanvas();
+      if (canvas && canvas.isConnected) {
+        let root = canvas.closest('[role="main"], main, #mbs-fixture') || canvas.parentElement;
+        while (root && root !== document.body && root !== document.documentElement) {
+          if (root.querySelector('[role="textbox"], [contenteditable="true"]')) {
+            return root;
+          }
+          root = root.parentElement;
+        }
+        return canvas;
+      }
+
+      const candidateRoot = document.querySelector('div[role="main"], main, #mbs-fixture, div[data-testid*="chat-canvas" i]');
+      if (candidateRoot && !candidateRoot.closest('#mbs-inbox-automator-root') && candidateRoot.isConnected) {
+        return candidateRoot;
+      }
+
+      return null;
+    },
+
+    resolveComposer(expected = null, canvasTarget = null) {
+      if (expected && !canvasTarget) {
+        this.assertConversationIdentity(expected);
+      }
+
+      const canvas = canvasTarget || this.getVerifiedConversationCanvas(expected);
+      if (!canvas) return null;
+
+      const canvasRect = canvas.getBoundingClientRect();
+      const selectors = [
+        'div[data-lexical-editor="true"][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+        'div[contenteditable="true"][aria-label*="رسالة" i]',
+        'div[contenteditable="true"][aria-label*="message" i]',
+        'textarea[aria-label*="رسالة" i]',
+        'textarea[aria-label*="message" i]'
+      ];
+
+      const candidates = [];
+
+      for (const selector of selectors) {
+        for (const element of canvas.querySelectorAll(selector)) {
+          if (
+            candidates.includes(element) ||
+            !element.isConnected ||
+            element.offsetParent === null ||
+            element.closest('#mbs-inbox-automator-root') ||
+            element.closest(
+              '#inbox-search-input, [role="search"], [role="searchbox"]'
+            )
+          ) {
+            continue;
+          }
+
+          const rect = element.getBoundingClientRect();
+          if (
+            rect.width >= 180 &&
+            rect.height >= 15 &&
+            (rect.top >= canvasRect.top + canvasRect.height * 0.45 || canvas.contains(element)) &&
+            rect.left >= canvasRect.left - 2 &&
+            rect.right <= canvasRect.right + 2 &&
+            rect.bottom <= canvasRect.bottom + 2
+          ) {
+            candidates.push(element);
+          }
+        }
+      }
+
+      candidates.sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        return rightRect.bottom - leftRect.bottom;
+      });
+
+      return candidates[0] || null;
+    },
+
+    acquireConversationSurfaceLease(expectedOrLease, cancellationToken = null) {
+      if (expectedOrLease?.surface && expectedOrLease?.expected) {
+        if (cancellationToken && !expectedOrLease.cancellationToken) {
+          expectedOrLease.cancellationToken = cancellationToken;
+        }
+        return expectedOrLease;
+      }
+
+      if (cancellationToken?.cancelled) {
+        throw new Error('ROW_PROCESSING_CANCELLED');
+      }
+
+      const expected = expectedOrLease?.expected || expectedOrLease;
+      this.assertConversationIdentity(expected);
+
+      const surface = this.getVerifiedConversationCanvas(expected);
+      if (!surface || !surface.isConnected) {
+        throw new FocusIntegrityError('CONVERSATION_SURFACE_NOT_CORROBORATED');
+      }
+
+      if (!this.verifySurfaceTargetIdentity(surface, expected)) {
+        throw new FocusIntegrityError('CONVERSATION_SURFACE_NOT_CORROBORATED');
+      }
+
+      const composer = this.resolveComposer(expected, surface);
+      if (!composer || !composer.isConnected) {
+        throw new FocusIntegrityError('COMPOSER_NOT_RESOLVED');
+      }
+
+      return {
+        expected,
+        surface,
+        composer,
+        timestamp: Date.now(),
+        remountCount: 0,
+        lastKnownText: '',
+        cancellationToken
+      };
+    },
+
+    acquireComposerLease(expectedOrLease, cancellationToken = null) {
+      return this.acquireConversationSurfaceLease(expectedOrLease, cancellationToken);
+    },
+
     assertComposerLease(lease) {
-      if (!lease || !lease.composer) {
+      if (!lease?.expected || !lease.composer) {
         throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
       }
-      const currentThread = this.getActiveThreadKey();
-      if (lease.threadKey && currentThread && lease.threadKey !== currentThread) {
+
+      if (lease.cancellationToken?.cancelled) {
+        throw new Error('ROW_PROCESSING_CANCELLED');
+      }
+
+      this.assertConversationIdentity(lease.expected);
+
+      const surface = lease.surface;
+      if (!surface || !surface.isConnected) {
+        // IMMUTABLE CANVAS LEASE: throw immediately; never assign globally rediscovered surface
+        throw new FocusIntegrityError('CONVERSATION_SURFACE_LOST');
+      }
+
+      if (!this.verifySurfaceTargetIdentity(surface, lease.expected)) {
+        throw new FocusIntegrityError('CONVERSATION_SURFACE_NOT_CORROBORATED');
+      }
+
+      // Remount only considered inside original connected canvas
+      const currentComposer = this.resolveComposer(lease.expected, surface);
+      if (!currentComposer || !currentComposer.isConnected || !surface.contains(currentComposer)) {
         throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
       }
-      const currentComposer = this.resolveComposer();
-      if (!currentComposer) {
-        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
-      }
+
       if (currentComposer !== lease.composer) {
-        // Legitimate React DOM remount in active thread — dynamically update lease reference
+        lease.remountCount += 1;
+        const expectedPrefix = lease.lastKnownText || '';
+        const remountText = (currentComposer.innerText || currentComposer.textContent || '').trim();
+
+        if (expectedPrefix.length > 0) {
+          const cleanExpectedPrefix = expectedPrefix.trim();
+          const isBlankOrPlaceholder =
+            remountText === '' ||
+            remountText.includes('رد في Messenger') ||
+            remountText.includes('رد في Instagram') ||
+            remountText.includes('رد في WhatsApp') ||
+            remountText.includes('Reply in');
+
+          if (isBlankOrPlaceholder) {
+            // FAIL-CLOSED: throw if remounted composer is blank or placeholder-only
+            throw new FocusIntegrityError('COMPOSER_TEXT_CONTINUITY_VIOLATION');
+          }
+
+          const preservesExactPrefix =
+            remountText === expectedPrefix ||
+            remountText.startsWith(expectedPrefix) ||
+            remountText === cleanExpectedPrefix ||
+            remountText.startsWith(cleanExpectedPrefix);
+
+          if (!preservesExactPrefix) {
+            // FAIL-CLOSED: throw if remounted composer is truncated or divergent
+            throw new FocusIntegrityError('COMPOSER_TEXT_CONTINUITY_VIOLATION');
+          }
+        }
+
         lease.composer = currentComposer;
       }
-      if (!lease.composer.isConnected) {
-        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
+
+      const activeElement = document.activeElement;
+      if (
+        activeElement?.matches?.(
+          '#inbox-search-input, [role="searchbox"], ' +
+          '[role="search"], input[type="search"]'
+        ) ||
+        activeElement?.closest?.(
+          '#inbox-search-input, [role="searchbox"], [role="search"]'
+        )
+      ) {
+        throw new FocusIntegrityError('SEARCH_FOCUS_HIJACK');
       }
-      if (document.activeElement && (
-        document.activeElement.matches?.('#inbox-search-input, [role="searchbox"], [role="search"], input[type="search"]') ||
-        document.activeElement.closest?.('#inbox-search-input, [role="searchbox"], [role="search"]')
-      )) {
-        throw new FocusIntegrityError('COMPOSER_LEASE_LOST');
-      }
-      return true;
+
+      return currentComposer;
     },
 
     async materializeRowActions(row) {
@@ -1396,107 +2254,262 @@
       return textEl || row;
     },
 
-    getActiveChatContactName() {
+    getActiveChatContactName(scopedTarget = null) {
       const isValid = (t) => t && t.length >= 2 && !['البريد الوارد', 'تفاصيل الاتصال', 'التسميات', 'الملاحظات', 'Inbox', 'Contact Details', 'Labels', 'Notes'].includes(t) && !this.isTimestampOrBadge(t) && !this.isSnippetOrPreview(t);
 
-      // 1. Primary heading in contact details panel (top 70-160, left < 400)
-      const headings = Array.from(document.querySelectorAll('[role="heading"], h1, h2, h3')).filter(el => {
-        if (el.closest('#mbs-inbox-automator-root')) return false;
-        const r = el.getBoundingClientRect();
-        const t = (el.innerText || '').trim();
-        return r.top >= 70 && r.top <= 160 && r.left < 400 && r.width > 0 && isValid(t);
-      });
-      if (headings.length > 0) {
-        return this.sanitizeName(headings[0].innerText.trim());
-      }
-
-      // 2. Chat header / banner heading fallback
-      const chatCanvas = this.getChatCanvas();
-      if (chatCanvas) {
-        const header = chatCanvas.querySelector('header, div[role="banner"]') || chatCanvas.parentElement?.querySelector('header');
-        if (header) {
-          const heading = header.querySelector('h1, h2, div[role="heading"], span[style*="font-weight"]');
-          if (heading) {
-            const txt = (heading.innerText || heading.textContent || '').trim();
-            if (isValid(txt)) return this.sanitizeName(txt);
-          }
-        }
-      }
-      const topName = document.querySelector('div[role="main"] div[style*="font-weight"], main div[style*="font-weight"]');
-      if (topName) {
-        const txt = (topName.innerText || topName.textContent || '').trim();
+      const headerNode = this.getActiveHeaderNode(scopedTarget);
+      if (headerNode) {
+        const heading = headerNode.querySelector('[role="heading"], h1, h2, h3, span[dir="auto"], span[style*="font-weight"]') || headerNode;
+        const txt = (heading.innerText || heading.textContent || '').trim();
         if (isValid(txt)) return this.sanitizeName(txt);
       }
+
+      const root = this.getConversationRoot(scopedTarget);
+      if (root) {
+        const headings = Array.from(root.querySelectorAll('[role="heading"], h1, h2, h3')).filter(el => {
+          if (el.closest('#mbs-inbox-automator-root')) return false;
+          const r = el.getBoundingClientRect();
+          const t = (el.innerText || '').trim();
+          return (r.width === 0 || (r.top >= 50 && r.top <= 200)) && isValid(t);
+        });
+        if (headings.length > 0) {
+          return this.sanitizeName(headings[0].innerText.trim());
+        }
+      }
+
       return '';
     },
 
-    async waitForConversationLoad(targetRow, contactName, clickTarget, logger) {
-      const cleanTarget = this.sanitizeName(contactName);
-      const isGenericName = !cleanTarget || 
-                            cleanTarget.startsWith('*row_') || 
-                            cleanTarget.startsWith('row_') || 
-                            cleanTarget.startsWith('contact_row_');
-      const normTarget = isGenericName ? '' : normalizeArabicText(cleanTarget);
-      const targetDigits = cleanTarget.replace(/\D/g, '');
-      const startWait = Date.now();
-      const maxTimeoutMs = 3500; // Hard timeout of 3.5 seconds max
+    getActiveHeaderNode(scopedTarget = null) {
+      const isValid = (t) => t && t.length >= 2 && !['البريد الوارد', 'تفاصيل الاتصال', 'التسميات', 'الملاحظات', 'Inbox', 'Contact Details', 'Labels', 'Notes'].includes(t) && !this.isTimestampOrBadge(t) && !this.isSnippetOrPreview(t);
 
-      while (Date.now() - startWait < maxTimeoutMs) {
-        if (state.emergencyAbort) throw new Error('ABORT_SIGNAL');
+      const root = this.getConversationRoot(scopedTarget);
+      if (root) {
+        const headerCandidate = root.querySelector(
+          '[data-testid*="chat_header" i], [data-testid*="chat-header" i], header[role="banner"], header, div[role="banner"]'
+        );
+        if (headerCandidate && !headerCandidate.closest('#mbs-inbox-automator-root')) {
+          return headerCandidate;
+        }
 
-        const composer = this.getComposer();
-        const chatCanvas = this.getChatCanvas();
-        const isRowSelected = Boolean(targetRow && (
-          targetRow.getAttribute('aria-selected') === 'true' ||
-          (typeof targetRow.className === 'string' && (targetRow.className.includes('selected') || targetRow.className.includes('active'))) ||
-          targetRow.querySelector('[aria-selected="true"]')
-        ));
+        const headings = Array.from(root.querySelectorAll('[role="heading"], h1, h2, h3, header, div[role="banner"]')).filter(el => {
+          if (el.closest('#mbs-inbox-automator-root')) return false;
+          const r = el.getBoundingClientRect();
+          const t = (el.innerText || '').trim();
+          return r.top <= 200 && r.width > 0 && (isValid(t) || el.tagName === 'HEADER' || el.getAttribute('role') === 'banner');
+        });
+        if (headings.length > 0) return headings[0];
+      }
 
-        // If expectedName is generic or missing, verify row selection or canvas/composer presence
-        if (isGenericName) {
-          if (isRowSelected || (composer && chatCanvas)) {
-            return true;
+      if (scopedTarget instanceof Element && scopedTarget.isConnected) {
+        const header = scopedTarget.querySelector?.('header, div[role="banner"]') || scopedTarget.parentElement?.querySelector?.('header, div[role="banner"]');
+        if (header && !header.closest('#mbs-inbox-automator-root')) return header;
+      }
+
+      return null;
+    },
+
+    async waitForConversationLoad(
+      expected,
+      targetRow,
+      clickTarget,
+      logger,
+      cancellationToken = null,
+      preClickSnapshot = null
+    ) {
+      if (!expected?.valid) {
+        if (logger) {
+          logger.log(
+            'ERROR',
+            `[IDENTITY] هوية المحادثة المستهدفة غير صالحة: ` +
+            `${expected?.reason || 'UNKNOWN'}`
+          );
+        }
+        return null;
+      }
+
+      const startedAt = Date.now();
+      const timeoutMs = 5500;
+      let consecutiveStableMatches = 0;
+      let firstSampleTime = null;
+      let lastObservedRoot = null;
+      let lastObservedCanvas = null;
+      let lastObservedComposer = null;
+      let retryPerformed = false;
+
+      while (Date.now() - startedAt < timeoutMs) {
+        if (state.emergencyAbort) {
+          throw new Error('ABORT_SIGNAL');
+        }
+        if (cancellationToken?.cancelled) {
+          throw new Error('ROW_PROCESSING_CANCELLED');
+        }
+
+        const actual = this.getActiveConversationIdentity();
+        const identityMatches =
+          this.conversationIdentityMatches(expected, actual);
+
+        let composer = null;
+        let canvas = null;
+
+        if (identityMatches) {
+          canvas = this.getVerifiedConversationCanvas(expected);
+          composer = canvas
+            ? this.resolveComposer(expected, canvas)
+            : null;
+        }
+
+        const selectedRowConfirmed = expected.strongId
+          ? Boolean(
+              (actual.selectedAttributeId && actual.selectedAttributeId === expected.strongId) ||
+              (actual.selectedHrefId && actual.selectedHrefId === expected.strongId) ||
+              (actual.strongId && actual.strongId === expected.strongId)
+            )
+          : Boolean(
+              actual.selectedRow &&
+              actual.selectedRowKey &&
+              actual.selectedRowKey === (expected.selectedRowKey || expected.rowKey)
+            );
+
+        // Header and composer in same shell
+        let sameShell = false;
+        if (canvas && composer) {
+          const headerNode = this.getActiveHeaderNode(canvas);
+          if (headerNode) {
+            let boundedRoot = canvas.closest('[role="main"], main, div[data-testid*="chat-canvas"], div[data-testid*="message-list"], #mbs-fixture') || canvas.parentElement;
+            while (boundedRoot && boundedRoot !== document.body && boundedRoot !== document.documentElement) {
+              if (boundedRoot.contains(headerNode) && boundedRoot.contains(canvas) && boundedRoot.contains(composer)) {
+                break;
+              }
+              boundedRoot = boundedRoot.parentElement;
+            }
+
+            if (
+              boundedRoot &&
+              boundedRoot !== document.body &&
+              boundedRoot !== document.documentElement &&
+              boundedRoot.contains(headerNode) &&
+              boundedRoot.contains(canvas) &&
+              boundedRoot.contains(composer)
+            ) {
+              sameShell = true;
+            }
+          }
+        }
+
+        // Proven transition from pre-click surface on switch
+        let transitionProven = true;
+        if (preClickSnapshot && canvas && composer) {
+          const preId = preClickSnapshot.identity;
+          const isSwitch = Boolean(
+            preId &&
+            (
+              (preId.selectedAttributeId && expected.strongId && preId.selectedAttributeId !== expected.strongId) ||
+              (preId.urlThreadId && expected.strongId && preId.urlThreadId !== expected.strongId) ||
+              (preId.selectedRowKey && expected.selectedRowKey && preId.selectedRowKey !== (expected.selectedRowKey || expected.rowKey)) ||
+              (preId.normalizedName && expected.normalizedName && preId.normalizedName !== expected.normalizedName)
+            )
+          );
+
+          if (isSwitch) {
+            // Target identity anchoring must apply to every candidate surface during a conversation switch,
+            // regardless of whether canvas/composer nodes are unchanged, partially remounted, or completely replaced.
+            // Delete the logic that allows canvas !== preClickSnapshot.canvas or composer !== preClickSnapshot.composer
+            // plus a changed fingerprint to prove navigation.
+            // A fingerprint may be used only for stability/change observation. It must never be positive conversation-identity evidence.
+            if (!this.verifySurfaceTargetIdentity(canvas, expected)) {
+              transitionProven = false;
+            }
+          }
+        }
+
+        const surfaceTargetValid = this.verifySurfaceTargetIdentity(canvas, expected);
+
+        const candidateValid = Boolean(
+          identityMatches &&
+          selectedRowConfirmed &&
+          canvas &&
+          composer &&
+          composer.isConnected &&
+          canvas.contains(composer) &&
+          sameShell &&
+          surfaceTargetValid &&
+          transitionProven
+        );
+
+        if (candidateValid) {
+          const currentRoot = canvas.closest('[role="main"], main') || canvas;
+          if (consecutiveStableMatches === 0) {
+            consecutiveStableMatches = 1;
+            firstSampleTime = Date.now();
+            lastObservedRoot = currentRoot;
+            lastObservedCanvas = canvas;
+            lastObservedComposer = composer;
+          } else if (
+            currentRoot === lastObservedRoot &&
+            canvas === lastObservedCanvas &&
+            composer === lastObservedComposer
+          ) {
+            consecutiveStableMatches += 1;
+            const elapsed = Date.now() - firstSampleTime;
+            if (consecutiveStableMatches >= 3 && elapsed >= 450) {
+              return {
+                expected,
+                surface: canvas,
+                composer,
+                timestamp: Date.now(),
+                remountCount: 0,
+                lastKnownText: '',
+                cancellationToken
+              };
+            }
+          } else {
+            consecutiveStableMatches = 1;
+            firstSampleTime = Date.now();
+            lastObservedRoot = currentRoot;
+            lastObservedCanvas = canvas;
+            lastObservedComposer = composer;
           }
         } else {
-          // Named contact check
-          const headerName = this.getActiveChatContactName();
-          const cleanHeader = this.sanitizeName(headerName);
-          const normHeader = normalizeArabicText(cleanHeader);
-          const headerDigits = cleanHeader.replace(/\D/g, '');
-
-          // Numeric phone match (e.g. +44 7974 905044 vs 447974905044)
-          const isNumericMatch = targetDigits.length >= 6 && headerDigits.length >= 6 &&
-                                 (headerDigits.includes(targetDigits) || targetDigits.includes(headerDigits));
-
-          if (composer && ((normHeader && normTarget && (normHeader.includes(normTarget) || normTarget.includes(normHeader))) || isNumericMatch)) {
-            return true;
-          }
-
-          // If past 1.8s and row is selected or composer is present, accept if canvas rendered
-          if (Date.now() - startWait > 1800 && (isRowSelected || composer) && chatCanvas) {
-            return true;
-          }
+          consecutiveStableMatches = 0;
+          firstSampleTime = null;
+          lastObservedRoot = null;
+          lastObservedCanvas = null;
+          lastObservedComposer = null;
         }
 
-        // Single gentle retry click after 1.2s if switch hasn't completed
-        if (Date.now() - startWait > 1200 && Date.now() - startWait < 1400) {
+        const elapsed = Date.now() - startedAt;
+        if (!retryPerformed && elapsed >= 1200) {
+          retryPerformed = true;
           try {
-            await HumanSimulator.naturalClick(clickTarget || targetRow);
-          } catch (_) {}
+            await HumanSimulator.naturalClick(
+              clickTarget || targetRow
+            );
+          } catch (error) {
+            if (logger) {
+              logger.log(
+                'WARN',
+                `[IDENTITY] تعذر تنفيذ نقرة إعادة المحاولة: ` +
+                `${error?.message || error}`
+              );
+            }
+          }
         }
 
-        await sleep(150);
+        await cancellableSleep(160, cancellationToken);
       }
 
-      // Hard timeout reached (3.5s): if composer or canvas is present, proceed rather than hang
-      const finalComposer = this.getComposer();
-      const finalCanvas = this.getChatCanvas();
-      if (finalComposer || finalCanvas) {
-        return true;
+      if (logger) {
+        const actual = this.getActiveConversationIdentity();
+        logger.log(
+          'ERROR',
+          `[IDENTITY TIMEOUT] لم تتطابق المحادثة المطلوبة ` +
+          `"${expected.cleanName || expected.leaseKey}" مع المعروضة ` +
+          `"${actual.headerName || actual.strongId || actual.selectedRowKey || 'غير محددة'}".`
+        );
       }
 
-      if (logger) logger.log('WARN', `مهلة انتظار تحميل المحادثة (${(maxTimeoutMs / 1000).toFixed(1)} ث) انتهت دون استجابة تامة. المتابعة بحذر...`);
-      return false;
+      return null;
     },
 
     getSidebarScrollContainer() {
@@ -1589,59 +2602,90 @@
       return false;
     },
 
-    getChatCanvas() {
-      const selectors = [
-        'div[role="main"]',
-        'div[data-testid*="message-list"]',
-        'div[data-testid*="chat-canvas"]',
-        'div[aria-label*="محادثة" i]',
-        'div[aria-label*="Conversation" i]',
-        'div[aria-label*="حاوية قائمة الرسائل" i]'
-      ];
-
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null && !el.closest('#mbs-inbox-automator-root')) return el;
+    getChatCanvas(expectedOrLease = null) {
+      if (expectedOrLease?.surface && expectedOrLease.surface.isConnected) {
+        return expectedOrLease.surface;
       }
-
-      const scrollables = Array.from(document.querySelectorAll('div')).filter(el => {
-        if (el.closest('#mbs-inbox-automator-root')) return false;
-        const style = window.getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
-        return (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-               rect.width > 280 && rect.height > 250 &&
-               rect.left > 120 && rect.right < (window.innerWidth - 120);
-      });
-
-      return scrollables[0] || document.querySelector('main') || null;
+      const expected = expectedOrLease?.expected || expectedOrLease;
+      return this.getVerifiedConversationCanvas(expected);
     },
 
-    getMessageScrollContainer() {
-      const composer = this.getComposer();
-      const chat = this.getChatCanvas();
+    getMessageScrollContainer(expectedOrLease = null) {
+      const composer = this.getComposer(expectedOrLease);
+      const chat = this.getChatCanvas(expectedOrLease);
       if (!chat) return null;
 
       const chatStyle = window.getComputedStyle(chat);
-      if ((chatStyle.overflowY === 'auto' || chatStyle.overflowY === 'scroll') && (!composer || !chat.contains(composer))) {
+      if (
+        (
+          chatStyle.overflowY === 'auto' ||
+          chatStyle.overflowY === 'scroll'
+        ) &&
+        (!composer || !chat.contains(composer))
+      ) {
         return chat;
       }
 
-      const scrollables = Array.from(chat.querySelectorAll('div')).filter(el => {
-        if (el.closest('#mbs-inbox-automator-root')) return false;
-        if (composer && (composer.contains(el) || el.contains(composer))) return false;
-        const s = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        return (s.overflowY === 'auto' || s.overflowY === 'scroll') && r.height > 180 && r.width > 250;
+      const scrollables = Array.from(
+        chat.querySelectorAll('div')
+      ).filter(element => {
+        if (element.closest('#mbs-inbox-automator-root')) {
+          return false;
+        }
+        if (
+          composer &&
+          (
+            composer.contains(element) ||
+            element.contains(composer)
+          )
+        ) {
+          return false;
+        }
+
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          (
+            style.overflowY === 'auto' ||
+            style.overflowY === 'scroll'
+          ) &&
+          rect.height > 180 &&
+          rect.width > 250
+        );
       });
 
       return scrollables[0] || chat;
     },
 
-    getComposer() {
-      return this.resolveComposer();
+    getComposer(expectedOrLease = null) {
+      if (expectedOrLease?.surface && expectedOrLease.surface.isConnected) {
+        return this.resolveComposer(expectedOrLease.expected, expectedOrLease.surface);
+      }
+      const expected = expectedOrLease?.expected || expectedOrLease;
+      return this.resolveComposer(expected);
     },
 
-    getSendButton() {
+    getSendButton(expectedOrLease, composerTarget = null) {
+      const expected = expectedOrLease?.expected || expectedOrLease;
+      if (!expected?.valid) return null;
+
+      this.assertConversationIdentity(expected);
+
+      const canvas = (expectedOrLease?.surface && expectedOrLease.surface.isConnected)
+        ? expectedOrLease.surface
+        : this.getVerifiedConversationCanvas(expected);
+
+      const composer =
+        composerTarget ||
+        (expectedOrLease?.composer && canvas && canvas.contains(expectedOrLease.composer)
+          ? expectedOrLease.composer
+          : this.resolveComposer(expected, canvas));
+
+      if (!canvas || !composer || !canvas.contains(composer)) {
+        return null;
+      }
+
+      const composerRect = composer.getBoundingClientRect();
       const selectors = [
         'div[aria-label*="إرسال" i][role="button"]',
         'div[aria-label*="Send" i][role="button"]',
@@ -1650,13 +2694,32 @@
         'button[type="submit"]'
       ];
 
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null && !el.closest('#mbs-inbox-automator-root')) {
-          const rect = el.getBoundingClientRect();
-          if (rect.bottom >= window.innerHeight - 250) return el;
+      for (const selector of selectors) {
+        for (const button of canvas.querySelectorAll(selector)) {
+          if (
+            !button.isConnected ||
+            button.offsetParent === null ||
+            button.closest('#mbs-inbox-automator-root')
+          ) {
+            continue;
+          }
+
+          const style = window.getComputedStyle(button);
+          const rect = button.getBoundingClientRect();
+
+          if (
+            button.getAttribute('aria-disabled') !== 'true' &&
+            !button.disabled &&
+            style.pointerEvents !== 'none' &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            Math.abs(rect.top - composerRect.top) <= 400
+          ) {
+            return button;
+          }
         }
       }
+
       return null;
     },
 
@@ -1668,29 +2731,50 @@
         .filter(line => line.length > 0);
     },
 
-    async waitForComposerClear(composer, maxWaitMs = 1500) {
-      if (!composer) return true;
-      const startTime = Date.now();
-      const placeholderTokens = ['رد في messenger', 'رد في instagram', 'reply in messenger', 'reply in instagram', 'اكتب رسالة', 'type a message', 'اكتب رد'];
+    async waitForComposerClear(
+      expectedOrLease,
+      maxWaitMs = 1500,
+      cancellationToken = null
+    ) {
+      const expected = expectedOrLease?.expected || expectedOrLease;
+      const token = cancellationToken || expectedOrLease?.cancellationToken;
+      const startedAt = Date.now();
 
-      while (Date.now() - startTime < maxWaitMs) {
-        const text = (composer.innerText || composer.textContent || '').trim().toLowerCase();
-        if (!text || placeholderTokens.some(token => text === token)) {
-          return true;
+      while (Date.now() - startedAt < maxWaitMs) {
+        if (token?.cancelled) {
+          throw new Error('ROW_PROCESSING_CANCELLED');
         }
-        await sleep(100);
+        if (state.emergencyAbort) {
+          throw new Error('ABORT_SIGNAL');
+        }
+
+        this.assertConversationIdentity(expected);
+
+        const composer = this.getComposer(expectedOrLease);
+        if (!composer || !composer.isConnected) {
+          throw new FocusIntegrityError(
+            'COMPOSER_NOT_AVAILABLE_DURING_CLEAR_WAIT'
+          );
+        }
+
+        const content = (
+          composer.innerText ||
+          composer.textContent ||
+          ''
+        ).trim();
+
+        const isPlaceholder =
+          content.length === 0 ||
+          content.includes('رد في Messenger') ||
+          content.includes('رد في Instagram') ||
+          content.includes('رد في WhatsApp') ||
+          content.includes('Reply in');
+
+        if (isPlaceholder) return true;
+        await cancellableSleep(100, cancellationToken);
       }
 
-      // Emergency fallback if Lexical retains text after dispatch
-      try {
-        composer.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('delete', false, null);
-        if (typeof composer.dispatchEvent === 'function') {
-          composer.dispatchEvent(new InputEvent('input', { bubbles: true }));
-        }
-      } catch (_) {}
-      return true;
+      return false;
     },
 
     async executeRestoreToUnread(logger, targetRow, contactKey, budget = null) {
@@ -2047,25 +3131,43 @@
     extractThreadContext(bubbles) {
       if (!Array.isArray(bubbles) || bubbles.length === 0) return '';
       
+      const expectedOrLease = arguments[1] || null;
+      const surface = (expectedOrLease?.surface && expectedOrLease.surface.isConnected)
+        ? expectedOrLease.surface
+        : (this && typeof this.getChatCanvas === 'function' ? this.getChatCanvas(expectedOrLease) : null);
+
       // 1. Direct ad referral element check in canvas
-      const adEl = document.querySelector('a[href*="/ads/"], [data-ad-id], [aria-label*="إعلان ممول" i], [aria-label*="Sponsored" i]');
-      const adText = adEl ? (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(adEl) : DOM.extractTextWithAlt(adEl)).trim() : '';
+      const adEl = surface
+        ? surface.querySelector('a[href*="/ads/"], [data-ad-id], [aria-label*="إعلان ممول" i], [aria-label*="Sponsored" i]')
+        : null;
+      const adText = adEl ? (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(adEl) : (typeof DOM !== 'undefined' && DOM.extractTextWithAlt ? DOM.extractTextWithAlt(adEl) : '')).trim() : '';
 
       // 2. Thread inception window (first 2 bubbles - automated ad prompts / icebreakers)
       const inceptionBubbles = bubbles.slice(0, 2);
-      const inceptionText = inceptionBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : DOM.extractTextWithAlt(b))).join(' ').trim();
+      const inceptionText = inceptionBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : (typeof DOM !== 'undefined' && DOM.extractTextWithAlt ? DOM.extractTextWithAlt(b) : ''))).join(' ').trim();
 
       // 3. Recent history window (preceding 4 bubbles before tail)
       const recentBubbles = bubbles.length > 2 ? bubbles.slice(-5, -1) : [];
-      const recentText = recentBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : DOM.extractTextWithAlt(b))).join(' ').trim();
+      const recentText = recentBubbles.map(b => (this && typeof this.extractTextWithAlt === 'function' ? this.extractTextWithAlt(b) : (typeof DOM !== 'undefined' && DOM.extractTextWithAlt ? DOM.extractTextWithAlt(b) : ''))).join(' ').trim();
 
       // Combine and cap at 1,000 characters to prevent regex performance overhead
       const combinedContext = [adText, inceptionText, recentText].filter(Boolean).join(' ');
       return combinedContext.slice(0, 1000).trim();
     },
 
-    getMessageBubbles() {
-      const composer = this.getComposer();
+    getMessageBubbles(expectedOrLease = null, cancellationToken = null) {
+      const token = cancellationToken || expectedOrLease?.cancellationToken || null;
+      if (token?.cancelled) throw new Error('ROW_PROCESSING_CANCELLED');
+
+      const surface = (expectedOrLease?.surface && expectedOrLease.surface.isConnected)
+        ? expectedOrLease.surface
+        : this.getChatCanvas(expectedOrLease);
+
+      if (!surface || !surface.isConnected) {
+        throw new FocusIntegrityError('CONVERSATION_SURFACE_LOST');
+      }
+
+      const composer = expectedOrLease?.composer || this.getComposer(expectedOrLease);
       const compRect = composer ? composer.getBoundingClientRect() : null;
 
       const minX = compRect ? (compRect.left - 30) : (window.innerWidth * 0.20);
@@ -2073,9 +3175,8 @@
       const minY = 90;
       const maxY = compRect ? (compRect.top - 6) : (window.innerHeight - 80);
 
-      const viewport = this.getMessageScrollContainer() || this.getChatCanvas() || document.body;
-
-      const candidateElements = Array.from(viewport.querySelectorAll('div, span, p, audio, video')).filter(el => {
+      // Scoped strictly to surface - zero global document fallbacks
+      const candidateElements = Array.from(surface.querySelectorAll('div, span, p, audio, video')).filter(el => {
         if (el.closest('#mbs-inbox-automator-root')) return false;
         if (composer && (composer.contains(el) || el.contains(composer))) return false;
         if (el.closest('button, header, footer, nav, [role="toolbar"]')) return false;
@@ -2105,12 +3206,11 @@
       return leaves;
     },
 
-    isOutboundBubble(bubble) {
+    isOutboundBubble(bubble, leaseOrComposer = null) {
       if (!bubble) return false;
       const text = (DOM.extractTextWithAlt(bubble) || bubble.innerText || '').trim();
 
       // 1. Text match: ONLY if the bubble text contains a substantial chunk of our configured reply (25+ characters)
-      // CRITICAL FIX: NEVER check if r.reply includes text (short customer messages like "تفاصيل" or "سعر" must NEVER be marked outbound!)
       if (text.length >= 25 && state.rules.some(r => r.reply && text.includes(r.reply.slice(0, 25)))) {
         return true;
       }
@@ -2152,10 +3252,7 @@
       }
 
       // 4. Horizontal alignment in chat column:
-      // In RTL Arabic layout:
-      // Outbound (page) messages are left-aligned (rect.right < center)
-      // Inbound (customer) messages are right-aligned (rect.left > center or rect.right >= center)
-      const composer = this.getComposer();
+      const composer = leaseOrComposer?.composer || (leaseOrComposer instanceof Element ? leaseOrComposer : this.getComposer(leaseOrComposer));
       const compRect = composer ? composer.getBoundingClientRect() : null;
       if (compRect) {
         const center = (compRect.left + compRect.right) / 2;
@@ -2168,19 +3265,25 @@
       return false;
     },
 
-    hasTrailingAudioOrMedia() {
-      const viewport = this.getMessageScrollContainer() || this.getChatCanvas();
-      if (!viewport) return false;
-      const audioEls = Array.from(viewport.querySelectorAll('audio, video, [data-testid*="audio" i], [data-testid*="voice" i], [aria-label*="صوت" i], [aria-label*="voice" i], [aria-label*="تسجيل صوتي" i], [aria-label*="رسالة صوتية" i]')).filter(el => {
+    hasTrailingAudioOrMedia(expectedOrLease = null, cancellationToken = null) {
+      const token = cancellationToken || expectedOrLease?.cancellationToken || null;
+      if (token?.cancelled) throw new Error('ROW_PROCESSING_CANCELLED');
+
+      const surface = (expectedOrLease?.surface && expectedOrLease.surface.isConnected)
+        ? expectedOrLease.surface
+        : this.getChatCanvas(expectedOrLease);
+      if (!surface || !surface.isConnected) throw new FocusIntegrityError('CONVERSATION_SURFACE_LOST');
+
+      const audioEls = Array.from(surface.querySelectorAll('audio, video, [data-testid*="audio" i], [data-testid*="voice" i], [aria-label*="صوت" i], [aria-label*="voice" i], [aria-label*="تسجيل صوتي" i], [aria-label*="رسالة صوتية" i]')).filter(el => {
         if (el.closest('#mbs-inbox-automator-root')) return false;
         if (el.closest('a[href], [data-testid*="link_preview" i], [data-testid*="preview" i], [class*="preview" i]')) return false;
         return true;
       });
       if (audioEls.length === 0) return false;
       const lastAudio = audioEls[audioEls.length - 1];
-      if (this.isOutboundBubble(lastAudio)) return false;
+      if (this.isOutboundBubble(lastAudio, expectedOrLease)) return false;
 
-      const bubbles = this.getMessageBubbles();
+      const bubbles = this.getMessageBubbles(expectedOrLease, token);
       if (bubbles.length === 0) return true;
       const lastBubble = bubbles[bubbles.length - 1];
       const audioRect = lastAudio.getBoundingClientRect();
@@ -2188,14 +3291,17 @@
       return audioRect.top >= bubbleRect.top - 15;
     },
 
-    parseInboundBoundary() {
-      const bubbles = this.getMessageBubbles();
+    parseInboundBoundary(expectedOrLease = null, cancellationToken = null) {
+      const token = cancellationToken || expectedOrLease?.cancellationToken || null;
+      if (token?.cancelled) throw new Error('ROW_PROCESSING_CANCELLED');
+
+      const bubbles = this.getMessageBubbles(expectedOrLease, token);
       if (bubbles.length === 0) {
         return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null };
       }
 
       const lastBubble = bubbles[bubbles.length - 1];
-      if (this.isOutboundBubble(lastBubble)) {
+      if (this.isOutboundBubble(lastBubble, expectedOrLease)) {
         return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble };
       }
 
@@ -2204,7 +3310,7 @@
       const customerBubbles = [];
       for (let i = bubbles.length - 1; i >= 0; i--) {
         const b = bubbles[i];
-        if (this.isOutboundBubble(b)) {
+        if (this.isOutboundBubble(b, expectedOrLease)) {
           break;
         }
         customerBubbles.unshift(b);
@@ -2283,172 +3389,380 @@
       } catch (_) {}
     },
 
-    async simulateThreadScroll(logger) {
-      const container = DOM.getMessageScrollContainer();
+    async simulateThreadScroll(logger, lease = null, cancellationToken = null) {
+      const token = cancellationToken || lease?.cancellationToken || null;
+      if (token?.cancelled) throw new Error('ROW_PROCESSING_CANCELLED');
+
+      const container = lease?.surface ? DOM.getMessageScrollContainer(lease) : DOM.getMessageScrollContainer();
       if (!container) return;
 
       const peekDistance = Math.min(container.scrollHeight - container.clientHeight, randomRange(250, 400));
       if (peekDistance > 60) {
-        logger.log('SCROLL', 'استعراض سريع للمحادثة (Scroll Glance)...');
+        if (logger) logger.log('SCROLL', 'استعراض سريع للمحادثة (Scroll Glance)...');
         container.scrollBy({ top: -peekDistance, behavior: 'smooth' });
-        await sleep(randomRange(200, 260));
+        await cancellableSleep(randomRange(200, 260), token);
         container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-        await sleep(randomRange(140, 180));
+        await cancellableSleep(randomRange(140, 180), token);
       }
     },
 
-    async typeText(composer, text, logger) {
-      return this.typeIntoComposer(composer, text, logger);
-    },
-
-    async typeReply(composer, text, logger) {
-      return this.typeIntoComposer(composer, text, logger);
-    },
-
-    async typeIntoComposer(composer, text, logger) {
-      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-      const lease = DOM.acquireComposerLease();
-      DOM.assertComposerLease(lease);
-
-      // Assert that activeElement is not an input or search field
-      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
-        try { document.activeElement.blur(); } catch (_) {}
+    focusComposerAtEnd(composer) {
+      if (!composer || !composer.isConnected) {
+        throw new FocusIntegrityError('COMPOSER_NOT_CONNECTED');
       }
 
       composer.focus();
-      DOM.assertComposerLease(lease);
-      await sleep(randomRange(70, 120));
-      DOM.assertComposerLease(lease);
-
-      if (document.activeElement !== composer && composer.isConnected) {
-        composer.focus();
-        DOM.assertComposerLease(lease);
-      }
 
       const selection = window.getSelection();
+      if (!selection) {
+        throw new FocusIntegrityError(
+          'COMPOSER_SELECTION_UNAVAILABLE'
+        );
+      }
+
       const range = document.createRange();
       range.selectNodeContents(composer);
+      range.collapse(false);
       selection.removeAllRanges();
       selection.addRange(range);
+    },
+
+    async typeText(expectedOrLease, text, logger, cancellationToken = null) {
+      return this.typeIntoComposer(expectedOrLease, text, logger, cancellationToken);
+    },
+
+    async typeReply(expectedOrLease, text, logger, cancellationToken = null) {
+      return this.typeIntoComposer(expectedOrLease, text, logger, cancellationToken);
+    },
+
+    async typeIntoComposer(expectedOrLease, text, logger, cancellationToken = null) {
+      if (state.emergencyAbort || !state.isRunning) {
+        throw new Error('ABORT_SIGNAL');
+      }
+
+      const isLease = Boolean(expectedOrLease?.surface && expectedOrLease?.expected);
+      const expected = isLease ? expectedOrLease.expected : expectedOrLease;
+      const token = cancellationToken || (isLease ? expectedOrLease.cancellationToken : null);
+
+      if (token?.cancelled) {
+        throw new Error('ROW_PROCESSING_CANCELLED');
+      }
+
+      if (!expected?.valid) {
+        throw new FocusIntegrityError(
+          'EXPECTED_CONVERSATION_IDENTITY_MISSING'
+        );
+      }
+
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('EMPTY_REPLY_TEXT');
+      }
+
+      const lease = isLease
+        ? expectedOrLease
+        : DOM.acquireComposerLease(expected, token);
+      if (token && !lease.cancellationToken) {
+        lease.cancellationToken = token;
+      }
+      lease.lastKnownText = '';
+      let composer = DOM.assertComposerLease(lease);
+
+      const refreshComposer = () => {
+        if (token?.cancelled) {
+          throw new Error('ROW_PROCESSING_CANCELLED');
+        }
+        const previousComposer = composer;
+        composer = DOM.assertComposerLease(lease);
+
+        if (composer !== previousComposer) {
+          this.focusComposerAtEnd(composer);
+        }
+
+        return composer;
+      };
+
+      const ensureComposerFocus = () => {
+        refreshComposer();
+
+        if (document.activeElement !== composer) {
+          const activeElement = document.activeElement;
+          if (
+            activeElement?.matches?.(
+              'input, textarea, [role="searchbox"], ' +
+              '[placeholder*="بحث" i], [placeholder*="Search" i]'
+            )
+          ) {
+            try {
+              activeElement.blur();
+            } catch (_) {}
+          }
+
+          this.focusComposerAtEnd(composer);
+          refreshComposer();
+        }
+
+        if (document.activeElement !== composer) {
+          throw new FocusIntegrityError(
+            'COMPOSER_FOCUS_NOT_ACQUIRED'
+          );
+        }
+
+        return composer;
+      };
+
+      ensureComposerFocus();
+      await cancellableSleep(randomRange(70, 120), token);
+      ensureComposerFocus();
+
+      const selection = window.getSelection();
+      const clearRange = document.createRange();
+      clearRange.selectNodeContents(composer);
+      selection.removeAllRanges();
+      selection.addRange(clearRange);
+
       try {
         document.execCommand('delete', false, null);
       } catch (_) {
-        range.deleteContents();
+        clearRange.deleteContents();
       }
-      DOM.assertComposerLease(lease);
-      await sleep(randomRange(50, 90));
-      DOM.assertComposerLease(lease);
 
-      logger.log('TYPING', `محاكاة كتابة الرد (${text.length} حرف، تذبذب ${state.config.minTypingSpeed}-${state.config.maxTypingSpeed}ms)...`);
+      refreshComposer();
+      await cancellableSleep(randomRange(50, 90), token);
+      ensureComposerFocus();
 
-      for (let i = 0; i < text.length; i++) {
-        if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-        DOM.assertComposerLease(lease);
+      // UNICODE-SAFE TYPING: code-point iteration via Array.from
+      const codePoints = Array.from(text);
+      let committedPrefix = '';
 
-        // Re-assert composer focus if focus drifted to an input or outside composer
-        if (document.activeElement !== composer) {
-          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
-            try { document.activeElement.blur(); } catch (_) {}
-          }
-          composer.focus();
-          DOM.assertComposerLease(lease);
+      if (logger) {
+        logger.log(
+          'TYPING',
+          `محاكاة كتابة الرد (${codePoints.length} حرف، تذبذب ` +
+          `${state.config.minTypingSpeed}-` +
+          `${state.config.maxTypingSpeed}ms)...`
+        );
+      }
+
+      for (let index = 0; index < codePoints.length; index += 1) {
+        if (state.emergencyAbort || !state.isRunning) {
+          throw new Error('ABORT_SIGNAL');
+        }
+        if (token?.cancelled) {
+          throw new Error('ROW_PROCESSING_CANCELLED');
         }
 
-        // Hard guard: NEVER type if activeElement is an input
-        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.matches?.('input, textarea, [placeholder*="بحث" i], [placeholder*="Search" i]'))) {
-          throw new FocusIntegrityError('FOCUS_HIJACK_PREVENTED: activeElement is an input field');
+        ensureComposerFocus();
+        this.focusComposerAtEnd(composer);
+        refreshComposer();
+
+        const character = codePoints[index];
+        const beforeInputAccepted = composer.dispatchEvent(
+          new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            inputType: 'insertText',
+            data: character
+          })
+        );
+
+        if (!beforeInputAccepted) {
+          throw new FocusIntegrityError(
+            'COMPOSER_BEFOREINPUT_REJECTED'
+          );
         }
 
-        const char = text[i];
-
-        composer.dispatchEvent(new InputEvent('beforeinput', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertText',
-          data: char
-        }));
-
+        let inserted = false;
         try {
-          document.execCommand('insertText', false, char);
+          inserted = document.execCommand(
+            'insertText',
+            false,
+            character
+          );
         } catch (_) {
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            const curRange = sel.getRangeAt(0);
-            curRange.deleteContents();
-            const textNode = document.createTextNode(char);
-            curRange.insertNode(textNode);
-            curRange.setStartAfter(textNode);
-            curRange.collapse(true);
-          }
+          inserted = false;
         }
 
-        composer.dispatchEvent(new InputEvent('input', {
-          bubbles: true,
-          cancelable: false,
-          inputType: 'insertText',
-          data: char
-        }));
+        if (!inserted) {
+          const activeSelection = window.getSelection();
+          if (
+            !activeSelection ||
+            activeSelection.rangeCount === 0
+          ) {
+            throw new FocusIntegrityError(
+              'COMPOSER_INSERT_SELECTION_LOST'
+            );
+          }
 
-        DOM.assertComposerLease(lease);
-        let delay = randomRange(state.config.minTypingSpeed, state.config.maxTypingSpeed);
-        if ([' ', '،', '.', '!', '؟'].includes(char)) {
+          const activeRange = activeSelection.getRangeAt(0);
+          if (!composer.contains(activeRange.commonAncestorContainer)) {
+            throw new FocusIntegrityError(
+              'COMPOSER_INSERT_RANGE_ESCAPED'
+            );
+          }
+
+          activeRange.deleteContents();
+          const textNode = document.createTextNode(character);
+          activeRange.insertNode(textNode);
+          activeRange.setStartAfter(textNode);
+          activeRange.collapse(true);
+          activeSelection.removeAllRanges();
+          activeSelection.addRange(activeRange);
+        }
+
+        composer.dispatchEvent(
+          new InputEvent('input', {
+            bubbles: true,
+            cancelable: false,
+            inputType: 'insertText',
+            data: character
+          })
+        );
+
+        committedPrefix += character;
+        lease.lastKnownText = committedPrefix;
+
+        refreshComposer();
+
+        let delay = randomRange(
+          state.config.minTypingSpeed,
+          state.config.maxTypingSpeed
+        );
+        if ([' ', '،', '.', '!', '؟'].includes(character)) {
           delay += randomRange(40, 80);
         }
-        await sleep(delay);
-        DOM.assertComposerLease(lease);
+
+        await cancellableSleep(delay, token);
+        refreshComposer();
       }
 
-      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-      await sleep(350);
-      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-      logger.log('TYPING', 'اكتملت الكتابة. إرسال عبر مفتاح Enter...');
+      if (state.emergencyAbort || !state.isRunning) {
+        throw new Error('ABORT_SIGNAL');
+      }
+      if (token?.cancelled) {
+        throw new Error('ROW_PROCESSING_CANCELLED');
+      }
 
-      const enterDown = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true
-      });
-      composer.dispatchEvent(enterDown);
+      await cancellableSleep(350, token);
+      ensureComposerFocus();
 
-      await sleep(80);
+      if (logger) {
+        logger.log(
+          'TYPING',
+          'اكتملت الكتابة. إرسال عبر مفتاح Enter...'
+        );
+      }
 
-      const enterUp = new KeyboardEvent('keyup', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true
-      });
-      composer.dispatchEvent(enterUp);
+      composer.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        })
+      );
 
-      await sleep(300);
+      await cancellableSleep(80, token);
+      ensureComposerFocus();
 
-      if (state.emergencyAbort || !state.isRunning) throw new Error('ABORT_SIGNAL');
-      let currentContent = (composer.innerText || composer.textContent || '').trim();
-      const isPlaceholder = currentContent.includes('رد في Messenger') || currentContent.includes('رد في Instagram') || currentContent.includes('Reply in') || currentContent.length === 0;
+      composer.dispatchEvent(
+        new KeyboardEvent('keyup', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        })
+      );
 
-      if (!isPlaceholder && currentContent.length > 0) {
-        logger.log('TYPING', 'الضغط الاحتياطي على زر الإرسال...');
-        const sendBtn = DOM.getSendButton();
-        if (sendBtn && sendBtn.getAttribute('aria-disabled') !== 'true' && !sendBtn.disabled && window.getComputedStyle(sendBtn).pointerEvents !== 'none') {
-          await this.naturalClick(sendBtn);
+      await cancellableSleep(300, token);
+      refreshComposer();
+
+      if (state.emergencyAbort || !state.isRunning) {
+        throw new Error('ABORT_SIGNAL');
+      }
+      if (token?.cancelled) {
+        throw new Error('ROW_PROCESSING_CANCELLED');
+      }
+
+      const currentContent = (
+        composer.innerText ||
+        composer.textContent ||
+        ''
+      ).trim();
+
+      const isPlaceholder =
+        currentContent.length === 0 ||
+        currentContent.includes('رد في Messenger') ||
+        currentContent.includes('رد في Instagram') ||
+        currentContent.includes('رد في WhatsApp') ||
+        currentContent.includes('Reply in');
+
+      if (!isPlaceholder) {
+        if (logger) {
+          logger.log(
+            'TYPING',
+            'الضغط الاحتياطي على زر الإرسال (single-dispatch)...'
+          );
         }
+
+        DOM.assertConversationIdentity(expected);
+        DOM.assertComposerLease(lease);
+
+        const sendButton = DOM.getSendButton(
+          lease,
+          composer,
+          token
+        );
+
+        if (!sendButton || !sendButton.isConnected) {
+          throw new FocusIntegrityError(
+            'VERIFIED_SEND_BUTTON_NOT_FOUND'
+          );
+        }
+
+        DOM.assertConversationIdentity(expected);
+        DOM.assertComposerLease(lease);
+
+        sendButton.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        }));
       }
 
-      // [P0-DOM-02] Fail-Closed Delivery Verification: never wipe unsent messages
-      await sleep(600);
-      const postContent = (composer.innerText || composer.textContent || '').trim();
-      const isStillPresent = !postContent.includes('رد في') && !postContent.includes('Reply in') && postContent.length > 0;
-      if (isStillPresent) {
-        logger.log('ERROR', '[DELIVERY FAILED] تعذر إرسال الرسالة عبر Enter أو زر الإرسال. نص الرد لا يزال عالقاً في المحرر.');
-        throw new Error('MESSAGE_DELIVERY_VERIFICATION_FAILED');
+      await cancellableSleep(600, token);
+      refreshComposer();
+
+      const postContent = (
+        composer.innerText ||
+        composer.textContent ||
+        ''
+      ).trim();
+
+      const contentStillPresent =
+        postContent.length > 0 &&
+        !postContent.includes('رد في') &&
+        !postContent.includes('Reply in');
+
+      if (contentStillPresent) {
+        if (logger) {
+          logger.log(
+            'ERROR',
+            '[DELIVERY FAILED] تعذر إرسال الرسالة. ' +
+            'نص الرد لا يزال عالقاً في المحرر.'
+          );
+        }
+        throw new Error(
+          'MESSAGE_DELIVERY_VERIFICATION_FAILED'
+        );
       }
 
-      await sleep(300);
+      await cancellableSleep(300, token);
+      DOM.assertConversationIdentity(expected);
+      return true;
     }
   };
 
@@ -3311,8 +4625,9 @@
         state.rules.push({
           id: 'rule_' + Date.now(),
           keyword: 'كلمة_مفتاحية',
+          keywords: ['كلمة_مفتاحية'],
           reply: 'نص الرد الآلي هنا...',
-          matchType: 'contains',
+          matchType: 'ultra_exact',
           active: true
         });
         saveRules();
@@ -3414,9 +4729,10 @@
             <span class="rule-title">قاعدة #${idx + 1}</span>
             <div style="display: flex; gap: 6px; align-items: center;">
               <select class="rule-match-type" data-idx="${idx}">
+                <option value="ultra_exact" ${rule.matchType === 'ultra_exact' ? 'selected' : ''}>تطابق حرفي صارم</option>
                 <option value="contains" ${rule.matchType === 'contains' ? 'selected' : ''}>يحتوي</option>
-                <option value="word" ${rule.matchType === 'word' ? 'selected' : ''}>كلمة مطابقة</option>
-                <option value="exact" ${rule.matchType === 'exact' ? 'selected' : ''}>مطابقة تامة</option>
+                <option value="exact" ${rule.matchType === 'exact' ? 'selected' : ''}>تطابق كلمة / عبارة بحدود</option>
+                <option value="regex" ${rule.matchType === 'regex' ? 'selected' : ''}>تعبير نمطي</option>
               </select>
               <label class="switch">
                 <input type="checkbox" class="rule-toggle" data-idx="${idx}" ${rule.active ? 'checked' : ''}>
@@ -3425,7 +4741,16 @@
               <button class="rule-del-btn" data-idx="${idx}" style="background:none; border:none; color:#FF453A; cursor:pointer; font-size:12px;">✕</button>
             </div>
           </div>
-          <input type="text" class="rule-keywords-input" data-idx="${idx}" placeholder="الكلمات المفتاحية مفصولة بفاصلة" value="${rule.keyword || ''}">
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <input type="text" class="rule-keywords-input" data-idx="${idx}" placeholder="الكلمات المفتاحية مفصولة بفاصلة" value="${escapeHtml(rule.keyword || (rule.keywords ? rule.keywords.join(', ') : ''))}">
+            <button type="button" class="rule-toggle-literal-btn" data-idx="${idx}" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #38bdf8; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; white-space: nowrap;" title="محرر الكلمات الحرفي (متعدد الأسطر)">محرر حرفي</button>
+          </div>
+          <div class="rule-literal-panel" data-idx="${idx}" style="display: none; margin-top: 4px; padding: 4px; background: rgba(0,0,0,0.25); border-radius: 4px;">
+            <textarea class="rule-literal-textarea" data-idx="${idx}" rows="2" style="width: 100%; font-family: monospace; font-size: 11px; text-align: right;" placeholder="أدخل الكلمة الحرفية بدقة (مع حفظ المسافات والأسطر والفواصل)..."></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 2px;">
+              <button type="button" class="rule-add-literal-btn" data-idx="${idx}" style="background: #0284c7; color: #fff; border: none; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer;">+ إضافة حرفياً</button>
+            </div>
+          </div>
           <textarea class="rule-reply-input" data-idx="${idx}" placeholder="نص الرد... (كل سطر جديد يرسل كفقاعة منفصلة)">${rule.reply || ''}</textarea>
           <div style="font-size: 10px; color: rgba(148, 163, 184, 0.9); margin-top: 2px; text-align: right;">💡 كل سطر جديد (Enter) يُرسل كرسالة منفصلة</div>
         </div>
@@ -3447,11 +4772,45 @@
         });
       });
 
+      container.querySelectorAll('.rule-toggle-literal-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = btn.getAttribute('data-idx');
+          const panel = container.querySelector(`.rule-literal-panel[data-idx="${idx}"]`);
+          if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          }
+        });
+      });
+
+      container.querySelectorAll('.rule-add-literal-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(btn.getAttribute('data-idx'), 10);
+          const panel = container.querySelector(`.rule-literal-panel[data-idx="${idx}"]`);
+          const textarea = panel ? panel.querySelector('.rule-literal-textarea') : null;
+          if (textarea && textarea.value && state.rules[idx]) {
+            const r = state.rules[idx];
+            if (!Array.isArray(r.keywords)) r.keywords = [];
+            r.keywords.push(textarea.value);
+            r.keyword = r.keywords.join(', ');
+            saveRules();
+            this.renderRulesList();
+          }
+        });
+      });
+
       container.querySelectorAll('.rule-keywords-input').forEach(el => {
         const handler = (e) => {
           const idx = parseInt(e.target.getAttribute('data-idx'), 10);
           if (state.rules[idx]) {
-            state.rules[idx].keyword = e.target.value;
+            const r = state.rules[idx];
+            r.keyword = e.target.value;
+            if (r.matchType === 'ultra_exact') {
+              r.keywords = e.target.value ? [e.target.value] : [];
+            } else {
+              r.keywords = e.target.value.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+            }
             saveRules();
           }
         };
@@ -3553,6 +4912,72 @@
         window.pyLog(tag, message).catch(() => {});
       }
       emitTelemetry('LOG', { tag, message });
+    }
+  }
+
+  class OperationBudget {
+    constructor(baseIdleMs = 6500, hardMaxMs = 30000, onTimeout = null) {
+      this.baseIdleMs = baseIdleMs;
+      this.hardMaxMs = hardMaxMs;
+      this.onTimeout = onTimeout;
+      this.startTime = Date.now();
+      this.timer = null;
+      this.touch();
+    }
+
+    touch(additionalIdleMs = null) {
+      if (this.timer) clearTimeout(this.timer);
+      const elapsed = Date.now() - this.startTime;
+      const remainingHardCap = this.hardMaxMs - elapsed;
+      if (remainingHardCap <= 0) {
+        if (this.onTimeout) this.onTimeout(new Error('OPERATION_BUDGET_HARD_MAX_EXCEEDED'));
+        return;
+      }
+      const idleTime = additionalIdleMs || this.baseIdleMs;
+      const delay = Math.min(idleTime, remainingHardCap);
+      this.timer = setTimeout(() => {
+        if (this.onTimeout) this.onTimeout(new Error('ROW_TIMEOUT_EXCEEDED'));
+      }, delay);
+    }
+
+    dispose() {
+      if (this.timer) clearTimeout(this.timer);
+    }
+  }
+
+  class RowTransaction {
+    constructor(targetRow, contactName = null, cancellationToken = null) {
+      this.targetRow = targetRow;
+      this.contactName = contactName;
+      this.cancellationToken = cancellationToken || { cancelled: false, reason: null };
+      this.expected = DOM.captureExpectedConversation(targetRow, contactName);
+
+      // Pre-click surface snapshot
+      const activeIdentity = DOM.getActiveConversationIdentity();
+      const activeCanvas = DOM.getVerifiedConversationCanvas();
+      const activeComposer = activeCanvas ? DOM.resolveComposer(null, activeCanvas) : null;
+      const activeHeaderNode = DOM.getActiveHeaderNode();
+      const activeHeaderText = DOM.getActiveChatContactName();
+      const activeFingerprint = DOM.getSurfaceFingerprint(activeCanvas);
+      const channel = activeIdentity?.channel || null;
+
+      this.preClickSnapshot = Object.freeze({
+        identity: activeIdentity,
+        canvas: activeCanvas,
+        composer: activeComposer,
+        headerNode: activeHeaderNode,
+        headerText: activeHeaderText,
+        fingerprint: activeFingerprint,
+        channel: channel
+      });
+
+      this.lease = null;
+      this.settled = false;
+    }
+
+    cancel(reason = 'ROW_PROCESSING_CANCELLED') {
+      this.cancellationToken.cancelled = true;
+      this.cancellationToken.reason = reason;
     }
   }
 
@@ -3901,276 +5326,398 @@
           state.activeRowElement = targetRow;
         }
 
-        class OperationBudget {
-          constructor(baseIdleMs = 4000, hardMaxMs = 20000, onTimeout = null) {
-            this.baseIdleMs = baseIdleMs;
-            this.hardMaxMs = hardMaxMs;
-            this.startTime = Date.now();
-            this.timer = null;
-            this.onTimeout = onTimeout;
-            this.touch();
-          }
-
-          touch(additionalIdleMs = null) {
-            if (this.timer) clearTimeout(this.timer);
-            const elapsed = Date.now() - this.startTime;
-            const remainingHardCap = this.hardMaxMs - elapsed;
-            if (remainingHardCap <= 0) {
-              if (this.onTimeout) this.onTimeout(new Error('OPERATION_BUDGET_HARD_MAX_EXCEEDED'));
-              return;
-            }
-            const idleTime = additionalIdleMs || this.baseIdleMs;
-            const delay = Math.min(idleTime, remainingHardCap);
-            this.timer = setTimeout(() => {
-              if (this.onTimeout) this.onTimeout(new Error('ROW_TIMEOUT_EXCEEDED'));
-            }, delay);
-          }
-
-          dispose() {
-            if (this.timer) clearTimeout(this.timer);
-          }
-        }
-
+        const rowCancellation = { cancelled: false, reason: null };
+        const rowTransaction = new RowTransaction(targetRow, contactName, rowCancellation);
         let rowTimeoutId = null;
         let extendWatchdog = null;
         let operationBudget = null;
         try {
           const timeoutPromise = new Promise((_, reject) => {
-            operationBudget = new OperationBudget(4000, 20000, (err) => reject(err));
+            // Activation deadline is >= 5000ms, initialize with 6500ms base budget
+            operationBudget = new OperationBudget(6500, 30000, (err) => reject(err));
             extendWatchdog = (additionalMs) => {
               if (operationBudget) operationBudget.touch(additionalMs);
             };
           });
 
           const processRowPromise = (async () => {
-            // STEP 2: Safe Thread Activation & Viewport Sync
-            const clickTarget = DOM.getRowClickTarget(targetRow);
-            await HumanSimulator.naturalClick(clickTarget);
-
-            this.hud.log('SCAN', 'انتظار تطابق نافذة المحادثة مع العميل...');
-            const chatLoaded = await DOM.waitForConversationLoad(targetRow, contactName, clickTarget, this.hud);
-
-            if (!chatLoaded) {
-              const currHeader = DOM.getActiveChatContactName();
-              this.hud.log('WARN', `تعذر تبديل المحادثة للعميل "${contactName || contactKey}" (المحادثة المعروضة حالياً: "${currHeader || 'غير محددة'}"). تخطي لحماية المحادثة الحالية.`);
-              state.processedContacts.add(contactKey);
-              if (rowFingerprint) {
-                state.processedSnapshots.add(rowFingerprint);
-                pruneLRUCache(state.processedSnapshots, 350, 100);
-              }
-              return { skipLoop: true, cooldown: 0 };
-            }
-
-            const headerName = DOM.getActiveChatContactName();
-            if (headerName) {
-              contactKey = `contact_${normalizeArabicText(headerName)}`;
-            }
-
-            if (state.config.scrollThread) {
-              await HumanSimulator.simulateThreadScroll(this.hud);
-            } else {
-              await sleep(randomRange(150, 250));
-            }
-
-            // STEP 3: Inbound Boundary Evaluation & Message Extraction Guard
-            this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
-            let boundaryResult = null;
             try {
-              boundaryResult = DOM.parseInboundBoundary();
-            } catch (boundaryErr) {
-              this.hud.log('WARN', `استثناء أثناء فحص حدود الرسائل: ${boundaryErr?.message || boundaryErr}. استعادة كغير مقروء لمراجعة خدمة العملاء...`);
+              if (rowCancellation.cancelled) {
+                return { skipLoop: true, cooldown: 0 };
+              }
+
+              // STEP 2: Atomic Target Identity Capture & Activation
+              const expectedConversation = rowTransaction.expected;
+
+              if (!expectedConversation.valid) {
+                throw new FocusIntegrityError(
+                  `TARGET_IDENTITY_CAPTURE_FAILED:` +
+                  `${expectedConversation.reason}`
+                );
+              }
+
+              if (expectedConversation.leaseKey) {
+                contactKey = expectedConversation.leaseKey;
+                rowFingerprint =
+                  `${contactKey}__${DOM.getRowSnippet(targetRow)}`;
+              }
+
               if (typeof extendWatchdog === 'function') {
-                extendWatchdog(8500);
-              }
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
-
-            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble } = boundaryResult;
-
-            if (lastIsOutbound) {
-              state.stats.skippedOutbound++;
-              this.hud.updateStats();
-              this.hud.log('INFO', '[حماية] آخر رسالة مرسلة من الصفحة مسبقاً (بانتظار رد العميل). الانتقال للمحادثة التالية دون إعادة التمييز كغير مقروءة...');
-
-              // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
-              // This prevents the thread from being trapped in an infinite loop in the unread queue.
-              if (contactKey) state.processedContacts.add(contactKey);
-              if (rowFingerprint) {
-                state.processedSnapshots.add(rowFingerprint);
-                pruneLRUCache(state.processedSnapshots, 350, 100);
+                extendWatchdog(6500);
               }
 
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
+              const clickTarget = DOM.getRowClickTarget(targetRow);
+              await HumanSimulator.naturalClick(clickTarget);
 
-            // Detect Voice Note / Audio / Media at the tail of the conversation
-            const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia();
-            if (isTrailingVoice) {
-              this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون دقيقتين...');
+              this.hud.log(
+                'SCAN',
+                'انتظار تطابق هوية نافذة المحادثة مع العميل...'
+              );
+
+              const surfaceLease = await DOM.waitForConversationLoad(
+                expectedConversation,
+                targetRow,
+                clickTarget,
+                this.hud,
+                rowCancellation,
+                rowTransaction.preClickSnapshot
+              );
+
+              if (!surfaceLease) {
+                throw new FocusIntegrityError(
+                  'TARGET_CONVERSATION_DID_NOT_LOAD'
+                );
+              }
+
+              rowTransaction.lease = surfaceLease;
+
               if (typeof extendWatchdog === 'function') {
-                extendWatchdog(8500);
+                extendWatchdog(4000);
               }
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
 
-            // WhatsApp Unsupported Message Detection:
-            const canvas = DOM.getChatCanvas();
-            const canvasText = canvas ? (canvas.innerText || '') : '';
-            const hasUnsupportedWhatsApp = [
-              "Message can't be displayed",
-              "which is not supported in Inbox",
-              "WhatsApp Business App",
-              "محتوى غير مدعوم"
-            ].some(indicator => canvasText.includes(indicator));
+              if (state.config.scrollThread) {
+                await HumanSimulator.simulateThreadScroll(this.hud, surfaceLease, rowCancellation);
+              } else {
+                await cancellableSleep(randomRange(150, 250), rowCancellation);
+              }
 
-            if (hasUnsupportedWhatsApp && customerBubbles.length === 0) {
-              this.hud.log('INFO', '[INFO] رسالة واتساب غير مدعومة على الويب (وسائط/طلب). تخطي فوري لمراجعة خدمة العملاء.');
+              DOM.assertComposerLease(surfaceLease);
+
+              // STEP 3: Inbound Boundary Evaluation & Message Extraction Guard
+              this.hud.log('SCAN', 'فحص حدود الرسائل (الرسائل الواردة بعد آخر رد من الصفحة)...');
+              let boundaryResult = null;
               try {
-                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-                releaseChatFocus();
-              } catch (_) {}
-              if (contactKey) state.processedContacts.add(contactKey);
-              if (rowFingerprint) {
-                state.processedSnapshots.add(rowFingerprint);
-                pruneLRUCache(state.processedSnapshots, 350, 100);
-              }
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
-
-            if (customerBubbles.length === 0) {
-              this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
-              if (typeof extendWatchdog === 'function') {
-                extendWatchdog(8500);
-              }
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
-
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
-
-            // STEP 4: Strict Customer Tail Message Evaluation
-            const latestBubble = customerBubbles[customerBubbles.length - 1];
-            await HumanSimulator.highlightCustomerBubble(latestBubble);
-
-            const latestText = (latestBubble ? DOM.extractTextWithAlt(latestBubble) : '').trim();
-
-            if (!latestText) {
-              this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
-              if (typeof extendWatchdog === 'function') {
-                extendWatchdog(8500);
-              }
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
-
-              const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
-              return { skipLoop: true, cooldown };
-            }
-
-            const snippet = latestText.length > 40 ? latestText.slice(0, 40) + '...' : latestText;
-            this.hud.log('SCAN', `فحص آخر رسالة واردة من العميل: "${snippet}"`);
-
-            const allBubbles = DOM.getMessageBubbles();
-            const contextText = DOM.extractThreadContext(allBubbles);
-
-            let matchResult = null;
-            try {
-              matchResult = await evaluateActiveRules(latestText, state.rules, contextText);
-            } catch (evalErr) {
-              this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
-            }
-
-            // STEP 5: Execution Branches
-            if (matchResult) {
-              // Branch A: Match Found
-              const { rule, matchedKeyword } = matchResult;
-
-              const activeSnippet = DOM.getRowSnippet(targetRow);
-              if (contactKey && activeSnippet) {
-                state.lastRepliedSnippets.set(contactKey, activeSnippet);
-                pruneLRUCache(state.lastRepliedSnippets, 350, 100);
-              }
-              if (contactKey) state.processedContacts.add(contactKey);
-              if (rowFingerprint) {
-                state.processedSnapshots.add(rowFingerprint);
-                pruneLRUCache(state.processedSnapshots, 350, 100);
+                boundaryResult = DOM.parseInboundBoundary(surfaceLease, rowCancellation);
+              } catch (boundaryErr) {
+                this.hud.log('WARN', `استثناء أثناء فحص حدود الرسائل: ${boundaryErr?.message || boundaryErr}. استعادة كغير مقروء لمراجعة خدمة العملاء...`);
+                if (typeof extendWatchdog === 'function') {
+                  extendWatchdog(8500);
+                }
+                await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
               }
 
-              state.stats.matched++;
-              this.hud.updateStats();
-              if (matchResult.isCompound) {
-                this.hud.log('MATCH', `[تطابق مركب] تطابق الكلمة: "${matchedKeyword}" مع سياق الإعلان: "${matchResult.matchedContextKeyword}". جاري إرسال الرد المخصص للعميل ${contactName || contactKey}...`);
-              } else {
-                this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
+              const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble } = boundaryResult;
+
+              if (lastIsOutbound) {
+                state.stats.skippedOutbound++;
+                this.hud.updateStats();
+                this.hud.log('INFO', '[حماية] آخر رسالة مرسلة من الصفحة مسبقاً (بانتظار رد العميل). الانتقال للمحادثة التالية دون إعادة التمييز كغير مقروءة...');
+
+                // IMPORTANT: Do NOT executeBranchB (do NOT restore to unread) when we sent the last message!
+                // This prevents the thread from being trapped in an infinite loop in the unread queue.
+                if (contactKey) state.processedContacts.add(contactKey);
+                if (rowFingerprint) {
+                  state.processedSnapshots.add(rowFingerprint);
+                  pruneLRUCache(state.processedSnapshots, 350, 100);
+                }
+
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
               }
 
-              const composer = DOM.getComposer();
-              if (!composer) {
-                this.hud.log('ERROR', 'محرر الرسائل غير متاح. تعذر إرسال الرد.');
-              } else {
-                const replies = DOM.parseSequentialReplies(rule.reply);
-                if (replies.length === 0) {
-                  this.hud.log('WARN', 'نص الرد فارغ. تعذر الإرسال.');
+              // Detect Voice Note / Audio / Media at the tail of the conversation
+              const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia(surfaceLease);
+              if (isTrailingVoice) {
+                this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون دقيقتين...');
+                if (typeof extendWatchdog === 'function') {
+                  extendWatchdog(8500);
+                }
+                await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
+              }
+
+              // WhatsApp Unsupported Message Detection:
+              const canvas = DOM.getChatCanvas(surfaceLease);
+              const canvasText = canvas ? (canvas.innerText || '') : '';
+              const hasUnsupportedWhatsApp = [
+                "Message can't be displayed",
+                "which is not supported in Inbox",
+                "WhatsApp Business App",
+                "محتوى غير مدعوم"
+              ].some(indicator => canvasText.includes(indicator));
+
+              if (hasUnsupportedWhatsApp && customerBubbles.length === 0) {
+                this.hud.log('INFO', '[INFO] رسالة واتساب غير مدعومة على الويب (وسائط/طلب). تخطي فوري لمراجعة خدمة العملاء.');
+                try {
+                  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+                  releaseChatFocus();
+                } catch (_) {}
+                if (contactKey) state.processedContacts.add(contactKey);
+                if (rowFingerprint) {
+                  state.processedSnapshots.add(rowFingerprint);
+                  pruneLRUCache(state.processedSnapshots, 350, 100);
+                }
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
+              }
+
+              if (customerBubbles.length === 0) {
+                this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
+                if (typeof extendWatchdog === 'function') {
+                  extendWatchdog(8500);
+                }
+                await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
+
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
+              }
+
+              // STEP 4: Strict Customer Tail Message Evaluation
+              const latestBubble = customerBubbles[customerBubbles.length - 1];
+              await HumanSimulator.highlightCustomerBubble(latestBubble);
+
+              const latestText = (latestBubble ? DOM.extractTextWithAlt(latestBubble) : '').trim();
+              const verbatimText = latestBubble ? DOM.extractMessageTextVerbatim(latestBubble) : '';
+
+              if (!latestText && !verbatimText) {
+                this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
+                if (typeof extendWatchdog === 'function') {
+                  extendWatchdog(8500);
+                }
+                await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
+
+                const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
+                return { skipLoop: true, cooldown };
+              }
+
+              const snippet = latestText.length > 40 ? latestText.slice(0, 40) + '...' : latestText;
+              this.hud.log('SCAN', `فحص آخر رسالة واردة من العميل: "${snippet}"`);
+
+              const allBubbles = DOM.getMessageBubbles(surfaceLease, rowCancellation);
+              const contextText = DOM.extractThreadContext(allBubbles, surfaceLease);
+
+              let matchResult = null;
+              try {
+                if (verbatimText !== null && verbatimText !== '') {
+                  matchResult = await evaluateActiveRules(verbatimText, state.rules, contextText);
+                } else if (verbatimText === '' && latestText) {
+                  matchResult = await evaluateActiveRules(latestText, state.rules, contextText);
+                }
+              } catch (evalErr) {
+                this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
+              }
+
+              // STEP 5: Execution Branches
+              if (matchResult) {
+                // Branch A: Match Found
+                const { rule, matchedKeyword } = matchResult;
+
+                const activeSnippet = DOM.getRowSnippet(targetRow);
+                if (contactKey && activeSnippet) {
+                  state.lastRepliedSnippets.set(contactKey, activeSnippet);
+                  pruneLRUCache(state.lastRepliedSnippets, 350, 100);
+                }
+                if (contactKey) state.processedContacts.add(contactKey);
+                if (rowFingerprint) {
+                  state.processedSnapshots.add(rowFingerprint);
+                  pruneLRUCache(state.processedSnapshots, 350, 100);
+                }
+
+                state.stats.matched++;
+                this.hud.updateStats();
+                if (matchResult.isCompound) {
+                  this.hud.log('MATCH', `[تطابق مركب] تطابق الكلمة: "${matchedKeyword}" مع سياق الإعلان: "${matchResult.matchedContextKeyword}". جاري إرسال الرد المخصص للعميل ${contactName || contactKey}...`);
                 } else {
-                  const totalChars = replies.reduce((acc, r) => acc + r.length, 0);
-                  const neededMs = Math.max(9000, 5000 + (totalChars * 80) + (replies.length * 2200));
+                  this.hud.log('MATCH', `تطابق الكلمة: "${matchedKeyword}". جاري إرسال الرد للعميل ${contactName || contactKey}...`);
+                }
+
+                let composer = DOM.getComposer(surfaceLease);
+
+                if (!composer) {
+                  throw new FocusIntegrityError(
+                    'VERIFIED_COMPOSER_UNAVAILABLE'
+                  );
+                }
+
+                const replies = DOM.parseSequentialReplies(
+                  rule.reply
+                );
+
+                if (replies.length === 0) {
+                  this.hud.log(
+                    'WARN',
+                    'نص الرد فارغ. تعذر الإرسال.'
+                  );
+                } else {
+                  const totalChars = replies.reduce(
+                    (total, replyText) => total + replyText.length,
+                    0
+                  );
+                  const neededMs = Math.max(
+                    9000,
+                    5000 +
+                    totalChars * 80 +
+                    replies.length * 2200
+                  );
+
                   if (typeof extendWatchdog === 'function') {
                     extendWatchdog(neededMs);
                   }
 
-                  // Check stale composer draft before typing (protecting human drafts)
-                  const draftCheck = DOM.clearStaleComposerDraft(this.hud, composer);
-                  if (draftCheck && draftCheck.humanDraft) {
-                    this.hud.log('WARN', '[DRAFT SAFETY] تم حفظ مسودة الموظف البشري. تخطي الرد الآلي وتحويل المحادثة للمراجعة.');
-                    await this.executeBranchB(contactKey, rowFingerprint, targetRow, operationBudget || extendWatchdog);
+                  DOM.assertComposerLease(surfaceLease);
+                  composer = DOM.getComposer(surfaceLease);
+
+                  const draftCheck = DOM.clearStaleComposerDraft(
+                    this.hud,
+                    composer
+                  );
+
+                  if (draftCheck?.humanDraft) {
+                    this.hud.log(
+                      'WARN',
+                      '[DRAFT SAFETY] تم حفظ مسودة الموظف البشري. ' +
+                      'تخطي الرد الآلي وتحويل المحادثة للمراجعة.'
+                    );
+
+                    await this.executeBranchB(
+                      contactKey,
+                      rowFingerprint,
+                      targetRow,
+                      operationBudget || extendWatchdog
+                    );
                     return { skipLoop: false };
                   }
 
-                  // [TASK-1] Snapshot inbound baseline before typing starts
-                  const preSendInbound = DOM.getMessageBubbles().filter(b => !DOM.isOutboundBubble(b));
-                  const preSendTailInbound = preSendInbound.length > 0 ? preSendInbound[preSendInbound.length - 1] : null;
-                  const preSendTailText = preSendTailInbound ? DOM.extractTextWithAlt(preSendTailInbound).trim() : '';
+                  // Milestone 2 will replace this inbound baseline.
+                  const preSendInbound = DOM.getMessageBubbles(surfaceLease)
+                    .filter(bubble => !DOM.isOutboundBubble(bubble, surfaceLease));
+                  const preSendTailInbound =
+                    preSendInbound.length > 0
+                      ? preSendInbound[preSendInbound.length - 1]
+                      : null;
+                  const preSendTailText = preSendTailInbound
+                    ? DOM.extractTextWithAlt(preSendTailInbound).trim()
+                    : '';
                   const preSendInboundCount = preSendInbound.length;
 
-                  for (let idx = 0; idx < replies.length; idx++) {
-                    if (state.emergencyAbort || !state.isRunning) break;
-                    const snippetText = replies[idx].length > 25 ? `${replies[idx].substring(0, 25)}...` : replies[idx];
-                    this.hud.log('TYPING', `إرسال الفقاعة (${idx + 1}/${replies.length}): "${snippetText}"`);
-                    // [P0-DOM-01] Dual-layer claim: WeakMap + sessionStorage TTL (60s reload-safe)
-                    claimBotDraft(composer, DOM.getActiveThreadKey(), replies[idx]);
-                    composer.focus();
-                    try {
-                      await HumanSimulator.typeIntoComposer(composer, replies[idx], this.hud);
-                      // [P0-DOM-01] Clear sessionStorage record on confirmed delivery
-                      clearBotDraftSessionRecord(DOM.getActiveThreadKey());
-                    } catch (typeErr) {
-                      // [P0-DOM-01] Focus/delivery failure: restore unread and do not drop message
-                      if (typeErr instanceof FocusIntegrityError || (typeErr && typeErr.name === 'FocusIntegrityError') || (typeErr && typeErr.message === 'MESSAGE_DELIVERY_VERIFICATION_FAILED')) {
-                        this.hud.log('ERROR', `[DELIVERY/FOCUS FAILURE] فشل الإرسال أو انحراف التركيز (${typeErr.message}). استعادة المحادثة كغير مقروءة لمنع فقدان الرسالة...`);
-                        await this.executeBranchB(contactKey, rowFingerprint, targetRow, operationBudget || extendWatchdog);
-                        const cooldownKey = contactKey || targetContactKey;
-                        if (cooldownKey) {
-                          state.chatCooldowns.set(cooldownKey, Date.now() + (3 * 60 * 1000));
-                        }
-                        return { skipLoop: true, cooldown: 1800 };
-                      }
-                      throw typeErr;
+                  for (
+                    let replyIndex = 0;
+                    replyIndex < replies.length;
+                    replyIndex += 1
+                  ) {
+                    if (state.emergencyAbort || !state.isRunning) {
+                      break;
                     }
-                    if (idx < replies.length - 1) {
-                      await DOM.waitForComposerClear(composer, 1800);
-                      await sleep(randomRange(900, 1500));
+                    if (rowCancellation.cancelled) {
+                      throw new Error('ROW_PROCESSING_CANCELLED');
+                    }
+
+                    composer = DOM.assertComposerLease(surfaceLease);
+
+                    const replyText = replies[replyIndex];
+                    const snippetText = replyText.length > 25
+                      ? `${replyText.substring(0, 25)}...`
+                      : replyText;
+
+                    this.hud.log(
+                      'TYPING',
+                      `إرسال الفقاعة (` +
+                      `${replyIndex + 1}/${replies.length}): ` +
+                      `"${snippetText}"`
+                    );
+
+                    claimBotDraft(
+                      composer,
+                      expectedConversation.leaseKey,
+                      replyText
+                    );
+
+                    try {
+                      await HumanSimulator.typeIntoComposer(
+                        surfaceLease,
+                        replyText,
+                        this.hud,
+                        rowCancellation
+                      );
+
+                      clearBotDraftSessionRecord(
+                        expectedConversation.leaseKey
+                      );
+                    } catch (typeError) {
+                      if (
+                        typeError instanceof FocusIntegrityError ||
+                        typeError?.name === 'FocusIntegrityError' ||
+                        typeError?.message ===
+                          'MESSAGE_DELIVERY_VERIFICATION_FAILED'
+                      ) {
+                        this.hud.log(
+                          'ERROR',
+                          `[DELIVERY/FOCUS FAILURE] ` +
+                          `فشل الإرسال أو انحراف التركيز ` +
+                          `(${typeError.message}). ` +
+                          `استعادة المحادثة كغير مقروءة...`
+                        );
+
+                        await this.executeBranchB(
+                          contactKey,
+                          rowFingerprint,
+                          targetRow,
+                          operationBudget || extendWatchdog
+                        );
+
+                        const cooldownKey =
+                          contactKey || targetContactKey;
+                        if (cooldownKey) {
+                          state.chatCooldowns.set(
+                            cooldownKey,
+                            Date.now() + 3 * 60 * 1000
+                          );
+                        }
+
+                        return {
+                          skipLoop: true,
+                          cooldown: 1800
+                        };
+                      }
+
+                      throw typeError;
+                    }
+
+                    if (replyIndex < replies.length - 1) {
+                      const cleared = await DOM.waitForComposerClear(
+                        surfaceLease,
+                        1800,
+                        rowCancellation
+                      );
+
+                      if (!cleared) {
+                        throw new Error(
+                          'COMPOSER_DID_NOT_CLEAR_BETWEEN_REPLIES'
+                        );
+                      }
+
+                      await cancellableSleep(randomRange(900, 1500), rowCancellation);
                     }
                   }
 
                   // [TASK-1] Post-Send Verification Sweep for mid-typing customer messages
-                  await sleep(700); // Allow Meta DOM and WebSocket streams to settle
+                  await cancellableSleep(700, rowCancellation);
 
-                  const postSendBubbles = DOM.getMessageBubbles();
-                  const postSendInbound = postSendBubbles.filter(b => !DOM.isOutboundBubble(b));
+                  const postSendBubbles = DOM.getMessageBubbles(surfaceLease);
+                  const postSendInbound = postSendBubbles.filter(b => !DOM.isOutboundBubble(b, surfaceLease));
 
                   let midFlightBubbles = [];
                   if (postSendInbound.length > preSendInboundCount) {
@@ -4187,9 +5734,19 @@
                     const midFlightText = midFlightBubbles.map(b => DOM.extractTextWithAlt(b)).join(' ').trim();
                     this.hud.log('WARN', `[MID-TYPING] رصد رسالة جديدة من العميل أثناء الكتابة: "${midFlightText.slice(0, 40)}..."`);
 
-                    const postContextText = DOM.extractThreadContext(postSendBubbles);
-                    // Evaluate active rules against the mid-flight text
-                    const midMatch = await evaluateActiveRules(midFlightText, state.rules, postContextText);
+                    const postContextText = DOM.extractThreadContext(postSendBubbles, surfaceLease);
+                    // Evaluate active rules against each mid-flight bubble individually (never concatenated)
+                    let midMatch = null;
+                    for (let bIdx = midFlightBubbles.length - 1; bIdx >= 0; bIdx--) {
+                      const bubble = midFlightBubbles[bIdx];
+                      const bubbleVerbatim = DOM.extractMessageTextVerbatim(bubble);
+                      const bubbleAlt = (DOM.extractTextWithAlt(bubble) || '').trim();
+                      const targetBubbleText = (bubbleVerbatim !== null && bubbleVerbatim !== '') ? bubbleVerbatim : bubbleAlt;
+                      if (targetBubbleText) {
+                        midMatch = await evaluateActiveRules(targetBubbleText, state.rules, postContextText);
+                        if (midMatch) break;
+                      }
+                    }
 
                     if (midMatch && midMatch.rule) {
                       if (midMatch.isCompound) {
@@ -4197,20 +5754,78 @@
                       } else {
                         this.hud.log('MATCH', `[MID-TYPING] مطابقة قاعدة للرسالة المتداخلة (${midMatch.matchedKeyword}). جاري إرسال الرد المكمل...`);
                       }
-                      const followUpReplies = (typeof splitMessage === 'function' ? splitMessage(midMatch.rule.reply) : DOM.parseSequentialReplies(midMatch.rule.reply));
-                      for (let fIdx = 0; fIdx < followUpReplies.length; fIdx++) {
-                        claimBotDraft(composer, DOM.getActiveThreadKey(), followUpReplies[fIdx]);
-                        composer.focus();
+                      const followUpReplies =
+                        typeof splitMessage === 'function'
+                          ? splitMessage(midMatch.rule.reply)
+                          : DOM.parseSequentialReplies(
+                              midMatch.rule.reply
+                            );
+
+                      for (
+                        let followUpIndex = 0;
+                        followUpIndex < followUpReplies.length;
+                        followUpIndex += 1
+                      ) {
+                        if (rowCancellation.cancelled) {
+                          throw new Error('ROW_PROCESSING_CANCELLED');
+                        }
+
+                        composer = DOM.assertComposerLease(surfaceLease);
+
+                        const followUpText =
+                          followUpReplies[followUpIndex];
+
+                        claimBotDraft(
+                          composer,
+                          expectedConversation.leaseKey,
+                          followUpText
+                        );
+
                         try {
-                          await HumanSimulator.typeIntoComposer(composer, followUpReplies[fIdx], this.hud);
-                          clearBotDraftSessionRecord(DOM.getActiveThreadKey());
-                        } catch (fErr) {
-                          this.hud.log('ERROR', `[MID-TYPING] تعذر إرسال الرد المكمل: ${fErr.message}`);
+                          await HumanSimulator.typeIntoComposer(
+                            surfaceLease,
+                            followUpText,
+                            this.hud,
+                            rowCancellation
+                          );
+
+                          clearBotDraftSessionRecord(
+                            expectedConversation.leaseKey
+                          );
+                        } catch (followUpError) {
+                          if (
+                            followUpError instanceof FocusIntegrityError ||
+                            followUpError?.name === 'FocusIntegrityError' ||
+                            followUpError?.message === 'ROW_PROCESSING_CANCELLED'
+                          ) {
+                            throw followUpError;
+                          }
+
+                          this.hud.log(
+                            'ERROR',
+                            `[MID-TYPING] تعذر إرسال الرد المكمل: ` +
+                            `${followUpError.message}`
+                          );
                           break;
                         }
-                        if (fIdx < followUpReplies.length - 1) {
-                          await DOM.waitForComposerClear(composer, 1800);
-                          await sleep(randomRange(800, 1400));
+
+                        if (
+                          followUpIndex <
+                          followUpReplies.length - 1
+                        ) {
+                          const cleared = await DOM.waitForComposerClear(
+                            surfaceLease,
+                            1800,
+                            rowCancellation
+                          );
+
+                          if (!cleared) {
+                            throw new Error(
+                              'FOLLOW_UP_COMPOSER_DID_NOT_CLEAR'
+                            );
+                          }
+
+                          await cancellableSleep(randomRange(800, 1400), rowCancellation);
                         }
                       }
                     } else {
@@ -4234,23 +5849,40 @@
 
                   this.hud.log('INFO', `تم إرسال كافة الردود بنجاح للعميل ${contactName || contactKey} (${replies.length} فقاعة).`);
                 }
+              } else {
+                // Branch B: No Match / Media Message / Skip
+                this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
+                if (typeof extendWatchdog === 'function') {
+                  extendWatchdog(8500);
+                }
+                await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
               }
-            } else {
-              // Branch B: No Match / Media Message / Skip
-              this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
-              if (typeof extendWatchdog === 'function') {
-                extendWatchdog(8500);
-              }
-              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
-            }
 
-            return { skipLoop: false };
+              return { skipLoop: false };
+            } catch (innerErr) {
+              if (innerErr?.message === 'ROW_PROCESSING_CANCELLED' || rowCancellation.cancelled) {
+                return { skipLoop: true, cooldown: 0 };
+              }
+              throw innerErr;
+            }
           })();
 
           let rowResult = null;
           try {
             rowResult = await Promise.race([processRowPromise, timeoutPromise]);
+          } catch (raceErr) {
+            rowCancellation.cancelled = true;
+            rowCancellation.reason = raceErr?.message || 'ROW_TIMEOUT_EXCEEDED';
+            rowTransaction.cancel(rowCancellation.reason);
+            await Promise.allSettled([processRowPromise]);
+            rowTransaction.settled = true;
+            throw raceErr;
           } finally {
+            rowCancellation.cancelled = true;
+            rowCancellation.reason = rowCancellation.reason || 'ROW_RACE_SETTLED_OR_TIMED_OUT';
+            rowTransaction.cancel(rowCancellation.reason);
+            await Promise.allSettled([processRowPromise]);
+            rowTransaction.settled = true;
             // [P1-WATCH-01] Guaranteed OperationBudget disposal to prevent dangling timers
             if (operationBudget) operationBudget.dispose();
             if (rowTimeoutId) clearTimeout(rowTimeoutId);
