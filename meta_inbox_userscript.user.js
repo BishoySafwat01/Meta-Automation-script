@@ -782,6 +782,7 @@
           }
         }
 
+        this.lastMetaErrorDetectedAt = Date.now();
         this.sendEscape();
         return true;
       } catch (_) {
@@ -1624,8 +1625,15 @@
       const chat = this.getChatCanvas();
       if (!chat) return null;
 
+      const composerRect = composer ? composer.getBoundingClientRect() : null;
+      const overlapsComposerColumn = (rect) => !composerRect || (
+        rect.right >= composerRect.left && rect.left <= composerRect.right
+      );
+
       const chatStyle = window.getComputedStyle(chat);
-      if ((chatStyle.overflowY === 'auto' || chatStyle.overflowY === 'scroll') && (!composer || !chat.contains(composer))) {
+      const chatRect = chat.getBoundingClientRect();
+      if ((chatStyle.overflowY === 'auto' || chatStyle.overflowY === 'scroll') &&
+          (!composer || !chat.contains(composer)) && overlapsComposerColumn(chatRect)) {
         return chat;
       }
 
@@ -1634,9 +1642,17 @@
         if (composer && (composer.contains(el) || el.contains(composer))) return false;
         const s = window.getComputedStyle(el);
         const r = el.getBoundingClientRect();
-        return (s.overflowY === 'auto' || s.overflowY === 'scroll') && r.height > 180 && r.width > 250;
+        return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+               r.height > 180 && r.width > 250 && overlapsComposerColumn(r);
       });
 
+      if (composerRect) {
+        scrollables.sort((a, b) => {
+          const aRect = a.getBoundingClientRect();
+          const bRect = b.getBoundingClientRect();
+          return Math.abs(composerRect.top - aRect.bottom) - Math.abs(composerRect.top - bRect.bottom);
+        });
+      }
       return scrollables[0] || chat;
     },
 
@@ -1704,6 +1720,43 @@
         } catch (_) {}
       };
 
+      const modalDetectedAtStart = this.lastMetaErrorDetectedAt || 0;
+      let metaErrorDetected = false;
+      const dismissMetaError = () => {
+        const detectedNow = this.dismissMetaErrorModals();
+        if (detectedNow || (this.lastMetaErrorDetectedAt || 0) > modalDetectedAtStart) {
+          metaErrorDetected = true;
+        }
+        return metaErrorDetected;
+      };
+
+      const checkVerifiedUnread = () => {
+        if (!targetRow) return true;
+        let row = targetRow;
+        if (!document.body.contains(row) && contactKey) {
+          const rows = this.getConversationRows();
+          row = rows.find(r => this.getStableRowKey(r) === contactKey) || targetRow;
+        }
+        return this.isRowVisuallyUnread(row);
+      };
+
+      const pollVerification = async (timeoutMs = 2000) => {
+        await sleep(200);
+        if (dismissMetaError()) return false;
+        if (!targetRow) return true;
+        const start = Date.now();
+        let unreadConfirmations = 0;
+        while (Date.now() - start < timeoutMs) {
+          if (budget && typeof budget.touch === 'function') budget.touch(2000);
+          if (dismissMetaError()) return false;
+          unreadConfirmations = checkVerifiedUnread() ? unreadConfirmations + 1 : 0;
+          if (unreadConfirmations >= 3) return true;
+          await sleep(100);
+        }
+        dismissMetaError();
+        return false;
+      };
+
       // -------------------------------------------------------------------------
       // PRIMARY STRATEGY: Row-Level Action in left conversation list
       // -------------------------------------------------------------------------
@@ -1721,8 +1774,9 @@
             await HumanSimulator.flashEnvelopeButton(rowUnreadBtn);
             neutralizeFocus();
             dispatchFullClick(rowUnreadBtn);
-            this.dismissMetaErrorModals();
+            dismissMetaError();
             neutralizeFocus();
+            if (metaErrorDetected) return false;
             const verified = await pollVerification(1500);
             if (verified) return { ok: true, alreadyUnread: false };
           } catch (_) {}
@@ -1892,17 +1946,18 @@
           if (typeof stateResult === 'object' && stateResult.action === 'MARK_UNREAD') {
             neutralizeFocus();
             dispatchFullClick(stateResult.item);
-            this.dismissMetaErrorModals();
+            dismissMetaError();
             neutralizeFocus();
             if (budget && typeof budget.touch === 'function') budget.touch(3000);
             await sleep(350);
-            this.dismissMetaErrorModals();
+            dismissMetaError();
+            if (metaErrorDetected) return false;
             result = { ok: true, alreadyUnread: false };
             return result;
           } else if (menuItems.length > 0) {
             isUnreadOptionUnavailable = true;
             if (logger) logger.log('UNREAD', '[UNREAD] تعذر العثور على خيار غير مقروء في هذه القناة (واتساب). إنهاء التعديل بأمان.');
-            result = { ok: true, alreadyUnread: true };
+            result = false;
             return result;
           }
         } finally {
@@ -1915,28 +1970,6 @@
         return result;
       };
 
-      const checkVerifiedUnread = () => {
-        if (!targetRow) return true;
-        let row = targetRow;
-        if (!document.body.contains(row) && contactKey) {
-          const rows = this.getConversationRows();
-          row = rows.find(r => this.getStableRowKey(r) === contactKey) || targetRow;
-        }
-        return this.isRowVisuallyUnread(row);
-      };
-
-      const pollVerification = async (timeoutMs = 2000) => {
-        if (!targetRow) return true;
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-          if (budget && typeof budget.touch === 'function') budget.touch(2000);
-          this.dismissMetaErrorModals();
-          if (checkVerifiedUnread()) return true;
-          await sleep(100);
-        }
-        return checkVerifiedUnread();
-      };
-
       // ATTEMPT 1: Focus release -> Click Direct or Dropdown -> Focus release -> Verification poll
       neutralizeFocus();
       let clicked = false;
@@ -1947,7 +1980,7 @@
         await HumanSimulator.flashEnvelopeButton(directBtn);
         neutralizeFocus();
         dispatchFullClick(directBtn);
-        this.dismissMetaErrorModals();
+        dismissMetaError();
         neutralizeFocus();
         clicked = true;
       } else {
@@ -1955,13 +1988,14 @@
         clicked = await tryClickDropdown();
       }
 
-      if (isAlreadyUnreadDetected || isUnreadOptionUnavailable) {
-        return true;
-      }
+      if (metaErrorDetected) return false;
+      if (isAlreadyUnreadDetected) return true;
+      if (isUnreadOptionUnavailable) return false;
 
       if (clicked) {
         const verified = await pollVerification(2000);
         if (verified) return true;
+        if (metaErrorDetected) return false;
       }
 
       // ATTEMPT 2 (RETRY with alternate selector / dropdown):
@@ -1977,7 +2011,7 @@
           await HumanSimulator.flashEnvelopeButton(retryBtn);
           neutralizeFocus();
           dispatchFullClick(retryBtn);
-          this.dismissMetaErrorModals();
+          dismissMetaError();
           neutralizeFocus();
           clicked = true;
         } else {
@@ -1985,9 +2019,9 @@
         }
       }
 
-      if (isAlreadyUnreadDetected || isUnreadOptionUnavailable) {
-        return true;
-      }
+      if (metaErrorDetected) return false;
+      if (isAlreadyUnreadDetected) return true;
+      if (isUnreadOptionUnavailable) return false;
 
       if (clicked) {
         const verified = await pollVerification(2000);
@@ -2054,42 +2088,86 @@
     getMessageBubbles() {
       const composer = this.getComposer();
       const compRect = composer ? composer.getBoundingClientRect() : null;
-
-      const minX = compRect ? (compRect.left - 30) : (window.innerWidth * 0.20);
-      const maxX = compRect ? (compRect.right + 30) : (window.innerWidth * 0.65);
-      const minY = 90;
-      const maxY = compRect ? (compRect.top - 6) : (window.innerHeight - 80);
-
       const viewport = this.getMessageScrollContainer() || this.getChatCanvas() || document.body;
+      const viewportRect = viewport.getBoundingClientRect();
+      const minX = Math.max(0, viewportRect.left - 8);
+      const maxX = Math.min(window.innerWidth, viewportRect.right + 8);
+      const minY = Math.max(90, viewportRect.top);
+      const maxY = Math.min(viewportRect.bottom, compRect ? (compRect.top - 6) : (window.innerHeight - 80));
 
-      const candidateElements = Array.from(viewport.querySelectorAll('div, span, p, audio, video')).filter(el => {
-        if (el.closest('#mbs-inbox-automator-root')) return false;
+      const strongWrapperSelector = '[data-testid*="message" i], [data-testid*="bubble" i], [role="article"]';
+      const rawElements = Array.from(viewport.querySelectorAll(
+        `${strongWrapperSelector}, div[dir="auto"], p[dir="auto"], audio, video, ` +
+        '[data-testid*="audio" i], [data-testid*="voice" i]'
+      )).slice(-500);
+
+      const isInsideMessageViewport = (el) => {
+        if (!el || el.closest('#mbs-inbox-automator-root')) return false;
         if (composer && (composer.contains(el) || el.contains(composer))) return false;
         if (el.closest('button, header, footer, nav, [role="toolbar"]')) return false;
-
         const rect = el.getBoundingClientRect();
-        if (rect.left < minX || rect.right > maxX || rect.top < minY || rect.bottom > maxY) return false;
+        if (rect.right < minX || rect.left > maxX || rect.top < minY || rect.bottom > maxY) return false;
         if (rect.width < 14 || rect.height < 14 || rect.height > 600) return false;
+        return rect.width <= viewportRect.width + 24;
+      };
 
+      const canonicalElements = new Set();
+      for (const el of rawElements) {
+        if (!isInsideMessageViewport(el)) continue;
+
+        const isAudioMedia = this.isAudioOrMediaElement(el);
+        const strongWrapperCandidate = el.closest(strongWrapperSelector);
+        const strongWrapperRect = strongWrapperCandidate?.getBoundingClientRect();
+        const strongWrapper = strongWrapperCandidate && strongWrapperRect &&
+          strongWrapperRect.height <= 300 && strongWrapperRect.width <= viewportRect.width * 0.95
+          ? strongWrapperCandidate
+          : null;
+        let candidate = el;
+
+        if (strongWrapper && viewport.contains(strongWrapper)) {
+          const textNodes = Array.from(strongWrapper.querySelectorAll('div[dir="auto"], p[dir="auto"], span[dir="auto"]')).filter(node => {
+            if (!isInsideMessageViewport(node)) return false;
+            const nodeText = DOM.extractTextWithAlt(node).trim();
+            return nodeText && !this.isTimestampOrBadge(nodeText) && !/^(?:تم التسليم|تم الإرسال|تمت المشاهدة|تمت القراءة|delivered|sent|seen|read)$/i.test(nodeText);
+          });
+          if (textNodes.length > 0) {
+            textNodes.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+            candidate = textNodes[textNodes.length - 1];
+          } else {
+            candidate = strongWrapper;
+          }
+        } else if (!isAudioMedia) {
+          const rect = el.getBoundingClientRect();
+          const viewportCenter = (viewportRect.left + viewportRect.right) / 2;
+          const elementCenter = (rect.left + rect.right) / 2;
+          const compactTextNode = rect.width <= viewportRect.width * 0.82;
+          const sideAligned = Math.abs(elementCenter - viewportCenter) >= viewportRect.width * 0.06;
+          if (!el.matches('div[dir="auto"], p[dir="auto"]') || !compactTextNode || !sideAligned) continue;
+        }
+
+        if (!isInsideMessageViewport(candidate)) continue;
+        const text = DOM.extractTextWithAlt(candidate).trim();
+        if (!text && !isAudioMedia) continue;
+        if (!isAudioMedia && this.isTimestampOrBadge(text)) continue;
+        if (!isAudioMedia && this.isAdOrMetadataElement(candidate, text)) continue;
+        if (!isAudioMedia && /^(?:تم التسليم|تم الإرسال|تمت المشاهدة|تمت القراءة|delivered|sent|seen|read)$/i.test(text)) continue;
+        canonicalElements.add(candidate);
+      }
+
+      const bubbles = Array.from(canonicalElements).filter(el => {
+        if (!isInsideMessageViewport(el)) return false;
         const isAudioMedia = this.isAudioOrMediaElement(el);
         const text = DOM.extractTextWithAlt(el).trim();
         if (!text && !isAudioMedia) return false;
-        if (!isAudioMedia && /^[0-9]{1,2}:[0-9]{2}[ ]*(م|ص)?$/.test(text)) return false;
-
-        if (!isAudioMedia && this.isAdOrMetadataElement(el, text)) return false;
-
-        const style = window.getComputedStyle(el);
-        const hasBg = style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent';
-        const hasRadius = parseInt(style.borderRadius, 10) >= 6;
-        return isAudioMedia || (hasBg && hasRadius);
+        return true;
       });
 
-      const leaves = candidateElements.filter(item => {
-        return !candidateElements.some(other => other !== item && other.contains(item));
+      bubbles.sort((a, b) => {
+        const aRect = a.getBoundingClientRect();
+        const bRect = b.getBoundingClientRect();
+        return (aRect.top - bRect.top) || (aRect.left - bRect.left);
       });
-
-      leaves.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-      return leaves;
+      return bubbles;
     },
 
     isOutboundBubble(bubble) {
@@ -2184,12 +2262,12 @@
     parseInboundBoundary() {
       const bubbles = this.getMessageBubbles();
       if (bubbles.length === 0) {
-        return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null };
+        return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null, totalBubbles: 0 };
       }
 
       const lastBubble = bubbles[bubbles.length - 1];
       if (this.isOutboundBubble(lastBubble)) {
-        return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble };
+        return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble, totalBubbles: bubbles.length };
       }
 
       const isVoiceOrMedia = this.isAudioOrMediaElement(lastBubble);
@@ -2203,7 +2281,7 @@
         customerBubbles.unshift(b);
       }
 
-      return { lastIsOutbound: false, customerBubbles, isVoiceOrMedia, tailBubble: lastBubble };
+      return { lastIsOutbound: false, customerBubbles, isVoiceOrMedia, tailBubble: lastBubble, totalBubbles: bubbles.length };
     }
   };
 
@@ -3552,7 +3630,7 @@
       emitTelemetry('STATS', state.stats);
     }
 
-    log(tag, message) {
+    log(tag, message, hudOnly = false) {
       if (this.shadow) {
         const terminal = this.shadow.getElementById('terminal');
         if (terminal) {
@@ -3560,11 +3638,15 @@
           line.className = 'log-line';
 
           const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
-          line.innerHTML = `
-            <span class="log-tag-${tag}">[${tag}]</span>
-            <span>${message}</span>
-            <span class="log-time">${time}</span>
-          `;
+          const tagSpan = document.createElement('span');
+          tagSpan.className = `log-tag-${tag}`;
+          tagSpan.textContent = `[${tag}]`;
+          const messageSpan = document.createElement('span');
+          messageSpan.textContent = String(message);
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'log-time';
+          timeSpan.textContent = time;
+          line.append(tagSpan, messageSpan, timeSpan);
 
           terminal.appendChild(line);
           terminal.scrollTop = terminal.scrollHeight;
@@ -3575,10 +3657,10 @@
         }
       }
 
-      if (window.pyLog) {
+      if (!hudOnly && window.pyLog) {
         window.pyLog(tag, message).catch(() => {});
       }
-      emitTelemetry('LOG', { tag, message });
+      if (!hudOnly) emitTelemetry('LOG', { tag, message });
     }
   }
 
@@ -4000,6 +4082,13 @@
             if (headerName) {
               contactKey = `contact_${normalizeArabicText(headerName)}`;
             }
+            this.hud.log('STATE', `Loaded rules count: ${Array.isArray(state.rules) ? state.rules.length : 0}`);
+            const logNoMatch = () => this.hud.log('MATCH', 'Evaluating text against rules... Result: NO_MATCH');
+            const logBranchB = (text = '') => this.hud.log(
+              'BRANCH_B',
+              `No match for "${String(text).replace(/\s+/g, ' ').trim().slice(0, 80)}". Attempting safe unread restoration...`,
+              true
+            );
 
             if (state.config.scrollThread) {
               await HumanSimulator.simulateThreadScroll(this.hud);
@@ -4014,6 +4103,9 @@
               boundaryResult = DOM.parseInboundBoundary();
             } catch (boundaryErr) {
               this.hud.log('WARN', `استثناء أثناء فحص حدود الرسائل: ${boundaryErr?.message || boundaryErr}. استعادة كغير مقروء لمراجعة خدمة العملاء...`);
+              this.hud.log('SCRAPE', 'Total bubbles found: 0 | Inbound customer text: ""', true);
+              logNoMatch();
+              logBranchB('');
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -4022,7 +4114,11 @@
               return { skipLoop: true, cooldown };
             }
 
-            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble } = boundaryResult;
+            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble, totalBubbles = 0 } = boundaryResult;
+            const scrapedInboundText = customerBubbles.length > 0
+              ? DOM.extractTextWithAlt(customerBubbles[customerBubbles.length - 1]).replace(/\s+/g, ' ').trim().slice(0, 240)
+              : '';
+            this.hud.log('SCRAPE', `Total bubbles found: ${totalBubbles} | Inbound customer text: "${scrapedInboundText}"`, true);
 
             if (lastIsOutbound) {
               state.stats.skippedOutbound++;
@@ -4045,6 +4141,8 @@
             const isTrailingVoice = isVoiceOrMedia || DOM.hasTrailingAudioOrMedia();
             if (isTrailingVoice) {
               this.hud.log('INFO', '[صوت/وسائط] آخر رسالة واردة من العميل هي تسجيل صوتي أو وسائط. تحويل لمراجعة خدمة العملاء كغير مقروءة مع كول داون دقيقتين...');
+              logNoMatch();
+              logBranchB(scrapedInboundText || '<MEDIA>');
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -4064,22 +4162,21 @@
             ].some(indicator => canvasText.includes(indicator));
 
             if (hasUnsupportedWhatsApp && customerBubbles.length === 0) {
-              this.hud.log('INFO', '[INFO] رسالة واتساب غير مدعومة على الويب (وسائط/طلب). تخطي فوري لمراجعة خدمة العملاء.');
-              try {
-                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-                releaseChatFocus();
-              } catch (_) {}
-              if (contactKey) state.processedContacts.add(contactKey);
-              if (rowFingerprint) {
-                state.processedSnapshots.add(rowFingerprint);
-                pruneLRUCache(state.processedSnapshots, 350, 100);
+              this.hud.log('INFO', '[INFO] رسالة واتساب غير مدعومة على الويب (وسائط/طلب). محاولة استعادة غير مقروء للمراجعة البشرية.');
+              logNoMatch();
+              logBranchB('<UNSUPPORTED_WHATSAPP>');
+              if (typeof extendWatchdog === 'function') {
+                extendWatchdog(8500);
               }
+              await this.executeBranchB(contactKey, rowFingerprint, targetRow, extendWatchdog);
               const cooldown = randomRange(state.config.minCooldown, state.config.maxCooldown);
               return { skipLoop: true, cooldown };
             }
 
             if (customerBubbles.length === 0) {
               this.hud.log('INFO', 'لا توجد نصوص رسائل واردة جديدة قابلة للمعالجة (وسائط أو رسالة نظام/واتساب). استعادة كغير مقروء...');
+              logNoMatch();
+              logBranchB('');
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -4097,6 +4194,8 @@
 
             if (!latestText) {
               this.hud.log('INFO', 'آخر رسالة من العميل لا تحتوي على نص قابل للمعالجة (ملصق/صورة/وسائط). استعادة كغير مقروء...');
+              logNoMatch();
+              logBranchB('');
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -4115,6 +4214,10 @@
             } catch (evalErr) {
               this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
             }
+            const matchedRuleId = matchResult
+              ? (matchResult.rule?.ruleCode || matchResult.rule?.id || matchResult.rule?.name || matchResult.matchedKeyword || 'UNKNOWN_RULE')
+              : 'NO_MATCH';
+            this.hud.log('MATCH', `Evaluating text against rules... Result: ${matchedRuleId}`);
 
             // STEP 5: Execution Branches
             if (matchResult) {
@@ -4191,7 +4294,7 @@
               }
             } else {
               // Branch B: No Match / Media Message / Skip
-              this.hud.log('SCAN', 'لا توجد كلمات مفتاحية مطابقة في رسالة العميل. استعادة المحادثة كغير مقروءة لمراجعة خدمة العملاء...');
+              logBranchB(snippet);
               if (typeof extendWatchdog === 'function') {
                 extendWatchdog(8500);
               }
@@ -4330,19 +4433,23 @@
         pruneLRUCache(state.processedSnapshots, 350, 100);
       }
 
-      if (DOM.isActiveWhatsAppConversation(targetRow)) {
-        this.hud.log('INFO', '[WHATSAPP SAFE EXIT] تم تخطي استعادة غير مقروء لتجنب خطأ Meta. تم تطبيق كول داون دقيقتين والعودة للمسح.');
-        DOM.dismissMetaErrorModals();
-        DOM.finalizeCompletedReply();
-        return;
+      const isWhatsApp = DOM.isActiveWhatsAppConversation(targetRow);
+      if (isWhatsApp) {
+        this.hud.log('INFO', '[WHATSAPP] محاولة استعادة غير مقروء عبر شريط الأدوات/القائمة مع حماية نافذة خطأ Meta...');
       }
 
+      const modalDetectedBefore = DOM.lastMetaErrorDetectedAt || 0;
       await sleep(randomRange(150, 250));
       let restored = false;
       try {
         restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey, watchdogExtender);
       } finally {
         DOM.dismissMetaErrorModals();
+      }
+      const metaErrorDetected = (DOM.lastMetaErrorDetectedAt || 0) > modalDetectedBefore;
+      if (metaErrorDetected) {
+        restored = false;
+        this.hud.log('WARN', '[UNREAD] Meta rejected the unread action; modal dismissal was attempted and the 2-minute cooldown remains active.');
       }
       try {
         DOM.deselectActiveChat();
