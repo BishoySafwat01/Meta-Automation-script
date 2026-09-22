@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (V6.6 Hybrid)
+// @name         Meta Business Suite Inbox Auto-Responder & Unread Restorer (Enterprise V6.3.8)
 // @namespace    https://github.com/meta-suite-automation/tampermonkey
-// @version      6.6.0
+// @version      6.3.8
 // @description  Apple Prismatic Liquid Glass Edition: High-Translucency Prismatic UI & Liquid Glass Pill Highlights, Single-Field Duration & Typing Controls, Dynamic Page Storage Isolation, Resolution-Invariant Envelope Locator, Anti-False-Drop Ad Guard, LRU Ring-Buffer & Ghost Stealth Capsule.
 // @author       Bishoy Safwat
 // @match        https://business.facebook.com/latest/inbox/*
@@ -13,7 +13,7 @@
 
 /**
  * ============================================================================
- * META BUSINESS SUITE INBOX AUTOMATOR (V6.6 HYBRID RELEASE)
+ * META BUSINESS SUITE INBOX AUTOMATOR (ENTERPRISE PRODUCTION RELEASE V6.3.8)
  * ============================================================================
  * ARCHITECTURAL SPECIFICATION & FEATURES:
  * 1. APPLE PRISMATIC LIQUID GLASS INTERFACE & PILL HIGHLIGHTS:
@@ -60,14 +60,14 @@
   // Only run in top-level browsing context (ignore nested iframes)
   if (window.top !== window.self) return;
 
-  if (window.__MBS_AUTOMATOR_V660_LOADED__) {
+  if (window.__MBS_AUTOMATOR_V638_LOADED__) {
     console.log('[MBS Automator] Already mounted. Re-initializing HUD...');
     if (window.__MBS_AUTOMATOR_HUD__) {
       window.__MBS_AUTOMATOR_HUD__.init();
     }
     return;
   }
-  window.__MBS_AUTOMATOR_V660_LOADED__ = true;
+  window.__MBS_AUTOMATOR_V638_LOADED__ = true;
 
   class FocusIntegrityError extends Error {
     constructor(message) {
@@ -445,9 +445,9 @@
         window.pySaveConfig(
           JSON.stringify(state.rules),
           JSON.stringify(state.config),
-          window.__CONFIG_SHA256__ || ''
+          window.__CONFIG_SHA256__ || null
         ).then(result => {
-          if (result && result.sha256) window.__CONFIG_SHA256__ = result.sha256;
+          if (result?.sha256_token) window.__CONFIG_SHA256__ = result.sha256_token;
         }).catch(() => {});
       }
     }, 400);
@@ -499,9 +499,9 @@
         window.pySaveConfig(
           JSON.stringify(state.rules),
           JSON.stringify(state.config),
-          window.__CONFIG_SHA256__ || ''
+          window.__CONFIG_SHA256__ || null
         ).then(result => {
-          if (result && result.sha256) window.__CONFIG_SHA256__ = result.sha256;
+          if (result?.sha256_token) window.__CONFIG_SHA256__ = result.sha256_token;
         }).catch(() => {});
       }
     }, 400);
@@ -569,105 +569,85 @@
       .trim();
   }
 
-  function getRuleKeywords(rule, arrayField = 'keywords', legacyField = 'keyword') {
-    if (!rule || typeof rule !== 'object') return [];
-    if (Array.isArray(rule[arrayField]) && rule[arrayField].length > 0) {
-      return rule[arrayField]
-        .map(k => (typeof k === 'string' ? k.trim() : String(k).trim()))
-        .filter(Boolean);
-    }
-    if (typeof rule[legacyField] === 'string' && rule[legacyField].trim()) {
-      return rule[legacyField].split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
-    }
-    return [];
-  }
-
-  async function findMatchingKeyword(text, rawKeywords, matchType = 'contains', caseSensitive = false) {
-    if (!text || !Array.isArray(rawKeywords) || rawKeywords.length === 0) return null;
+  async function evaluateActiveRules(text, rules) {
+    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
     const normMsg = normalizeArabicText(text);
 
-    for (const kw of rawKeywords) {
-      if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
-      const cleanKw = kw.trim();
-
-      if (matchType === 'regex') {
-        try {
-          const flags = caseSensitive ? 'u' : 'iu';
-          let matched = await regexSandbox.test(cleanKw, flags, text, 30);
-          if (!matched && normMsg) matched = await regexSandbox.test(cleanKw, flags, normMsg, 30);
-          if (matched) return kw;
-        } catch (_) {
-          continue;
-        }
-      } else if (matchType === 'ultra_exact') {
-        const lhs = caseSensitive ? text.trim() : text.trim().toLowerCase();
-        const rhs = caseSensitive ? cleanKw : cleanKw.toLowerCase();
-        if (lhs === rhs) return kw;
-      } else if (matchType === 'exact') {
-        const normKw = normalizeArabicText(cleanKw);
-        // Preserve the V6.3.8 true strict normalized equality contract.
-        if (normMsg && normKw && normMsg === normKw) return kw;
-      } else if (matchType === 'word') {
-        const normKw = normalizeArabicText(cleanKw);
-        if (!normKw && !cleanKw) continue;
-        if (normMsg && normKw) {
-          const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
-          if (baseKw) {
-            const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-            if (boundaryRegex.test(normMsg)) return kw;
-          }
-        }
-        const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
-        if (rawBoundaryRegex.test(text)) return kw;
-      } else {
-        // Missing or unknown match types intentionally retain legacy contains behavior.
-        const normKw = normalizeArabicText(cleanKw);
-        if (!normKw && !cleanKw) continue;
-        if (normMsg && normKw && normMsg.includes(normKw)) return kw;
-        if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) return kw;
-      }
-    }
-    return null;
-  }
-
-  async function evaluateActiveRules(text, rules, contextText = '') {
-    if (!text || !Array.isArray(rules) || rules.length === 0) return null;
-
-    // Array order remains the sole priority contract; ruleCode is metadata only.
+    // Modern GUI metadata is deliberately schema-tolerated and ignored here:
+    // ruleCode, contextKeywords, contextMatchType, and matchedRuleCode never alter core keyword matching.
     for (const rule of rules) {
       if (!rule || !rule.active || !rule.reply) continue;
 
-      const rawKeywords = getRuleKeywords(rule);
+      let rawKeywords = [];
+      if (Array.isArray(rule.keywords) && rule.keywords.length > 0) {
+        rawKeywords = rule.keywords.map(k => (typeof k === 'string' ? k.trim() : String(k).trim())).filter(Boolean);
+      } else if (typeof rule.keyword === 'string' && rule.keyword.trim()) {
+        rawKeywords = rule.keyword.split(/[,،\n]+/).map(k => k.trim()).filter(Boolean);
+      }
       if (rawKeywords.length === 0) continue;
 
-      const contextKeywords = getRuleKeywords(rule, 'contextKeywords', 'contextKeyword');
-      let matchedContextKeyword = null;
-      if (contextKeywords.length > 0) {
-        if (!contextText) continue;
-        matchedContextKeyword = await findMatchingKeyword(
-          contextText,
-          contextKeywords,
-          rule.contextMatchType || 'contains',
-          !!rule.caseSensitive
-        );
-        if (!matchedContextKeyword) continue;
+      const mType = rule.matchType || 'contains';
+
+      for (const kw of rawKeywords) {
+        if (!kw || typeof kw !== 'string' || kw.trim().length === 0) continue;
+        const cleanKw = kw.trim();
+
+        if (mType === 'regex') {
+          try {
+            const flags = rule.caseSensitive ? 'u' : 'iu';
+            let matched = false;
+            try {
+              matched = await regexSandbox.test(cleanKw, flags, text, 30);
+              if (!matched && normMsg) {
+                matched = await regexSandbox.test(cleanKw, flags, normMsg, 30);
+              }
+            } catch (_) {
+              continue;
+            }
+            if (matched) {
+              return { rule, matchedKeyword: kw };
+            }
+          } catch (_) {
+            continue;
+          }
+        } else if (mType === 'exact') {
+          const normKw = normalizeArabicText(cleanKw);
+          if (normMsg && normKw && normMsg === normKw) {
+            return { rule, matchedKeyword: kw };
+          }
+        } else if (mType === 'word') {
+          const normKw = normalizeArabicText(cleanKw);
+          if (!normKw && !cleanKw) continue;
+
+          // Unicode word boundary check (with dynamic optional definite article "ال")
+          if (normMsg && normKw) {
+            const baseKw = (normKw.startsWith('ال') && normKw.length > 2) ? normKw.slice(2) : normKw;
+            if (baseKw) {
+              const boundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])(?:ال)?' + escapeRegExp(baseKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
+              if (boundaryRegex.test(normMsg)) {
+                return { rule, matchedKeyword: kw };
+              }
+            }
+          }
+
+          // Raw boundary check (essential for emoji / flag sequences)
+          const rawBoundaryRegex = new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}])' + escapeRegExp(cleanKw) + '(?=$|[^\\p{L}\\p{N}\\p{M}])', 'u');
+          if (rawBoundaryRegex.test(text)) {
+            return { rule, matchedKeyword: kw };
+          }
+        } else {
+          // 'contains' (default substring match with case-insensitive Latin resilience)
+          const normKw = normalizeArabicText(cleanKw);
+          if (!normKw && !cleanKw) continue;
+
+          if (normMsg && normKw && normMsg.includes(normKw)) {
+            return { rule, matchedKeyword: kw };
+          }
+          if (text && cleanKw && (text.includes(cleanKw) || text.toLowerCase().includes(cleanKw.toLowerCase()))) {
+            return { rule, matchedKeyword: kw };
+          }
+        }
       }
-
-      const matchedKeyword = await findMatchingKeyword(
-        text,
-        rawKeywords,
-        rule.matchType || 'contains',
-        !!rule.caseSensitive
-      );
-      if (!matchedKeyword) continue;
-
-      return {
-        rule,
-        matchedKeyword,
-        matchedContextKeyword,
-        matchedRuleCode: (typeof rule.ruleCode === 'string' && rule.ruleCode.trim()) ? rule.ruleCode.trim() : null,
-        isCompound: contextKeywords.length > 0
-      };
     }
     return null;
   }
@@ -777,7 +757,7 @@
     dismissMetaErrorModals() {
       try {
         const errorTokens = ['تعذرت معالجة طلبك', 'حدثت مشكلة', 'something went wrong'];
-        const dismissTokens = ['موافق', 'ok', 'إغلاق', 'close'];
+        const dismissTokens = ['موافق', 'ok', 'إغلاق'];
         const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(dialog => {
           if (dialog.closest('#mbs-inbox-automator-root')) return false;
           if (dialog.getAttribute('aria-hidden') === 'true' || dialog.getClientRects().length === 0) return false;
@@ -788,14 +768,13 @@
         if (dialogs.length === 0) return false;
 
         for (const dialog of dialogs) {
-          const buttons = Array.from(dialog.querySelectorAll('button, div[role="button"]')).filter(button => {
+          const dismissButton = Array.from(dialog.querySelectorAll('button, div[role="button"]')).find(button => {
             if (button.getAttribute('aria-hidden') === 'true' || button.getClientRects().length === 0) return false;
-            const label = `${button.innerText || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`
-              .trim()
-              .toLowerCase();
-            return dismissTokens.some(token => label === token || label.includes(token));
+            const labels = [button.innerText, button.getAttribute('aria-label'), button.getAttribute('title')]
+              .map(value => String(value || '').trim().toLowerCase())
+              .filter(Boolean);
+            return labels.some(label => dismissTokens.includes(label));
           });
-          const dismissButton = buttons[0];
           if (dismissButton) {
             try { dispatchFullClick(dismissButton); } catch (_) {
               try { dismissButton.click(); } catch (_) {}
@@ -833,12 +812,13 @@
           'img[src*="whatsapp" i]', 'use[href*="whatsapp" i]'
         ].join(',');
 
-        const activeSelectedRow = targetRow || this.getConversationRows().find(row => (
+        const activeRow = targetRow || this.getConversationRows().find(row => (
           row.getAttribute('aria-selected') === 'true' ||
           row.getAttribute('data-selected') === 'true' ||
           Boolean(row.querySelector('[aria-selected="true"], [data-selected="true"]'))
         ));
-        const scopedRoots = [activeSelectedRow].filter(Boolean);
+        const scopedRoots = [activeRow].filter(Boolean);
+
         if (composer) {
           const composerRect = composer.getBoundingClientRect();
           const activeHeader = Array.from(document.querySelectorAll('header, div[role="banner"], [data-testid*="conversation-header" i]')).filter(header => {
@@ -2071,33 +2051,6 @@
       return false;
     },
 
-    extractThreadContext(bubbles = []) {
-      const contextParts = [];
-      try {
-        const canvas = this.getChatCanvas();
-        if (canvas) {
-          const adContext = canvas.querySelector(
-            '[data-ad-id], a[href*="/ads/"], [aria-label*="Sponsored" i], [aria-label*="إعلان ممول" i]'
-          );
-          const adText = adContext ? DOM.extractTextWithAlt(adContext).trim() : '';
-          if (adText) contextParts.push(adText);
-        }
-
-        const visibleBubbles = Array.isArray(bubbles) ? bubbles : [];
-        const firstMessages = visibleBubbles.slice(0, 2);
-        const recentBeforeTail = visibleBubbles.length > 1 ? visibleBubbles.slice(-5, -1) : [];
-        const selected = [...firstMessages, ...recentBeforeTail];
-        const seen = new Set();
-        for (const bubble of selected) {
-          if (!bubble || seen.has(bubble)) continue;
-          seen.add(bubble);
-          const text = DOM.extractTextWithAlt(bubble).trim();
-          if (text) contextParts.push(text);
-        }
-      } catch (_) {}
-      return contextParts.join('\n').slice(0, 1000);
-    },
-
     getMessageBubbles() {
       const composer = this.getComposer();
       const compRect = composer ? composer.getBoundingClientRect() : null;
@@ -2231,12 +2184,12 @@
     parseInboundBoundary() {
       const bubbles = this.getMessageBubbles();
       if (bubbles.length === 0) {
-        return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null, allBubbles: bubbles };
+        return { lastIsOutbound: false, customerBubbles: [], isVoiceOrMedia: false, tailBubble: null };
       }
 
       const lastBubble = bubbles[bubbles.length - 1];
       if (this.isOutboundBubble(lastBubble)) {
-        return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble, allBubbles: bubbles };
+        return { lastIsOutbound: true, customerBubbles: [], isVoiceOrMedia: false, tailBubble: lastBubble };
       }
 
       const isVoiceOrMedia = this.isAudioOrMediaElement(lastBubble);
@@ -2250,7 +2203,7 @@
         customerBubbles.unshift(b);
       }
 
-      return { lastIsOutbound: false, customerBubbles, isVoiceOrMedia, tailBubble: lastBubble, allBubbles: bubbles };
+      return { lastIsOutbound: false, customerBubbles, isVoiceOrMedia, tailBubble: lastBubble };
     }
   };
 
@@ -2608,7 +2561,7 @@
       }
 
       this.setStatus('READY', 'ready');
-      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (V6.6 Hybrid)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
+      this.log('INIT', `تم تحميل واجهة التحكم بنجاح (Apple Prismatic Liquid Glass Edition V6.3.8)${this.isHeadless ? ' [Headless Agent Mode]' : ''}.`);
     }
 
     render() {
@@ -4069,7 +4022,7 @@
               return { skipLoop: true, cooldown };
             }
 
-            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble, allBubbles } = boundaryResult;
+            const { lastIsOutbound, customerBubbles, isVoiceOrMedia, tailBubble } = boundaryResult;
 
             if (lastIsOutbound) {
               state.stats.skippedOutbound++;
@@ -4158,8 +4111,7 @@
 
             let matchResult = null;
             try {
-              const contextText = DOM.extractThreadContext(allBubbles || []);
-              matchResult = await evaluateActiveRules(latestText, state.rules, contextText);
+              matchResult = await evaluateActiveRules(latestText, state.rules);
             } catch (evalErr) {
               this.hud.log('WARN', `خطأ أثناء مطابقة القواعد: ${evalErr?.message || evalErr}`);
             }
@@ -4440,45 +4392,56 @@
       case 'STOP':
         return Orchestrator.stop();
       case 'APPLY_RULE_SNAPSHOT':
-        if (payload) {
-          try {
-            const snapshot = typeof payload === 'string' ? JSON.parse(payload) : payload;
-            const nextRules = Array.isArray(snapshot) ? snapshot : snapshot.rules;
-            state.rules = Array.isArray(nextRules) ? nextRules : [];
-            window.__INITIAL_RULES__ = state.rules;
-            if (!Array.isArray(snapshot) && snapshot.sha256_token) {
-              window.__CONFIG_SHA256__ = snapshot.sha256_token;
-            }
-            if (window.__MBS_AUTOMATOR_HUD__) {
-              window.__MBS_AUTOMATOR_HUD__.renderRulesList();
-              window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم تطبيق لقطة القواعد (${state.rules.length} قاعدة) دون كتابة من عامل المتصفح.`);
-            }
-            return true;
-          } catch (e) {
-            console.warn('[MBS Automator] Failed to apply rule snapshot:', e);
-            return false;
+        try {
+          const snapshot = typeof payload === 'string' ? JSON.parse(payload) : payload;
+          const snapshotRules = Array.isArray(snapshot) ? snapshot : snapshot?.rules;
+          if (!Array.isArray(snapshotRules)) return false;
+          state.rules = snapshotRules;
+          window.__INITIAL_RULES__ = state.rules;
+          if (snapshot && typeof snapshot === 'object' && snapshot.sha256_token) {
+            window.__CONFIG_SHA256__ = snapshot.sha256_token;
           }
+          if (window.__MBS_AUTOMATOR_HUD__) {
+            window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+            window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم تطبيق لقطة القواعد فورياً (${state.rules.length} قاعدة نشطة).`);
+          }
+          return true;
+        } catch (e) {
+          console.warn('[MBS Automator] Failed to apply rule snapshot:', e);
+          return false;
         }
-        return false;
       case 'RELOAD_RULES':
-        if (payload) {
-          try {
-            state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
-            if (!Array.isArray(state.rules)) state.rules = [];
-            window.__INITIAL_RULES__ = state.rules;
-            saveRules();
-            if (window.__MBS_AUTOMATOR_HUD__) {
-              window.__MBS_AUTOMATOR_HUD__.renderRulesList();
-              window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم تحديث القواعد فورياً (${state.rules.length} قاعدة نشطة).`);
-            }
-          } catch (e) {
-            console.warn('[MBS Automator] Failed to reload rules from payload:', e);
-          }
-        } else {
+        if (!payload) {
           checkAndRehydrateTenant(window.__MBS_AUTOMATOR_HUD__);
+          return true;
         }
-        break;
+        try {
+          state.rules = typeof payload === 'string' ? JSON.parse(payload) : payload;
+          if (!Array.isArray(state.rules)) state.rules = [];
+          window.__INITIAL_RULES__ = state.rules;
+          saveRules();
+          if (window.__MBS_AUTOMATOR_HUD__) {
+            window.__MBS_AUTOMATOR_HUD__.renderRulesList();
+            window.__MBS_AUTOMATOR_HUD__.log('RULES', `تم تحديث القواعد فورياً (${state.rules.length} قاعدة نشطة).`);
+          }
+          return true;
+        } catch (e) {
+          console.warn('[MBS Automator] Failed to reload rules from payload:', e);
+          return false;
+        }
       case 'RELOAD_CONFIG':
+        try {
+          const runtimeConfig = typeof payload === 'string' ? JSON.parse(payload) : payload;
+          if (!runtimeConfig || typeof runtimeConfig !== 'object' || Array.isArray(runtimeConfig)) return false;
+          state.config = { ...state.config, ...runtimeConfig };
+          if (window.__MBS_AUTOMATOR_HUD__ && !window.__MBS_AUTOMATOR_HUD__.isHeadless) {
+            window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
+          }
+          return true;
+        } catch (e) {
+          console.warn('[MBS Automator] Failed to reload runtime config:', e);
+          return false;
+        }
       case 'UPDATE_CONFIG':
         if (payload) {
           try {
@@ -4488,15 +4451,17 @@
             if (window.__MBS_AUTOMATOR_HUD__ && !window.__MBS_AUTOMATOR_HUD__.isHeadless) {
               window.__MBS_AUTOMATOR_HUD__.updateConfigUI();
             }
+            return true;
           } catch (e) {
             console.warn('[MBS Automator] Failed to update config from payload:', e);
+            return false;
           }
         }
-        break;
+        return false;
       default:
         console.warn(`[MBS Automator] Unknown command: ${cmd}`);
     }
   };
 
-  console.log('[MBS Automator V6.6 Hybrid] Initialized successfully (stable V6.3.8 engine + modern schema bridge).');
+  console.log('[MBS Automator V6.3.8] Initialized successfully (Apple Prismatic Liquid Glass Edition).');
 })();
