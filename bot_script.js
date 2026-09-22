@@ -774,6 +774,94 @@
       } catch (_) {}
     },
 
+    dismissMetaErrorModals() {
+      try {
+        const errorTokens = ['تعذرت معالجة طلبك', 'حدثت مشكلة', 'something went wrong'];
+        const dismissTokens = ['موافق', 'ok', 'إغلاق', 'close'];
+        const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(dialog => {
+          if (dialog.closest('#mbs-inbox-automator-root')) return false;
+          if (dialog.getAttribute('aria-hidden') === 'true' || dialog.getClientRects().length === 0) return false;
+          const text = (dialog.innerText || dialog.textContent || '').trim().toLowerCase();
+          return errorTokens.some(token => text.includes(token));
+        });
+
+        if (dialogs.length === 0) return false;
+
+        for (const dialog of dialogs) {
+          const buttons = Array.from(dialog.querySelectorAll('button, div[role="button"]')).filter(button => {
+            if (button.getAttribute('aria-hidden') === 'true' || button.getClientRects().length === 0) return false;
+            const label = `${button.innerText || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`
+              .trim()
+              .toLowerCase();
+            return dismissTokens.some(token => label === token || label.includes(token));
+          });
+          const dismissButton = buttons[0];
+          if (dismissButton) {
+            try { dispatchFullClick(dismissButton); } catch (_) {
+              try { dismissButton.click(); } catch (_) {}
+            }
+          }
+        }
+
+        this.sendEscape();
+        return true;
+      } catch (_) {
+        try { this.sendEscape(); } catch (_) {}
+        return false;
+      }
+    },
+
+    isActiveWhatsAppConversation(targetRow = null) {
+      try {
+        const currentUrl = new URL(window.location.href);
+        const hasWhatsAppPath = currentUrl.pathname.split('/').some(segment => /^(?:wa|whatsapp)$/i.test(segment));
+        const channelParams = ['channel', 'platform', 'surface', 'account_type', 'source', 'message_channel'];
+        const hasWhatsAppParam = channelParams.some(name => /^(?:wa|whatsapp)(?:_|$)/i.test(currentUrl.searchParams.get(name) || ''));
+        if (hasWhatsAppPath || hasWhatsAppParam) return true;
+
+        const composer = this.resolveComposer();
+        if (composer) {
+          const composerSignal = `${composer.getAttribute('placeholder') || ''} ${composer.getAttribute('aria-label') || ''}`;
+          if (/واتساب|whatsapp/i.test(composerSignal)) return true;
+        }
+
+        const whatsappSelector = [
+          '[aria-label*="واتساب" i]', '[aria-label*="whatsapp" i]',
+          '[title*="واتساب" i]', '[title*="whatsapp" i]',
+          '[alt*="واتساب" i]', '[alt*="whatsapp" i]',
+          '[data-testid*="whatsapp" i]', '[data-channel*="whatsapp" i]',
+          'img[src*="whatsapp" i]', 'use[href*="whatsapp" i]'
+        ].join(',');
+
+        const activeSelectedRow = targetRow || this.getConversationRows().find(row => (
+          row.getAttribute('aria-selected') === 'true' ||
+          row.getAttribute('data-selected') === 'true' ||
+          Boolean(row.querySelector('[aria-selected="true"], [data-selected="true"]'))
+        ));
+        const scopedRoots = [activeSelectedRow].filter(Boolean);
+        if (composer) {
+          const composerRect = composer.getBoundingClientRect();
+          const activeHeader = Array.from(document.querySelectorAll('header, div[role="banner"], [data-testid*="conversation-header" i]')).filter(header => {
+            if (header.closest('#mbs-inbox-automator-root') || header.getClientRects().length === 0) return false;
+            const rect = header.getBoundingClientRect();
+            const overlapsComposer = rect.right >= composerRect.left && rect.left <= composerRect.right;
+            return overlapsComposer && rect.bottom <= composerRect.top && composerRect.top - rect.bottom < 600;
+          }).sort((a, b) => (
+            (composerRect.top - a.getBoundingClientRect().bottom) -
+            (composerRect.top - b.getBoundingClientRect().bottom)
+          ))[0];
+          if (activeHeader) scopedRoots.push(activeHeader);
+        }
+
+        return [...new Set(scopedRoots)].some(root => {
+          if (root.matches?.(whatsappSelector)) return true;
+          return Boolean(root.querySelector?.(whatsappSelector));
+        });
+      } catch (_) {
+        return false;
+      }
+    },
+
     dismissComposerSuggestions(composerTarget = null) {
       try {
         const composer = composerTarget || this.resolveComposer();
@@ -1415,6 +1503,7 @@
         // Single gentle retry click after 1.2s if switch hasn't completed
         if (Date.now() - startWait > 1200 && Date.now() - startWait < 1400) {
           try {
+            this.dismissMetaErrorModals();
             await HumanSimulator.naturalClick(clickTarget || targetRow);
           } catch (_) {}
         }
@@ -1652,6 +1741,7 @@
             await HumanSimulator.flashEnvelopeButton(rowUnreadBtn);
             neutralizeFocus();
             dispatchFullClick(rowUnreadBtn);
+            this.dismissMetaErrorModals();
             neutralizeFocus();
             const verified = await pollVerification(1500);
             if (verified) return { ok: true, alreadyUnread: false };
@@ -1822,9 +1912,11 @@
           if (typeof stateResult === 'object' && stateResult.action === 'MARK_UNREAD') {
             neutralizeFocus();
             dispatchFullClick(stateResult.item);
+            this.dismissMetaErrorModals();
             neutralizeFocus();
             if (budget && typeof budget.touch === 'function') budget.touch(3000);
             await sleep(350);
+            this.dismissMetaErrorModals();
             result = { ok: true, alreadyUnread: false };
             return result;
           } else if (menuItems.length > 0) {
@@ -1858,6 +1950,7 @@
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
           if (budget && typeof budget.touch === 'function') budget.touch(2000);
+          this.dismissMetaErrorModals();
           if (checkVerifiedUnread()) return true;
           await sleep(100);
         }
@@ -1874,6 +1967,7 @@
         await HumanSimulator.flashEnvelopeButton(directBtn);
         neutralizeFocus();
         dispatchFullClick(directBtn);
+        this.dismissMetaErrorModals();
         neutralizeFocus();
         clicked = true;
       } else {
@@ -1903,6 +1997,7 @@
           await HumanSimulator.flashEnvelopeButton(retryBtn);
           neutralizeFocus();
           dispatchFullClick(retryBtn);
+          this.dismissMetaErrorModals();
           neutralizeFocus();
           clicked = true;
         } else {
@@ -3716,6 +3811,7 @@
       try {
         while (state.isRunning && !state.emergencyAbort) {
           try {
+            DOM.dismissMetaErrorModals();
             state.lastHeartbeat = Date.now();
         // STEP -1: Multi-Tenant Rehydration Check
         checkAndRehydrateTenant(this.hud);
@@ -3930,6 +4026,7 @@
           const processRowPromise = (async () => {
             // STEP 2: Safe Thread Activation & Viewport Sync
             const clickTarget = DOM.getRowClickTarget(targetRow);
+            DOM.dismissMetaErrorModals();
             await HumanSimulator.naturalClick(clickTarget);
 
             this.hud.log('SCAN', 'انتظار تطابق نافذة المحادثة مع العميل...');
@@ -4281,8 +4378,20 @@
         pruneLRUCache(state.processedSnapshots, 350, 100);
       }
 
+      if (DOM.isActiveWhatsAppConversation(targetRow)) {
+        this.hud.log('INFO', '[WHATSAPP SAFE EXIT] تم تخطي استعادة غير مقروء لتجنب خطأ Meta. تم تطبيق كول داون دقيقتين والعودة للمسح.');
+        DOM.dismissMetaErrorModals();
+        DOM.finalizeCompletedReply();
+        return;
+      }
+
       await sleep(randomRange(150, 250));
-      const restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey, watchdogExtender);
+      let restored = false;
+      try {
+        restored = await DOM.executeRestoreToUnread(this.hud, targetRow, contactKey, watchdogExtender);
+      } finally {
+        DOM.dismissMetaErrorModals();
+      }
       try {
         DOM.deselectActiveChat();
       } catch (_) {}
