@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meta Automation HUD Template</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="hud-card" id="hud-card">
+    <!-- Ghost Stealth Mode Pill Content -->
+    <div class="ghost-dock-content" id="ghost-dock" title="وضع الشبح النشط (انقر للتوسيع)">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span class="ghost-dot stopped" id="ghost-dot"></span>
+        <span style="display: flex; align-items: center; gap: 4px; color: #0f172a; font-size: 11px; font-weight: 600;">
+          <span id="ghost-reply-counter" style="color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">0</span>
+          <span style="font-size: 9.5px; color: #475569; font-weight: 500;">رد</span>
+        </span>
+      </div>
+      <span style="font-size: 11px; color: #64748b; cursor: pointer; padding: 2px;" title="توسيع النافذة">⤢</span>
+    </div>
+
+    <!-- HUD Header -->
+    <div class="hud-header" id="hud-header">
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="header-icon-btn" id="btn-ghost" title="وضع الشبح (Ghost Mode)">👻</button>
+        <button class="header-icon-btn" id="btn-minimize" title="تصغير إلى شريط مصغر">—</button>
+        <button class="header-icon-btn" id="btn-maximize" title="تكبير / توسيع النافذة">⛶</button>
+      </div>
+      <div class="hud-title">
+        <span class="hud-title-text">Meta Automation</span>
+        <span id="hud-tenant-badge" class="hud-tenant-badge" title="معرّف الصفحة النشطة (Page ID)">Default Page</span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <div id="hud-minimized-summary" style="display:none; align-items: center; gap: 8px;">
+          <span style="font-size: 11px; color: #0f172a;">فحص: <b id="min-stat-eval">0</b></span>
+          <span style="font-size: 11px; color: #16a34a;">رد: <b id="min-stat-match">0</b></span>
+          <span style="font-size: 11px; color: #d97706;">استعادة: <b id="min-stat-unread">0</b></span>
+        </div>
+        <div id="hud-status" class="status-badge status-ready">READY</div>
+      </div>
+    </div>
+
+    <!-- HUD Stats Counter Pills -->
+    <div class="hud-stats-bar">
+      <div class="stat-item">
+        <span id="stat-evaluated" class="stat-value">0</span>
+        <span class="stat-label">المفحوص</span>
+      </div>
+      <div class="stat-item">
+        <span id="stat-matched" class="stat-value" style="color: #16a34a;">0</span>
+        <span class="stat-label">تم الرد</span>
+      </div>
+      <div class="stat-item">
+        <span id="stat-unread" class="stat-value" style="color: #d97706;">0</span>
+        <span class="stat-label">غير مقروء</span>
+      </div>
+      <div class="stat-item">
+        <span id="stat-skipped" class="stat-value" style="color: #64748b;">0</span>
+        <span class="stat-label">مستبعد (حماية)</span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs (Logs, Rules, Settings) -->
+    <div class="hud-tabs">
+      <button class="tab-btn active" data-tab="console">سجل العمليات</button>
+      <button class="tab-btn" data-tab="rules">إدارة القواعد</button>
+      <button class="tab-btn" data-tab="config">الإعدادات البشرية</button>
+    </div>
+
+    <!-- Content Sections -->
+    <div class="hud-content">
+      <!-- Terminal Tab (Logs) -->
+      <div id="tab-console" class="tab-pane active">
+        <div id="terminal" class="terminal-box"></div>
+      </div>
+
+      <!-- Rules Tab -->
+      <div id="tab-rules" class="tab-pane">
+        <div id="rules-container"></div>
+        <button id="add-rule-btn" class="add-rule-btn">+ إضافة قاعدة رد جديدة</button>
+      </div>
+
+      <!-- Config Tab (Settings) -->
+      <div id="tab-config" class="tab-pane">
+        <div class="config-row">
+          <span class="config-label">فترة التهدئة بين المحادثات (بالثواني)</span>
+          <input type="number" id="cfg-cooldown-sec" class="config-input" style="width: 75px;" step="0.1" min="0.1" value="1.5">
+        </div>
+        <div class="config-row">
+          <span class="config-label">فترة فحص الرسائل الجديدة (بالثواني)</span>
+          <input type="number" id="cfg-monitoring-sec" class="config-input" style="width: 75px;" step="0.5" min="1" value="6.0">
+        </div>
+        <div class="config-row">
+          <span class="config-label">سرعة الكتابة (مللي ثانية/حرف)</span>
+          <input type="number" id="cfg-typing-speed" class="config-input" min="10" max="200" step="5" value="45">
+        </div>
+        <div class="config-row">
+          <span class="config-label">تأطير بصري للمحادثة النشطة</span>
+          <label class="switch">
+            <input type="checkbox" id="cfg-highlight-rows" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="config-row">
+          <span class="config-label">محاكاة استعراض الرسائل السابقة (Scroll Peek)</span>
+          <label class="switch">
+            <input type="checkbox" id="cfg-scroll-thread" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer Controls -->
+    <div class="hud-footer">
+      <button id="btn-start" class="btn-primary">▶ تشغيل الأتمتة</button>
+      <button id="btn-stop" class="btn-danger">⏹ إيقاف (Esc)</button>
+    </div>
+  </div>
+</body>
+</html>

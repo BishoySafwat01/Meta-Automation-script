@@ -1,0 +1,21 @@
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Locks & Temporary Backups
+*.lock
+*.bak
+*.tmp
+
+# Chrome User Data & Session Profiles (Crucial for Privacy)
+profiles/
+*Profiles/
+user_data*/
+Singleton*
+
+# Logs & Environments
+*.log
+.venv/
+venv/
+.env

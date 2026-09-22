@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meta-automation.local/schemas/v6.6-config.schema.json",
+  "title": "Meta Automation V6.6 Hybrid Configuration",
+  "type": "object",
+  "required": ["rules", "config", "auto_start"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["keywords", "reply"],
+        "properties": {
+          "id": { "type": "string" },
+          "ruleCode": { "type": "string", "pattern": "^MBS-[0-9A-HJKMNP-TV-Z]{8}$" },
+          "name": { "type": "string" },
+          "active": { "type": "boolean" },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "keyword": { "type": "string" },
+          "reply": { "type": "string" },
+          "matchType": { "enum": ["ultra_exact", "contains", "exact", "word", "regex"] },
+          "caseSensitive": { "type": "boolean" },
+          "contextKeywords": { "type": "array", "items": { "type": "string" } },
+          "contextKeyword": { "type": "string" },
+          "contextMatchType": { "enum": ["ultra_exact", "contains", "exact", "word", "regex"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": ["typingSpeed", "minTypingSpeed", "maxTypingSpeed", "minCooldown", "maxCooldown", "scrollThread", "highlightRows", "monitoringInterval"],
+      "properties": {
+        "typingSpeed": { "type": "number", "minimum": 0 },
+        "minTypingSpeed": { "type": "number", "minimum": 0 },
+        "maxTypingSpeed": { "type": "number", "minimum": 0 },
+        "minCooldown": { "type": "number", "minimum": 0 },
+        "maxCooldown": { "type": "number", "minimum": 0 },
+        "scrollThread": { "type": "boolean" },
+        "highlightRows": { "type": "boolean" },
+        "monitoringInterval": { "type": "number", "minimum": 100 }
+      },
+      "additionalProperties": true
+    },
+    "auto_start": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}
